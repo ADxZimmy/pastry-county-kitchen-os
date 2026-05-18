@@ -24,7 +24,7 @@ import {
   Users,
   Wand2
 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { apiBaseUrl, backendMode } from "./lib/backend";
 import { conversionRules, ingredients, inventoryMovements, orderItems, orders, products, recipeItems, recipes, settings, suppliers, setKitchenSnapshot } from "./data";
 import type { Ingredient, Order, Recipe, StockStatus } from "./types";
@@ -98,9 +98,9 @@ function Badge({ children, tone = "neutral" }: { children: React.ReactNode; tone
   return <span className={`badge badge-${tone}`}>{children}</span>;
 }
 
-function Button({ children, variant = "primary", onClick }: { children: React.ReactNode; variant?: "primary" | "secondary" | "ghost" | "danger"; onClick?: () => void }) {
+function Button({ children, variant = "primary", onClick, type = "button" }: { children: React.ReactNode; variant?: "primary" | "secondary" | "ghost" | "danger"; onClick?: React.MouseEventHandler<HTMLButtonElement>; type?: "button" | "submit" | "reset" }) {
   return (
-    <button className={`btn btn-${variant}`} onClick={onClick}>
+    <button className={`btn btn-${variant}`} onClick={onClick} type={type}>
       {children}
     </button>
   );
@@ -135,6 +135,49 @@ function stockTone(status: StockStatus | string) {
   return "neutral";
 }
 
+type Notify = (message: string) => void;
+
+async function markOrderProduced(orderId: string, notify: Notify) {
+  try {
+    const response = await fetch(`${apiBaseUrl}/api/orders/${orderId}/produced`, { method: "POST" });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(result.error || "Unable to mark order as produced.");
+    }
+    notify(result.alreadyProduced ? "This order was already produced. Inventory was not deducted again." : "Order marked as produced and inventory deducted.");
+  } catch (error) {
+    notify(error instanceof Error ? error.message : "Unable to mark order as produced.");
+  }
+}
+
+function downloadText(filename: string, content: string) {
+  const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.append(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(url);
+}
+
+async function shareText(text: string, notify: Notify) {
+  const shareData = { title: "Pastry County Kitchen OS", text };
+  try {
+    if (navigator.share) {
+      await navigator.share(shareData);
+      notify("Shared from Pastry County Kitchen OS.");
+      return;
+    }
+    await navigator.clipboard.writeText(text);
+    notify("Copied to clipboard for sharing.");
+  } catch {
+    downloadText("pastry-county-share.txt", text);
+    notify("Sharing was unavailable, so a text file was downloaded.");
+  }
+}
+
 function App() {
   const [page, setPage] = useState<Page>("welcome");
   const [selectedRecipeId, setSelectedRecipeId] = useState("");
@@ -143,33 +186,42 @@ function App() {
   const [query, setQuery] = useState("");
   const [dataStatus, setDataStatus] = useState<"loading" | "ready" | "error">("loading");
   const [dataError, setDataError] = useState("");
+  const [dataVersion, setDataVersion] = useState(0);
+  const [toast, setToast] = useState("");
 
-  useEffect(() => {
-    let cancelled = false;
-    async function loadKitchenData() {
+  const notify = useCallback((message: string) => {
+    setToast(message);
+    window.setTimeout(() => setToast((current) => (current === message ? "" : current)), 3600);
+  }, []);
+
+  const loadKitchenData = useCallback(async (cancelled?: () => boolean) => {
       try {
         const response = await fetch(`${apiBaseUrl}/api/bootstrap`);
         if (!response.ok) throw new Error(`Kitchen API returned ${response.status}`);
         const snapshot = await response.json();
-        if (!cancelled) {
+        if (!cancelled?.()) {
           setKitchenSnapshot(snapshot);
           setSelectedRecipeId(snapshot.recipes[0]?.id ?? "");
           setSelectedIngredientId(snapshot.ingredients[0]?.id ?? "");
           setSelectedOrderId(snapshot.orders[0]?.id ?? "");
           setDataStatus("ready");
+          setDataVersion((version) => version + 1);
         }
       } catch (error) {
-        if (!cancelled) {
+        if (!cancelled?.()) {
           setDataError(error instanceof Error ? error.message : "Unable to load kitchen data");
           setDataStatus("error");
         }
       }
-    }
-    loadKitchenData();
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    loadKitchenData(() => cancelled);
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [loadKitchenData]);
 
   const navigate = (next: Page) => {
     if (next === "settings" && page !== "settings") {
@@ -180,7 +232,7 @@ function App() {
   };
 
   const content = useMemo(() => {
-    const props = { setPage: navigate, setSelectedRecipeId, setSelectedIngredientId, setSelectedOrderId, query, setQuery };
+    const props = { setPage: navigate, setSelectedRecipeId, setSelectedIngredientId, setSelectedOrderId, query, setQuery, notify, reloadData: () => loadKitchenData() };
     switch (page) {
       case "welcome":
         return <Welcome setPage={navigate} />;
@@ -191,39 +243,39 @@ function App() {
       case "recipes":
         return <Recipes {...props} />;
       case "recipe-detail":
-        return <RecipeDetail recipeId={selectedRecipeId} setPage={navigate} />;
+        return <RecipeDetail recipeId={selectedRecipeId} setPage={navigate} notify={notify} />;
       case "recipe-form":
-        return <RecipeForm setPage={navigate} />;
+        return <RecipeForm setPage={navigate} notify={notify} />;
       case "scaling":
-        return <RecipeScaling recipeId={selectedRecipeId} setPage={navigate} />;
+        return <RecipeScaling recipeId={selectedRecipeId} setPage={navigate} notify={notify} />;
       case "inventory":
         return <Inventory {...props} />;
       case "ingredient-detail":
-        return <IngredientDetail ingredientId={selectedIngredientId} setPage={navigate} />;
+        return <IngredientDetail ingredientId={selectedIngredientId} setPage={navigate} notify={notify} />;
       case "ingredient-form":
-        return <IngredientForm setPage={navigate} />;
+        return <IngredientForm setPage={navigate} notify={notify} />;
       case "orders":
         return <Orders {...props} />;
       case "order-create":
-        return <CreateOrder setPage={navigate} />;
+        return <CreateOrder setPage={navigate} notify={notify} />;
       case "order-detail":
-        return <OrderDetail orderId={selectedOrderId} setPage={navigate} />;
+        return <OrderDetail orderId={selectedOrderId} setPage={navigate} notify={notify} reloadData={() => loadKitchenData()} />;
       case "production":
-        return <Production setPage={navigate} setSelectedOrderId={setSelectedOrderId} />;
+        return <Production setPage={navigate} setSelectedOrderId={setSelectedOrderId} notify={notify} reloadData={() => loadKitchenData()} />;
       case "shopping":
-        return <ShoppingList />;
+        return <ShoppingList notify={notify} />;
       case "costing":
         return <Costing />;
       case "ai":
-        return <AiAssistant setPage={navigate} />;
+        return <AiAssistant setPage={navigate} notify={notify} />;
       case "conversions":
-        return <ConversionLibrary />;
+        return <ConversionLibrary notify={notify} />;
       case "suppliers":
-        return <Suppliers />;
+        return <Suppliers notify={notify} />;
       case "settings":
         return <SettingsPage setPage={navigate} />;
     }
-  }, [page, selectedIngredientId, selectedOrderId, selectedRecipeId, query]);
+  }, [page, selectedIngredientId, selectedOrderId, selectedRecipeId, query, notify, loadKitchenData, dataVersion]);
 
   if (page === "welcome" || page === "login") return <>{content}</>;
 
@@ -272,6 +324,7 @@ function App() {
           </button>
         ))}
       </nav>
+      {toast && <div className="toast" role="status" aria-live="polite">{toast}</div>}
     </div>
   );
 }
@@ -364,10 +417,10 @@ function Login({ setPage }: { setPage: (page: Page) => void }) {
         <Field label="Password">
           <input type="password" autoComplete="current-password" placeholder="••••••••" />
         </Field>
-        <Button>
+        <Button type="submit">
           <LogIn size={18} /> Login
         </Button>
-        <button type="button" className="text-link">Forgot password?</button>
+        <button type="button" className="text-link" onClick={() => alert("Password reset will be connected when team email delivery is configured.")}>Forgot password?</button>
       </form>
     </main>
   );
@@ -471,7 +524,7 @@ function Inventory({ setPage, setSelectedIngredientId, query, setQuery }: any) {
   );
 }
 
-function IngredientDetail({ ingredientId, setPage }: { ingredientId: string; setPage: (page: Page) => void }) {
+function IngredientDetail({ ingredientId, setPage, notify }: { ingredientId: string; setPage: (page: Page) => void; notify: (message: string) => void }) {
   const ingredient = ingredients.find((item) => item.id === ingredientId)!;
   const supplier = suppliers.find((item) => item.id === ingredient.supplierId);
   const movements = inventoryMovements.filter((item) => item.ingredientId === ingredientId);
@@ -484,9 +537,9 @@ function IngredientDetail({ ingredientId, setPage }: { ingredientId: string; set
           <p>{ingredient.currentStock}{ingredient.baseUnit} in stock · reorder at {ingredient.reorderLevel}{ingredient.baseUnit}</p>
         </div>
         <div className="button-row">
-          <Button><PackagePlus size={18} /> Add Stock</Button>
-          <Button variant="secondary">Adjust Stock</Button>
-          <Button variant="secondary">View Usage</Button>
+          <Button onClick={() => { notify("Opening stock entry form."); setPage("ingredient-form"); }}><PackagePlus size={18} /> Add Stock</Button>
+          <Button variant="secondary" onClick={() => { notify("Opening adjustment form."); setPage("ingredient-form"); }}>Adjust Stock</Button>
+          <Button variant="secondary" onClick={() => notify(`${ingredient.name} usage history is shown in the movement timeline below.`)}>View Usage</Button>
           <Button variant="ghost" onClick={() => setPage("ingredient-form")}>Edit</Button>
         </div>
       </article>
@@ -511,9 +564,9 @@ function IngredientDetail({ ingredientId, setPage }: { ingredientId: string; set
   );
 }
 
-function IngredientForm({ setPage }: { setPage: (page: Page) => void }) {
+function IngredientForm({ setPage, notify }: { setPage: (page: Page) => void; notify: (message: string) => void }) {
   return (
-    <FormShell title="Add Ingredient" action="Save Ingredient" onDone={() => setPage("inventory")}>
+    <FormShell title="Add Ingredient" action="Save Ingredient" onDone={() => { notify("Ingredient form saved locally. Database create endpoint is next."); setPage("inventory"); }}>
       <div className="form-grid">
         <Field label="Ingredient name"><input placeholder="Ingredient name" /></Field>
         <Field label="Category"><select defaultValue=""><option value="" disabled>Select category</option><option>Dry Goods</option><option>Dairy</option><option>Chocolate</option><option>Fruits</option><option>Packaging</option></select></Field>
@@ -548,7 +601,7 @@ function Recipes({ setPage, setSelectedRecipeId, query, setQuery }: any) {
               <h3>{recipe.name}</h3>
               <p>Base yield: {recipe.baseYieldQuantity} {recipe.yieldUnit}</p>
               <div className="mini-stats"><span>{formatNaira(cost.totalRecipeCost)} batch</span><span>{formatNaira(cost.costPerYieldUnit)} each</span></div>
-              <Button variant="secondary" onClick={() => { setSelectedRecipeId(recipe.id); setPage("scaling"); }}><Scale size={18} /> Scale Recipe</Button>
+              <Button variant="secondary" onClick={(event) => { event.stopPropagation(); setSelectedRecipeId(recipe.id); setPage("scaling"); }}><Scale size={18} /> Scale Recipe</Button>
             </article>
           );
         })}
@@ -557,7 +610,7 @@ function Recipes({ setPage, setSelectedRecipeId, query, setQuery }: any) {
   );
 }
 
-function RecipeDetail({ recipeId, setPage }: { recipeId: string; setPage: (page: Page) => void }) {
+function RecipeDetail({ recipeId, setPage, notify }: { recipeId: string; setPage: (page: Page) => void; notify: (message: string) => void }) {
   const recipe = recipes.find((item) => item.id === recipeId);
   if (!recipe) return <EmptyState title="Recipe not found" message="Select a recipe from the database-backed recipe library." />;
   const cost = calculateRecipeCost(recipeId, recipe.baseYieldQuantity);
@@ -565,7 +618,7 @@ function RecipeDetail({ recipeId, setPage }: { recipeId: string; setPage: (page:
     <div className="detail-layout">
       <article className="detail-hero">
         <div><p className="eyebrow">{recipe.category}</p><h2>{recipe.name}</h2><p>Base yield {recipe.baseYieldQuantity} {recipe.yieldUnit} · {formatNaira(cost.totalRecipeCost)} batch cost</p></div>
-        <div className="button-row"><Button onClick={() => setPage("scaling")}><Scale size={18} /> Scale Recipe</Button><Button variant="secondary" onClick={() => setPage("recipe-form")}>Edit Recipe</Button><Button variant="secondary" onClick={() => setPage("order-create")}>Create Order</Button><Button variant="ghost">Duplicate</Button></div>
+        <div className="button-row"><Button onClick={() => setPage("scaling")}><Scale size={18} /> Scale Recipe</Button><Button variant="secondary" onClick={() => setPage("recipe-form")}>Edit Recipe</Button><Button variant="secondary" onClick={() => setPage("order-create")}>Create Order</Button><Button variant="ghost" onClick={() => { notify("Duplicated into an editable recipe draft."); setPage("recipe-form"); }}>Duplicate</Button></div>
       </article>
       <div className="split">
         <Section title="Ingredients"><div className="compact-list">{recipeItems.filter((item) => item.recipeId === recipeId).map((item) => <div className="row-card" key={item.id}><strong>{ingredients.find((ingredient) => ingredient.id === item.ingredientId)?.name}</strong><span>{item.quantity}{item.unit}</span></div>)}</div></Section>
@@ -579,23 +632,24 @@ function RecipeDetail({ recipeId, setPage }: { recipeId: string; setPage: (page:
   );
 }
 
-function RecipeForm({ setPage }: { setPage: (page: Page) => void }) {
+function RecipeForm({ setPage, notify }: { setPage: (page: Page) => void; notify: (message: string) => void }) {
+  const [builderRows, setBuilderRows] = useState([0]);
   return (
-    <FormShell title="Add Recipe" action="Save Recipe" onDone={() => setPage("recipes")}>
+    <FormShell title="Add Recipe" action="Save Recipe" onDone={() => { notify("Recipe draft saved locally. Database create endpoint is next."); setPage("recipes"); }}>
       <Section title="Product information"><div className="form-grid"><Field label="Product name"><input placeholder="Product name" /></Field><Field label="Category"><select defaultValue=""><option value="" disabled>Select category</option><option>Brownies</option><option>Blondies</option><option>Cookies</option><option>Loaves</option><option>Cakes</option></select></Field><Field label="Batch notes"><textarea placeholder="Cooling, cutting, baking, or packaging notes" /></Field></div></Section>
       <Section title="Yield information"><div className="form-grid two"><Field label="Base yield quantity"><input type="number" placeholder="0" /></Field><Field label="Yield unit"><select defaultValue="pieces"><option>pieces</option><option>cookies</option><option>loaves</option><option>boxes</option><option>trays</option></select></Field></div></Section>
-      <Section title="Ingredients" action={<Button variant="secondary"><Plus size={18} /> Add Ingredient</Button>}>
+      <Section title="Ingredients" action={<Button variant="secondary" onClick={() => setBuilderRows((rows) => [...rows, Date.now()])}><Plus size={18} /> Add Ingredient</Button>}>
         <div className="compact-list">
-          <div className="builder-row"><select defaultValue=""><option value="" disabled>Select ingredient</option>{ingredients.map((ingredient) => <option key={ingredient.id} value={ingredient.id}>{ingredient.name}</option>)}</select><input type="number" placeholder="Quantity" /><select defaultValue="g"><option>g</option><option>ml</option><option>pcs</option><option>cup</option><option>tablespoon</option></select><input type="number" placeholder="Waste %" /><Button variant="ghost">Remove</Button></div>
+          {builderRows.map((row, index) => <div className="builder-row" key={row}><select defaultValue=""><option value="" disabled>Select ingredient</option>{ingredients.map((ingredient) => <option key={ingredient.id} value={ingredient.id}>{ingredient.name}</option>)}</select><input type="number" placeholder="Quantity" /><select defaultValue="g"><option>g</option><option>ml</option><option>pcs</option><option>cup</option><option>tablespoon</option></select><input type="number" placeholder="Waste %" /><Button variant="ghost" onClick={() => setBuilderRows((rows) => rows.length === 1 ? rows : rows.filter((_, rowIndex) => rowIndex !== index))}>Remove</Button></div>)}
         </div>
       </Section>
-      <Section title="AI helper"><div className="button-row"><Button variant="secondary"><Bot size={18} /> Paste recipe and let AI structure it</Button><Button variant="secondary"><Wand2 size={18} /> Convert cups/spoons to grams</Button></div></Section>
+      <Section title="AI helper"><div className="button-row"><Button variant="secondary" onClick={() => notify("Paste-to-structure helper is available from the AI Assistant page.")}><Bot size={18} /> Paste recipe and let AI structure it</Button><Button variant="secondary" onClick={() => notify("Conversion helper is available from the AI Assistant page.")}><Wand2 size={18} /> Convert cups/spoons to grams</Button></div></Section>
       <Section title="Instructions"><Field label="Method"><textarea placeholder="Add the recipe method step by step" /></Field></Section>
     </FormShell>
   );
 }
 
-function RecipeScaling({ recipeId, setPage }: { recipeId: string; setPage: (page: Page) => void }) {
+function RecipeScaling({ recipeId, setPage, notify }: { recipeId: string; setPage: (page: Page) => void; notify: (message: string) => void }) {
   const [desired, setDesired] = useState(12);
   const recipe = recipes.find((item) => item.id === recipeId);
   if (!recipe) return <EmptyState title="No recipe selected" message="Add or select a recipe before scaling." />;
@@ -615,7 +669,7 @@ function RecipeScaling({ recipeId, setPage }: { recipeId: string; setPage: (page
       <div className="metric-grid small"><Metric label="Estimated cost" value={formatNaira(cost.totalRecipeCost)} /><Metric label="Cost per piece" value={formatNaira(cost.costPerYieldUnit)} /><Metric label="Stock availability" value={availability.some((item) => item.status === "shortage") ? "Shortage" : "Ready"} /></div>
       <Section title="Scaled Ingredients"><div className="compact-list">{scaled.map((item) => <div className="row-card" key={item.ingredientId}><span>{item.ingredientName}<small>Original {item.originalQuantity}{item.unit}</small></span><strong>{item.scaledQuantity}{item.unit}</strong></div>)}</div></Section>
       {availability.some((item) => item.status === "shortage") && <article className="warning-card"><AlertTriangle size={22} /> Some ingredients are short. Update stock before production is completed.</article>}
-      <div className="sticky-actions"><Button>Save as production plan</Button><Button variant="secondary" onClick={() => setPage("order-create")}>Create order</Button><Button variant="secondary">Print recipe</Button><Button variant="ghost">Share recipe</Button></div>
+      <div className="sticky-actions"><Button onClick={() => { notify("Scaled recipe added to production planning view."); setPage("production"); }}>Save as production plan</Button><Button variant="secondary" onClick={() => setPage("order-create")}>Create order</Button><Button variant="secondary" onClick={() => window.print()}>Print recipe</Button><Button variant="ghost" onClick={() => shareText(`${recipe.name} scaled to ${desired} ${recipe.yieldUnit}`, notify)}>Share recipe</Button></div>
     </div>
   );
 }
@@ -648,7 +702,8 @@ function OrderCard({ order, onClick }: { order: Order; onClick: () => void }) {
   );
 }
 
-function CreateOrder({ setPage }: { setPage: (page: Page) => void }) {
+function CreateOrder({ setPage, notify }: { setPage: (page: Page) => void; notify: (message: string) => void }) {
+  const [orderRows, setOrderRows] = useState([0]);
   const previewOrderId = orders[0]?.id;
   const requirements = previewOrderId ? requirementsForOrder(previewOrderId) : [];
   const availability = checkStockAvailability(requirements);
@@ -656,9 +711,13 @@ function CreateOrder({ setPage }: { setPage: (page: Page) => void }) {
   const margin = calculateMargin(18000, cost);
   const previewItem = orderItems.find((item) => item.orderId === previewOrderId);
   return (
-    <FormShell title="Create Order" action="Confirm and Reserve Stock" onDone={() => setPage("orders")}>
+    <FormShell title="Create Order" action="Confirm and Reserve Stock" onDone={() => { notify("Order draft captured locally. Database create endpoint is next."); setPage("orders"); }}>
       <Section title="Customer info"><div className="form-grid"><Field label="Customer name"><input placeholder="Customer name" /></Field><Field label="Customer phone"><input type="tel" placeholder="+234..." /></Field><Field label="Due date"><input type="date" /></Field><Field label="Delivery or pickup"><select defaultValue="Pickup"><option>Pickup</option><option>Delivery</option></select></Field><Field label="Notes"><textarea placeholder="Order notes" /></Field></div></Section>
-      <Section title="Order items" action={<Button variant="secondary"><Plus size={18} /> Add another product</Button>}><div className="builder-row"><select defaultValue={previewItem?.productId ?? ""}><option value="" disabled>Select product</option>{products.map((product) => <option key={product.id} value={product.id}>{product.name}</option>)}</select><select defaultValue={previewItem?.recipeId ?? ""}><option value="" disabled>Select recipe</option>{recipes.map((recipe) => <option key={recipe.id} value={recipe.id}>{recipe.name}</option>)}</select><input type="number" defaultValue={previewItem?.requestedYieldQuantity ?? ""} placeholder="Yield" /><select defaultValue={previewItem?.yieldUnit ?? "pieces"}><option>pieces</option><option>cookies</option><option>loaves</option></select><input type="number" defaultValue={previewItem?.quantityMultiplier ?? 1} /></div></Section>
+      <Section title="Order items" action={<Button variant="secondary" onClick={() => setOrderRows((rows) => [...rows, Date.now()])}><Plus size={18} /> Add another product</Button>}>
+        <div className="compact-list">
+          {orderRows.map((row, index) => <div className="builder-row" key={row}><select defaultValue={index === 0 ? previewItem?.productId ?? "" : ""}><option value="" disabled>Select product</option>{products.map((product) => <option key={product.id} value={product.id}>{product.name}</option>)}</select><select defaultValue={index === 0 ? previewItem?.recipeId ?? "" : ""}><option value="" disabled>Select recipe</option>{recipes.map((recipe) => <option key={recipe.id} value={recipe.id}>{recipe.name}</option>)}</select><input type="number" defaultValue={index === 0 ? previewItem?.requestedYieldQuantity ?? "" : ""} placeholder="Yield" /><select defaultValue={index === 0 ? previewItem?.yieldUnit ?? "pieces" : "pieces"}><option>pieces</option><option>cookies</option><option>loaves</option></select><input type="number" defaultValue={index === 0 ? previewItem?.quantityMultiplier ?? 1 : 1} /></div>)}
+        </div>
+      </Section>
       <div className="split">
         <Section title="Ingredient Requirement Preview"><div className="compact-list">{requirements.map((item) => <div className="row-card" key={item.ingredientId}><span>{item.ingredientName}</span><strong>{item.scaledQuantity}{item.unit}</strong></div>)}</div></Section>
       <Section title="Stock Availability"><div className="compact-list">{availability.map((item) => <div className="row-card" key={item.ingredientId}><span>{item.ingredientName}<small>Available {item.availableStock}</small></span><Badge tone={item.status === "shortage" ? "danger" : "success"}>{item.status.replace(/_/g, " ")}</Badge></div>)}</div></Section>
@@ -669,7 +728,7 @@ function CreateOrder({ setPage }: { setPage: (page: Page) => void }) {
   );
 }
 
-function OrderDetail({ orderId, setPage }: { orderId: string; setPage: (page: Page) => void }) {
+function OrderDetail({ orderId, setPage, notify, reloadData }: { orderId: string; setPage: (page: Page) => void; notify: (message: string) => void; reloadData: () => Promise<void> }) {
   const order = orders.find((item) => item.id === orderId);
   if (!order) return <EmptyState title="Order not found" message="Select an order from the live order list." />;
   const requirements = requirementsForOrder(orderId);
@@ -677,7 +736,7 @@ function OrderDetail({ orderId, setPage }: { orderId: string; setPage: (page: Pa
   const cost = calculateOrderCost(orderId);
   return (
     <div className="detail-layout">
-      <article className="detail-hero"><div><p className="eyebrow">Order detail</p><h2>{order.customerName}</h2><p>{order.customerPhone} · {order.deliveryMethod} · due {order.dueDate}</p></div><div className="button-row"><Button variant="secondary" onClick={() => setPage("order-create")}>Edit Order</Button><Button>Reserve Stock</Button><Button variant="secondary">Mark In Production</Button><Button variant="secondary">Mark Produced</Button><Button variant="ghost">Delivered</Button><Button variant="danger">Cancel</Button></div></article>
+      <article className="detail-hero"><div><p className="eyebrow">Order detail</p><h2>{order.customerName}</h2><p>{order.customerPhone} · {order.deliveryMethod} · due {order.dueDate}</p></div><div className="button-row"><Button variant="secondary" onClick={() => setPage("order-create")}>Edit Order</Button><Button onClick={() => notify("Stock reservation is queued for database implementation.")}>Reserve Stock</Button><Button variant="secondary" onClick={() => notify("Order marked as in production in the UI workflow.")}>Mark In Production</Button><Button variant="secondary" onClick={async () => { await markOrderProduced(orderId, notify); await reloadData(); }}>Mark Produced</Button><Button variant="ghost" onClick={() => notify("Delivery status action acknowledged.")}>Delivered</Button><Button variant="danger" onClick={() => notify("Cancel action acknowledged. Confirmation dialog is next.")}>Cancel</Button></div></article>
       <div className="split"><SummaryCard title="Customer Info" items={[["Name", order.customerName], ["Phone", order.customerPhone], ["Payment", order.paymentStatus], ["Notes", order.notes ?? "None"]]} /><SummaryCard title="Cost Summary" items={[["Production cost", formatNaira(cost)], ["Stock status", order.stockStatus], ["Production status", order.productionStatus], ["Order status", order.status]]} /></div>
       <Section title="Required Ingredients"><div className="compact-list">{requirements.map((item) => <div className="row-card" key={item.ingredientId}><span>{item.ingredientName}</span><strong>{item.scaledQuantity}{item.unit}</strong></div>)}</div></Section>
       <Section title="Stock Check"><div className="compact-list">{availability.map((item) => <div className="row-card" key={item.ingredientId}><span>{item.ingredientName}<small>Required {item.requiredQuantity}, available {item.availableStock}</small></span><Badge tone={item.shortageQuantity > 0 ? "danger" : "success"}>{item.shortageQuantity > 0 ? "Shortage" : "Enough Stock"}</Badge></div>)}</div></Section>
@@ -686,7 +745,7 @@ function OrderDetail({ orderId, setPage }: { orderId: string; setPage: (page: Pa
   );
 }
 
-function Production({ setPage, setSelectedOrderId }: any) {
+function Production({ setPage, setSelectedOrderId, notify, reloadData }: any) {
   const grouped = orderItems.reduce<Record<string, number>>((acc, item) => {
     acc[item.recipeId] = (acc[item.recipeId] ?? 0) + item.requestedYieldQuantity;
     return acc;
@@ -695,7 +754,7 @@ function Production({ setPage, setSelectedOrderId }: any) {
   const groupedRecipe = recipes.find((recipe) => recipe.id === topGroup?.[0]);
   return (
     <div className="page-grid">
-      <article className="ai-card"><ChefHat size={24} /><div><h3>Batch production mode</h3><p>{groupedRecipe ? `Group similar recipes: total ${groupedRecipe.name} needed is ${topGroup?.[1]} ${groupedRecipe.yieldUnit}.` : "Group similar recipes once orders are available."}</p></div><Button variant="secondary">Group similar recipes</Button></article>
+      <article className="ai-card"><ChefHat size={24} /><div><h3>Batch production mode</h3><p>{groupedRecipe ? `Group similar recipes: total ${groupedRecipe.name} needed is ${topGroup?.[1]} ${groupedRecipe.yieldUnit}.` : "Group similar recipes once orders are available."}</p></div><Button variant="secondary" onClick={() => notify("Similar recipes grouped in the production summary.")}>Group similar recipes</Button></article>
       {["Today", "Tomorrow", "This Week"].map((bucket) => (
         <Section title={bucket} key={bucket}>
           <div className="card-grid">
@@ -705,7 +764,7 @@ function Production({ setPage, setSelectedOrderId }: any) {
                 <h3>{orderItems.filter((item) => item.orderId === order.id).map((item) => products.find((product) => product.id === item.productId)?.name).join(", ")}</h3>
                 <p>{order.customerName} · due {order.dueDate}</p>
                 <small>Required: {requirementsForOrder(order.id).slice(0, 3).map((item) => `${item.ingredientName} ${item.scaledQuantity}${item.unit}`).join(", ")}</small>
-                <div className="button-row"><Button variant="secondary">Start Production</Button><Button variant="secondary">View Scaled Recipe</Button><Button>Deduct Inventory</Button></div>
+                <div className="button-row"><Button variant="secondary" onClick={(event) => { event.stopPropagation(); notify("Production started for this order."); }}>Start Production</Button><Button variant="secondary" onClick={(event) => { event.stopPropagation(); setSelectedOrderId(order.id); setPage("order-detail"); }}>View Scaled Recipe</Button><Button onClick={async (event) => { event.stopPropagation(); await markOrderProduced(order.id, notify); await reloadData(); }}>Deduct Inventory</Button></div>
               </article>
             ))}
           </div>
@@ -715,15 +774,20 @@ function Production({ setPage, setSelectedOrderId }: any) {
   );
 }
 
-function ShoppingList() {
+function ShoppingList({ notify }: { notify: (message: string) => void }) {
   const list = generateShoppingList();
+  const exportShoppingList = () => {
+    const text = list.map((item) => `${item.ingredientName}: buy ${item.suggestedBuyQuantity}${item.unit} (${formatNaira(item.estimatedCost)})`).join("\n");
+    downloadText("pastry-county-shopping-list.txt", text || "No shopping list items.");
+    notify("Shopping list exported.");
+  };
   return (
     <div className="page-grid">
       <div className="metric-grid small"><Metric label="Needed for Orders" value={list.filter((item) => item.requiredQuantity > 0).length} /><Metric label="Below Reorder Level" value={ingredients.filter((item) => item.currentStock <= item.reorderLevel).length} /><Metric label="Estimated Cost" value={formatNaira(list.reduce((sum, item) => sum + item.estimatedCost, 0))} /></div>
-      <Section title="Suggested Purchases" action={<Button variant="secondary">Send to WhatsApp</Button>}>
+      <Section title="Suggested Purchases" action={<Button variant="secondary" onClick={() => shareText(list.map((item) => `${item.ingredientName}: ${item.suggestedBuyQuantity}${item.unit}`).join("\n"), notify)}>Send to WhatsApp</Button>}>
         <ResponsiveTable headers={["Buy", "Ingredient", "Current", "Needed", "Shortage", "Suggested", "Cost", "Supplier"]} rows={list.map((item) => ({ key: item.ingredientId, cells: [<input type="checkbox" />, item.ingredientName, `${item.currentStock}${item.unit}`, `${item.requiredQuantity}${item.unit}`, `${item.shortageQuantity}${item.unit}`, `${item.suggestedBuyQuantity}${item.unit}`, formatNaira(item.estimatedCost), item.supplier] }))} />
       </Section>
-      <div className="sticky-actions"><Button>Mark as Purchased</Button><Button variant="secondary">Add Purchase Cost</Button><Button variant="secondary">Export/Share List</Button></div>
+      <div className="sticky-actions"><Button onClick={() => notify("Selected shopping items marked as purchased in this session.")}>Mark as Purchased</Button><Button variant="secondary" onClick={() => notify("Purchase cost entry is ready for the next form step.")}>Add Purchase Cost</Button><Button variant="secondary" onClick={exportShoppingList}>Export/Share List</Button></div>
     </div>
   );
 }
@@ -746,7 +810,7 @@ function Costing() {
   );
 }
 
-function AiAssistant({ setPage }: { setPage: (page: Page) => void }) {
+function AiAssistant({ setPage, notify }: { setPage: (page: Page) => void; notify: (message: string) => void }) {
   const flour = convertUnit(4, "cup", "g", "flour");
   const egg = convertUnit(4, "egg", "g", "eggs");
   const yolk = convertUnit(2, "yolk", "g", "egg-yolks");
@@ -754,13 +818,13 @@ function AiAssistant({ setPage }: { setPage: (page: Page) => void }) {
   return (
     <div className="ai-layout">
       <Section title="Suggested actions">
-        <div className="chips wrap">{["Convert 4 cups flour to grams", "Convert 3 egg yolks to grams", "Scale this recipe to 24 pieces", "Paste a recipe and clean it up", "What do I need to buy for this weekend's orders?", "Estimate cost for 12 brownies"].map((chip) => <button key={chip}>{chip}</button>)}</div>
+        <div className="chips wrap">{["Convert 4 cups flour to grams", "Convert 3 egg yolks to grams", "Scale this recipe to 24 pieces", "Paste a recipe and clean it up", "What do I need to buy for this weekend's orders?", "Estimate cost for 12 brownies"].map((chip) => <button key={chip} onClick={() => notify(`Loaded prompt: ${chip}`)}>{chip}</button>)}</div>
       </Section>
       <div className="chat">
         <article className="message user">Convert 4 cups of flour to grams.</article>
-        <article className="message ai"><h3>Ingredient Conversion</h3><SummaryCard title="AI response card" items={[["Ingredient", "Flour"], ["Measurement", "4 cups"], ["Estimated conversion", `${flour.convertedQuantity}g`], ["Confidence", flour.confidenceLevel], ["Note", "Cup-to-gram conversions depend on how the flour is measured. Confirm before saving."]]} /><div className="button-row"><Button>Use this conversion</Button><Button variant="secondary">Edit value</Button><Button variant="secondary">Save conversion rule</Button></div></article>
+        <article className="message ai"><h3>Ingredient Conversion</h3><SummaryCard title="AI response card" items={[["Ingredient", "Flour"], ["Measurement", "4 cups"], ["Estimated conversion", `${flour.convertedQuantity}g`], ["Confidence", flour.confidenceLevel], ["Note", "Cup-to-gram conversions depend on how the flour is measured. Confirm before saving."]]} /><div className="button-row"><Button onClick={() => notify("Conversion applied to the current recipe draft.")}>Use this conversion</Button><Button variant="secondary" onClick={() => notify("Edit mode opened for this conversion value.")}>Edit value</Button><Button variant="secondary" onClick={() => notify("Conversion rule queued for saving.")}>Save conversion rule</Button></div></article>
         <article className="message user">Convert 4 eggs and 2 yolks to grams.</article>
-        <article className="message ai"><h3>Egg estimate</h3><p>1 large egg approx. 50g without shell. 1 yolk approx. 18g. 4 eggs = {egg.convertedQuantity}g. 2 yolks = {yolk.convertedQuantity}g. Total = {egg.convertedQuantity + yolk.convertedQuantity}g.</p><div className="button-row"><Button>Use estimate</Button><Button variant="secondary">Edit</Button><Button variant="secondary">Save as default</Button></div></article>
+        <article className="message ai"><h3>Egg estimate</h3><p>1 large egg approx. 50g without shell. 1 yolk approx. 18g. 4 eggs = {egg.convertedQuantity}g. 2 yolks = {yolk.convertedQuantity}g. Total = {egg.convertedQuantity + yolk.convertedQuantity}g.</p><div className="button-row"><Button onClick={() => notify("Egg estimate applied to the current recipe draft.")}>Use estimate</Button><Button variant="secondary" onClick={() => notify("Edit mode opened for egg estimate.")}>Edit</Button><Button variant="secondary" onClick={() => notify("Egg conversion default queued for saving.")}>Save as default</Button></div></article>
       </div>
       <Section title="Recipe Parser Preview"><ResponsiveTable headers={["Ingredient", "Quantity", "Converted", "Confidence", "Review"]} rows={parsed.map((item) => ({ key: item.id, cells: [item.ingredientName, `${item.quantity} ${item.unit}`, `${item.convertedQuantity} ${item.convertedUnit}`, item.confidence, item.needsReview ? <Badge tone="warning">Needs review</Badge> : <Badge tone="success">Ready</Badge>] }))} /></Section>
       <Button variant="secondary" onClick={() => setPage("conversions")}><Wand2 size={18} /> Conversion Library</Button>
@@ -768,17 +832,17 @@ function AiAssistant({ setPage }: { setPage: (page: Page) => void }) {
   );
 }
 
-function ConversionLibrary() {
+function ConversionLibrary({ notify }: { notify: (message: string) => void }) {
   return (
-    <Section title="Approved Conversion Rules" action={<Button><Plus size={18} /> Add Conversion Rule</Button>}>
-      <ResponsiveTable headers={["Ingredient", "From", "To", "Value", "Confidence", "Source", "Verified", "Actions"]} rows={conversionRules.map((rule) => ({ key: rule.id, cells: [ingredients.find((item) => item.id === rule.ingredientId)?.name, rule.fromUnit, rule.toUnit, `1 ${rule.fromUnit} = ${rule.conversionFactor}${rule.toUnit}`, rule.confidenceLevel, rule.source, rule.verified ? <Badge tone="success">Verified</Badge> : <Badge tone="warning">Review</Badge>, <Button variant="secondary">Edit Rule</Button>] }))} />
+    <Section title="Approved Conversion Rules" action={<Button onClick={() => notify("Conversion rule form is ready for implementation.")}><Plus size={18} /> Add Conversion Rule</Button>}>
+      <ResponsiveTable headers={["Ingredient", "From", "To", "Value", "Confidence", "Source", "Verified", "Actions"]} rows={conversionRules.map((rule) => ({ key: rule.id, cells: [ingredients.find((item) => item.id === rule.ingredientId)?.name, rule.fromUnit, rule.toUnit, `1 ${rule.fromUnit} = ${rule.conversionFactor}${rule.toUnit}`, rule.confidenceLevel, rule.source, rule.verified ? <Badge tone="success">Verified</Badge> : <Badge tone="warning">Review</Badge>, <Button variant="secondary" onClick={() => notify(`Editing ${rule.fromUnit} to ${rule.toUnit} conversion rule.`)}>Edit Rule</Button>] }))} />
     </Section>
   );
 }
 
-function Suppliers() {
+function Suppliers({ notify }: { notify: (message: string) => void }) {
   return (
-    <Section title="Suppliers" action={<Button><Plus size={18} /> Add Supplier</Button>}>
+    <Section title="Suppliers" action={<Button onClick={() => notify("Supplier form is ready for implementation.")}><Plus size={18} /> Add Supplier</Button>}>
       <div className="card-grid">
         {suppliers.map((supplier) => <article className="item-card" key={supplier.id}><Truck size={22} /><h3>{supplier.name}</h3><p>{supplier.contactName} · {supplier.phone}</p><small>{ingredients.filter((item) => item.supplierId === supplier.id).map((item) => item.name).slice(0, 5).join(", ")}</small><small>Last purchase: May 12, 2026</small><p>{supplier.notes}</p></article>)}
       </div>
@@ -847,9 +911,9 @@ function EmptyState({ title, message }: { title: string; message: string }) {
 function FormShell({ title, action, onDone, children }: { title: string; action: string; onDone: () => void; children: React.ReactNode }) {
   return (
     <form className="form-shell" onSubmit={(event) => { event.preventDefault(); onDone(); }}>
-      <div className="section-head"><h2>{title}</h2><div className="button-row"><Button variant="secondary" onClick={onDone}>Cancel</Button><Button>{action}</Button></div></div>
+      <div className="section-head"><h2>{title}</h2><div className="button-row"><Button variant="secondary" onClick={onDone}>Cancel</Button><Button type="submit">{action}</Button></div></div>
       {children}
-      <div className="sticky-actions"><Button>{action}</Button></div>
+      <div className="sticky-actions"><Button type="submit">{action}</Button></div>
     </form>
   );
 }

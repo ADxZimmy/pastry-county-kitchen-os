@@ -10,6 +10,15 @@ export default async function handler(req, res) {
   try {
     const sql = getSql();
     const { orderId } = req.query;
+    const orderRows = await sql`select status from orders where id = ${orderId}`;
+    if (!orderRows.length) {
+      res.status(404).json({ error: "Order not found" });
+      return;
+    }
+    if (orderRows[0].status === "Produced") {
+      res.status(200).json({ produced: false, alreadyProduced: true });
+      return;
+    }
     const requirements = await sql`
       select ri.ingredient_id, ri.unit, sum(ri.quantity * oi.requested_yield_quantity / r.base_yield_quantity * oi.quantity_multiplier) as quantity
       from order_items oi

@@ -186,6 +186,15 @@ app.post("/api/inventory-movements", requireDatabase, async (req, res, next) => 
 app.post("/api/orders/:orderId/produced", requireDatabase, async (req, res, next) => {
   try {
     const { orderId } = req.params;
+    const orderRows = await sql`select status from orders where id = ${orderId}`;
+    if (!orderRows.length) {
+      res.status(404).json({ error: "Order not found" });
+      return;
+    }
+    if (orderRows[0].status === "Produced") {
+      res.json({ produced: false, alreadyProduced: true });
+      return;
+    }
     const requirements = await sql`
       select ri.ingredient_id, ri.unit, sum(ri.quantity * oi.requested_yield_quantity / r.base_yield_quantity * oi.quantity_multiplier) as quantity
       from order_items oi
