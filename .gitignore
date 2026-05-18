@@ -1,0 +1,9 @@
+.vercel
+.env*.local
+.env
+node_modules
+dist
+.DS_Store
+*.log
+coverage
+stitch_pastry_county_kitchen_os
