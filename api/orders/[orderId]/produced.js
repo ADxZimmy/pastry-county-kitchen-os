@@ -35,7 +35,9 @@ export default async function handler(req, res) {
         `,
         txn`
           update ingredients
-          set current_stock = current_stock - ${Number(requirement.quantity)}, updated_at = now()
+          set current_stock = current_stock - ${Number(requirement.quantity)},
+            reserved_stock = greatest(0, reserved_stock - ${Number(requirement.quantity)}),
+            updated_at = now()
           where id = ${requirement.ingredient_id}
         `
       ]),

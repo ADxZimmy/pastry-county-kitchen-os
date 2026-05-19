@@ -1,0 +1,300 @@
+export function id(prefix) {
+  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+export function num(value, fallback = 0) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+export function bool(value) {
+  return value === true || value === "true" || value === "Yes";
+}
+
+export function required(value, label) {
+  if (value === undefined || value === null || String(value).trim() === "") {
+    throw Object.assign(new Error(`${label} is required.`), { statusCode: 400 });
+  }
+  return String(value).trim();
+}
+
+function normalizeUnit(unit, fallback = "g") {
+  return String(unit || fallback);
+}
+
+async function requirementsForOrder(sql, orderId) {
+  return sql`
+    select ri.ingredient_id, ri.unit, sum(ri.quantity * oi.requested_yield_quantity / r.base_yield_quantity * oi.quantity_multiplier) as quantity
+    from order_items oi
+    join recipes r on r.id = oi.recipe_id
+    join recipe_items ri on ri.recipe_id = r.id
+    where oi.order_id = ${orderId}
+    group by ri.ingredient_id, ri.unit
+  `;
+}
+
+async function stockStatusForRequirements(sql, requirements) {
+  if (!requirements.length) return "In Stock";
+  const statuses = await Promise.all(requirements.map(async (item) => {
+    const rows = await sql`
+      select current_stock::float as current_stock, reserved_stock::float as reserved_stock
+      from ingredients
+      where id = ${item.ingredient_id}
+    `;
+    const ingredient = rows[0];
+    const available = Number(ingredient?.current_stock ?? 0) - Number(ingredient?.reserved_stock ?? 0);
+    return available >= Number(item.quantity) ? "In Stock" : "Shortage";
+  }));
+  return statuses.includes("Shortage") ? "Shortage" : "In Stock";
+}
+
+async function reserveOrder(sql, orderId) {
+  const orderRows = await sql`select status from orders where id = ${orderId}`;
+  if (!orderRows.length) throw Object.assign(new Error("Order not found."), { statusCode: 404 });
+  if (orderRows[0].status === "Stock Reserved") return { reserved: false, alreadyReserved: true };
+
+  const requirements = await requirementsForOrder(sql, orderId);
+  const stockStatus = await stockStatusForRequirements(sql, requirements);
+  if (stockStatus === "Shortage") {
+    await sql`update orders set stock_status = 'Shortage', updated_at = now() where id = ${orderId}`;
+    return { reserved: false, shortage: true };
+  }
+
+  await sql.transaction((txn) => [
+    ...requirements.flatMap((item, index) => [
+      txn`
+        insert into inventory_movements (id, ingredient_id, movement_type, quantity_change, unit, related_order_id, note, created_by)
+        values (${id(`mov-res-${index}`)}, ${item.ingredient_id}, 'reservation', ${Number(item.quantity)}, ${item.unit}, ${orderId}, 'Reserved stock for confirmed order', 'system')
+      `,
+      txn`
+        update ingredients
+        set reserved_stock = reserved_stock + ${Number(item.quantity)}, updated_at = now()
+        where id = ${item.ingredient_id}
+      `
+    ]),
+    txn`update orders set status = 'Stock Reserved', stock_status = 'Reserved', production_status = 'Ready', updated_at = now() where id = ${orderId}`
+  ]);
+  return { reserved: true };
+}
+
+async function releaseReservation(sql, orderId) {
+  const reservations = await sql`
+    select ingredient_id, unit, sum(quantity_change)::float as quantity
+    from inventory_movements
+    where related_order_id = ${orderId} and movement_type = 'reservation'
+    group by ingredient_id, unit
+  `;
+  const releases = await sql`
+    select ingredient_id, unit, sum(abs(quantity_change))::float as quantity
+    from inventory_movements
+    where related_order_id = ${orderId} and movement_type = 'reservation_release'
+    group by ingredient_id, unit
+  `;
+  const released = new Map(releases.map((row) => [`${row.ingredient_id}:${row.unit}`, Number(row.quantity)]));
+  const pending = reservations
+    .map((row) => ({ ...row, quantity: Math.max(0, Number(row.quantity) - (released.get(`${row.ingredient_id}:${row.unit}`) ?? 0)) }))
+    .filter((row) => row.quantity > 0);
+
+  if (!pending.length) return { released: false };
+  await sql.transaction((txn) => pending.flatMap((item, index) => [
+    txn`
+      insert into inventory_movements (id, ingredient_id, movement_type, quantity_change, unit, related_order_id, note, created_by)
+      values (${id(`mov-rel-${index}`)}, ${item.ingredient_id}, 'reservation_release', ${-item.quantity}, ${item.unit}, ${orderId}, 'Released order reservation', 'system')
+    `,
+    txn`
+      update ingredients
+      set reserved_stock = greatest(0, reserved_stock - ${item.quantity}), updated_at = now()
+      where id = ${item.ingredient_id}
+    `
+  ]));
+  return { released: true };
+}
+
+export async function handleAction(sql, body) {
+  const action = required(body.action, "Action");
+
+  if (action === "ingredient.save") {
+    const data = body.ingredient ?? {};
+    const ingredientId = data.id || id("ing");
+    const supplierId = data.supplierId || null;
+    const baseUnit = normalizeUnit(data.baseUnit);
+    const currentStock = num(data.currentStock);
+    const purchaseQuantity = num(data.purchaseQuantity);
+    const purchasePrice = num(data.purchasePrice);
+    const stockAfterPurchase = currentStock + purchaseQuantity;
+    const convertedPurchaseQuantity = purchaseQuantity || currentStock;
+    const latestUnitCost = purchasePrice > 0 && convertedPurchaseQuantity > 0 ? purchasePrice / convertedPurchaseQuantity : num(data.latestUnitCost);
+
+    await sql.transaction((txn) => [
+      txn`
+        insert into ingredients (id, name, category, base_unit, current_stock, reorder_level, latest_unit_cost, supplier_id, expiry_tracking_enabled, notes)
+        values (${ingredientId}, ${required(data.name, "Ingredient name")}, ${required(data.category, "Category")}, ${baseUnit}, ${stockAfterPurchase}, ${num(data.reorderLevel)}, ${latestUnitCost}, ${supplierId}, ${bool(data.expiryTrackingEnabled)}, ${data.notes || null})
+        on conflict (id) do update set name = excluded.name, category = excluded.category, base_unit = excluded.base_unit,
+          current_stock = excluded.current_stock, reorder_level = excluded.reorder_level, latest_unit_cost = excluded.latest_unit_cost,
+          supplier_id = excluded.supplier_id, expiry_tracking_enabled = excluded.expiry_tracking_enabled, notes = excluded.notes, updated_at = now()
+      `,
+      ...(purchaseQuantity > 0 ? [
+        txn`
+          insert into purchase_logs (id, supplier_id, ingredient_id, purchase_quantity, purchase_unit, purchase_price, converted_quantity_in_base_unit, cost_per_base_unit, notes)
+          values (${id("pur")}, ${supplierId}, ${ingredientId}, ${purchaseQuantity}, ${normalizeUnit(data.purchaseUnit, baseUnit)}, ${purchasePrice}, ${convertedPurchaseQuantity}, ${latestUnitCost}, 'Initial purchase from ingredient form')
+        `,
+        txn`
+          insert into inventory_movements (id, ingredient_id, movement_type, quantity_change, unit, note, created_by)
+          values (${id("mov")}, ${ingredientId}, 'purchase', ${purchaseQuantity}, ${baseUnit}, 'Added stock from ingredient form purchase', 'system')
+        `
+      ] : [])
+    ]);
+    return { ok: true, id: ingredientId };
+  }
+
+  if (action === "inventory.adjust") {
+    const quantity = num(body.quantityChange);
+    const ingredientId = required(body.ingredientId, "Ingredient");
+    await sql.transaction((txn) => [
+      txn`
+        insert into inventory_movements (id, ingredient_id, movement_type, quantity_change, unit, note, created_by)
+        values (${id("mov")}, ${ingredientId}, ${body.movementType || "adjustment"}, ${quantity}, ${required(body.unit, "Unit")}, ${body.note || "Manual stock adjustment"}, 'system')
+      `,
+      txn`update ingredients set current_stock = current_stock + ${quantity}, updated_at = now() where id = ${ingredientId}`
+    ]);
+    return { ok: true };
+  }
+
+  if (action === "supplier.save") {
+    const data = body.supplier ?? {};
+    const supplierId = data.id || id("sup");
+    await sql`
+      insert into suppliers (id, name, contact_name, phone, email, address, notes)
+      values (${supplierId}, ${required(data.name, "Supplier name")}, ${data.contactName || null}, ${data.phone || null}, ${data.email || null}, ${data.address || null}, ${data.notes || null})
+      on conflict (id) do update set name = excluded.name, contact_name = excluded.contact_name, phone = excluded.phone,
+        email = excluded.email, address = excluded.address, notes = excluded.notes, updated_at = now()
+    `;
+    return { ok: true, id: supplierId };
+  }
+
+  if (action === "recipe.save") {
+    const data = body.recipe ?? {};
+    const productId = data.productId || id("prod");
+    const recipeId = data.id || id("rec");
+    const items = Array.isArray(data.items) ? data.items.filter((item) => item.ingredientId && num(item.quantity) > 0) : [];
+    if (!items.length) throw Object.assign(new Error("Add at least one recipe ingredient."), { statusCode: 400 });
+    const instructions = String(data.instructions || "").split(/\n+/).map((step) => step.trim()).filter(Boolean);
+    await sql.transaction((txn) => [
+      txn`
+        insert into products (id, name, category, description, active)
+        values (${productId}, ${required(data.name, "Product name")}, ${required(data.category, "Category")}, ${data.notes || null}, true)
+        on conflict (id) do update set name = excluded.name, category = excluded.category, description = excluded.description, updated_at = now()
+      `,
+      txn`
+        insert into recipes (id, product_id, name, category, base_yield_quantity, yield_unit, instructions, notes, active)
+        values (${recipeId}, ${productId}, ${required(data.name, "Recipe name")}, ${required(data.category, "Category")}, ${num(data.baseYieldQuantity, 1)}, ${data.yieldUnit || "pieces"}, ${instructions}, ${data.notes || null}, true)
+        on conflict (id) do update set name = excluded.name, category = excluded.category, base_yield_quantity = excluded.base_yield_quantity,
+          yield_unit = excluded.yield_unit, instructions = excluded.instructions, notes = excluded.notes, updated_at = now()
+      `,
+      txn`delete from recipe_items where recipe_id = ${recipeId}`,
+      ...items.map((item, index) => txn`
+        insert into recipe_items (id, recipe_id, ingredient_id, quantity, unit, waste_percentage, notes)
+        values (${id(`ri-${index}`)}, ${recipeId}, ${item.ingredientId}, ${num(item.quantity)}, ${normalizeUnit(item.unit)}, ${num(item.wastePercentage)}, ${item.notes || null})
+      `)
+    ]);
+    return { ok: true, id: recipeId, productId };
+  }
+
+  if (action === "order.save") {
+    const data = body.order ?? {};
+    const orderId = data.id || id("ord");
+    const items = Array.isArray(data.items) ? data.items.filter((item) => item.productId && item.recipeId && num(item.requestedYieldQuantity) > 0) : [];
+    if (!items.length) throw Object.assign(new Error("Add at least one order item."), { statusCode: 400 });
+    await sql.transaction((txn) => [
+      txn`
+        insert into orders (id, customer_name, customer_phone, due_date, delivery_method, status, payment_status, production_status, stock_status, notes)
+        values (${orderId}, ${required(data.customerName, "Customer name")}, ${data.customerPhone || null}, ${required(data.dueDate, "Due date")}, ${data.deliveryMethod || "Pickup"}, ${data.status || "Confirmed"}, ${data.paymentStatus || "Unpaid"}, 'Not Started', 'In Stock', ${data.notes || null})
+        on conflict (id) do update set customer_name = excluded.customer_name, customer_phone = excluded.customer_phone, due_date = excluded.due_date,
+          delivery_method = excluded.delivery_method, status = excluded.status, payment_status = excluded.payment_status, notes = excluded.notes, updated_at = now()
+      `,
+      txn`delete from order_items where order_id = ${orderId}`,
+      ...items.map((item, index) => txn`
+        insert into order_items (id, order_id, product_id, recipe_id, requested_yield_quantity, yield_unit, quantity_multiplier, notes)
+        values (${id(`oi-${index}`)}, ${orderId}, ${item.productId}, ${item.recipeId}, ${num(item.requestedYieldQuantity, 1)}, ${item.yieldUnit || "pieces"}, ${num(item.quantityMultiplier, 1)}, ${item.notes || null})
+      `)
+    ]);
+    const stockStatus = await stockStatusForRequirements(sql, await requirementsForOrder(sql, orderId));
+    await sql`update orders set stock_status = ${stockStatus}, updated_at = now() where id = ${orderId}`;
+    const reservation = body.reserve ? await reserveOrder(sql, orderId) : null;
+    return { ok: true, id: orderId, stockStatus, reservation };
+  }
+
+  if (action === "order.reserve") return reserveOrder(sql, required(body.orderId, "Order"));
+  if (action === "order.releaseReservation") return releaseReservation(sql, required(body.orderId, "Order"));
+
+  if (action === "order.status") {
+    const orderId = required(body.orderId, "Order");
+    const status = required(body.status, "Status");
+    const productionStatus = body.productionStatus || (status === "In Production" ? "In Progress" : status === "Delivered" || status === "Produced" ? "Completed" : undefined);
+    await sql`
+      update orders
+      set status = ${status}, production_status = coalesce(${productionStatus || null}, production_status), updated_at = now()
+      where id = ${orderId}
+    `;
+    if (status === "Cancelled") await releaseReservation(sql, orderId);
+    return { ok: true };
+  }
+
+  if (action === "shopping.purchaseSuggested") {
+    const purchases = Array.isArray(body.items) ? body.items.filter((item) => item.ingredientId && num(item.suggestedBuyQuantity) > 0) : [];
+    if (!purchases.length) throw Object.assign(new Error("No shopping list items to purchase."), { statusCode: 400 });
+    await sql.transaction((txn) => purchases.flatMap((item, index) => {
+      const purchaseId = id(`pur-${index}`);
+      const quantity = num(item.suggestedBuyQuantity);
+      const cost = num(item.estimatedCost);
+      return [
+        txn`
+          insert into purchase_logs (id, supplier_id, ingredient_id, purchase_quantity, purchase_unit, purchase_price, converted_quantity_in_base_unit, cost_per_base_unit, notes)
+          values (${purchaseId}, null, ${item.ingredientId}, ${quantity}, ${item.unit}, ${cost}, ${quantity}, ${quantity > 0 ? cost / quantity : 0}, 'Marked purchased from shopping list')
+        `,
+        txn`
+          insert into inventory_movements (id, ingredient_id, movement_type, quantity_change, unit, related_purchase_id, note, created_by)
+          values (${id(`mov-${index}`)}, ${item.ingredientId}, 'purchase', ${quantity}, ${item.unit}, ${purchaseId}, 'Purchased from shopping list', 'system')
+        `,
+        txn`
+          update ingredients
+          set current_stock = current_stock + ${quantity}, latest_unit_cost = ${quantity > 0 ? cost / quantity : 0}, updated_at = now()
+          where id = ${item.ingredientId}
+        `
+      ];
+    }));
+    return { ok: true, count: purchases.length };
+  }
+
+  if (action === "conversion.save") {
+    const data = body.rule ?? {};
+    const ruleId = data.id || id("conv");
+    await sql`
+      insert into conversion_rules (id, ingredient_id, from_unit, to_unit, conversion_factor, conversion_type, confidence_level, source, verified, notes)
+      values (${ruleId}, ${required(data.ingredientId, "Ingredient")}, ${required(data.fromUnit, "From unit")}, ${required(data.toUnit, "To unit")}, ${num(data.conversionFactor, 1)}, ${data.conversionType || "ingredient_specific"}, ${data.confidenceLevel || "Medium"}, ${data.source || "manual entry"}, ${bool(data.verified)}, ${data.notes || null})
+      on conflict (id) do update set ingredient_id = excluded.ingredient_id, from_unit = excluded.from_unit, to_unit = excluded.to_unit,
+        conversion_factor = excluded.conversion_factor, conversion_type = excluded.conversion_type, confidence_level = excluded.confidence_level,
+        source = excluded.source, verified = excluded.verified, notes = excluded.notes, updated_at = now()
+    `;
+    return { ok: true, id: ruleId };
+  }
+
+  if (action === "conversion.verify") {
+    await sql`update conversion_rules set verified = true, source = 'measured in kitchen', updated_at = now() where id = ${required(body.ruleId, "Rule")}`;
+    return { ok: true };
+  }
+
+  if (action === "settings.save") {
+    const data = body.settings ?? {};
+    await sql`
+      insert into settings (id, business_name, currency, default_deduction_stage, allow_negative_inventory, require_ai_conversion_confirmation, gram_rounding_preference, egg_rounding_preference)
+      values ('default', ${data.businessName || "Pastry County"}, 'NGN', ${data.defaultDeductionStage || "production_completion"}, ${bool(data.allowNegativeInventory)}, ${bool(data.requireAiConversionConfirmation)}, ${num(data.gramRoundingPreference, 5)}, ${data.eggRoundingPreference || "nearest_whole_egg"})
+      on conflict (id) do update set business_name = excluded.business_name, default_deduction_stage = excluded.default_deduction_stage,
+        allow_negative_inventory = excluded.allow_negative_inventory, require_ai_conversion_confirmation = excluded.require_ai_conversion_confirmation,
+        gram_rounding_preference = excluded.gram_rounding_preference, egg_rounding_preference = excluded.egg_rounding_preference, updated_at = now()
+    `;
+    return { ok: true };
+  }
+
+  throw Object.assign(new Error(`Unknown action: ${action}`), { statusCode: 400 });
+}
