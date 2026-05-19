@@ -279,6 +279,29 @@ tbody tr:hover { background: #fff4e6; }
   font-weight: 800;
   z-index: 40;
 }
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: rgba(36, 22, 13, .42);
+  backdrop-filter: blur(6px);
+  z-index: 60;
+}
+.confirm-modal {
+  width: min(100%, 460px);
+  display: grid;
+  gap: 18px;
+  padding: 22px;
+  border-radius: 24px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  box-shadow: 0 24px 70px rgba(36, 22, 13, .3);
+}
+.confirm-modal h2 { margin: 0; }
+.confirm-modal p { margin: 0; color: var(--muted); }
+.confirm-modal .button-row { justify-content: flex-end; }
 
 @media (min-width: 760px) {
   .main { padding: 28px 28px 120px; }

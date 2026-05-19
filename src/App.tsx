@@ -178,6 +178,14 @@ function stockTone(status: StockStatus | string) {
 }
 
 type Notify = (message: string) => void;
+type ConfirmRequest = {
+  title: string;
+  message: string;
+  confirmLabel: string;
+  tone?: "danger" | "warning";
+  onConfirm: () => Promise<void> | void;
+};
+type AskConfirm = (request: ConfirmRequest) => void;
 
 function formValue(form: HTMLFormElement, name: string) {
   const value = new FormData(form).get(name);
@@ -251,10 +259,15 @@ function App() {
   const [dataError, setDataError] = useState("");
   const [dataVersion, setDataVersion] = useState(0);
   const [toast, setToast] = useState("");
+  const [confirmRequest, setConfirmRequest] = useState<ConfirmRequest | null>(null);
 
   const notify = useCallback((message: string) => {
     setToast(message);
     window.setTimeout(() => setToast((current) => (current === message ? "" : current)), 3600);
+  }, []);
+
+  const askConfirm = useCallback((request: ConfirmRequest) => {
+    setConfirmRequest(request);
   }, []);
 
   const loadKitchenData = useCallback(async (cancelled?: () => boolean) => {
@@ -300,7 +313,7 @@ function App() {
   };
 
   const content = useMemo(() => {
-    const props = { setPage: navigate, setSelectedRecipeId, setSelectedIngredientId, setSelectedOrderId, selectedRecipeId, selectedIngredientId, selectedOrderId, query, setQuery, notify, reloadData: () => loadKitchenData() };
+    const props = { setPage: navigate, setSelectedRecipeId, setSelectedIngredientId, setSelectedOrderId, selectedRecipeId, selectedIngredientId, selectedOrderId, query, setQuery, notify, askConfirm, reloadData: () => loadKitchenData() };
     switch (page) {
       case "welcome":
         return <Welcome setPage={navigate} />;
@@ -311,7 +324,7 @@ function App() {
       case "recipes":
         return <Recipes {...props} />;
       case "recipe-detail":
-        return <RecipeDetail recipeId={selectedRecipeId} setPage={navigate} notify={notify} reloadData={() => loadKitchenData()} />;
+        return <RecipeDetail recipeId={selectedRecipeId} setPage={navigate} notify={notify} askConfirm={askConfirm} reloadData={() => loadKitchenData()} />;
       case "recipe-form":
         return <RecipeForm recipeId={selectedRecipeId} setPage={navigate} notify={notify} reloadData={() => loadKitchenData()} />;
       case "scaling":
@@ -319,7 +332,7 @@ function App() {
       case "inventory":
         return <Inventory {...props} />;
       case "ingredient-detail":
-        return <IngredientDetail ingredientId={selectedIngredientId} setPage={navigate} notify={notify} reloadData={() => loadKitchenData()} />;
+        return <IngredientDetail ingredientId={selectedIngredientId} setPage={navigate} notify={notify} askConfirm={askConfirm} reloadData={() => loadKitchenData()} />;
       case "ingredient-form":
         return <IngredientForm ingredientId={selectedIngredientId} setPage={navigate} notify={notify} reloadData={() => loadKitchenData()} />;
       case "orders":
@@ -327,7 +340,7 @@ function App() {
       case "order-create":
         return <CreateOrder orderId={selectedOrderId} setPage={navigate} notify={notify} reloadData={() => loadKitchenData()} />;
       case "order-detail":
-        return <OrderDetail orderId={selectedOrderId} setPage={navigate} notify={notify} reloadData={() => loadKitchenData()} />;
+        return <OrderDetail orderId={selectedOrderId} setPage={navigate} notify={notify} askConfirm={askConfirm} reloadData={() => loadKitchenData()} />;
       case "production":
         return <Production setPage={navigate} setSelectedOrderId={setSelectedOrderId} notify={notify} reloadData={() => loadKitchenData()} />;
       case "shopping":
@@ -337,13 +350,13 @@ function App() {
       case "ai":
         return <AiAssistant setPage={navigate} notify={notify} reloadData={() => loadKitchenData()} />;
       case "conversions":
-        return <ConversionLibrary notify={notify} reloadData={() => loadKitchenData()} />;
+        return <ConversionLibrary notify={notify} askConfirm={askConfirm} reloadData={() => loadKitchenData()} />;
       case "suppliers":
-        return <Suppliers notify={notify} reloadData={() => loadKitchenData()} />;
+        return <Suppliers notify={notify} askConfirm={askConfirm} reloadData={() => loadKitchenData()} />;
       case "settings":
         return <SettingsPage setPage={navigate} notify={notify} reloadData={() => loadKitchenData()} />;
     }
-  }, [page, selectedIngredientId, selectedOrderId, selectedRecipeId, query, notify, loadKitchenData, dataVersion]);
+  }, [page, selectedIngredientId, selectedOrderId, selectedRecipeId, query, notify, askConfirm, loadKitchenData, dataVersion]);
 
   if (page === "welcome" || page === "login") return <>{content}</>;
 
@@ -393,6 +406,7 @@ function App() {
         ))}
       </nav>
       {toast && <div className="toast" role="status" aria-live="polite">{toast}</div>}
+      {confirmRequest && <ConfirmDialog request={confirmRequest} onClose={() => setConfirmRequest(null)} />}
     </div>
   );
 }
@@ -494,6 +508,35 @@ function Login({ setPage }: { setPage: (page: Page) => void }) {
   );
 }
 
+function ConfirmDialog({ request, onClose }: { request: ConfirmRequest; onClose: () => void }) {
+  const [working, setWorking] = useState(false);
+  const runConfirm = async () => {
+    setWorking(true);
+    try {
+      await request.onConfirm();
+      onClose();
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "Unable to complete this action.");
+      setWorking(false);
+    }
+  };
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <section className="confirm-modal" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
+        <div>
+          <p className="eyebrow">{request.tone === "danger" ? "Destructive action" : "Please confirm"}</p>
+          <h2 id="confirm-title">{request.title}</h2>
+          <p>{request.message}</p>
+        </div>
+        <div className="button-row">
+          <Button variant="secondary" onClick={onClose}>Keep it</Button>
+          <Button variant={request.tone === "danger" ? "danger" : "primary"} onClick={runConfirm}>{working ? "Working..." : request.confirmLabel}</Button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
 function Dashboard({ setPage, setSelectedIngredientId }: any) {
   const shopping = generateShoppingList();
   const today = new Date().toISOString().slice(0, 10);
@@ -592,7 +635,7 @@ function Inventory({ setPage, setSelectedIngredientId, query, setQuery }: any) {
   );
 }
 
-function IngredientDetail({ ingredientId, setPage, notify, reloadData }: { ingredientId: string; setPage: (page: Page) => void; notify: (message: string) => void; reloadData: () => Promise<void> }) {
+function IngredientDetail({ ingredientId, setPage, notify, askConfirm, reloadData }: { ingredientId: string; setPage: (page: Page) => void; notify: (message: string) => void; askConfirm: AskConfirm; reloadData: () => Promise<void> }) {
   const ingredient = ingredients.find((item) => item.id === ingredientId)!;
   if (!ingredient) return <EmptyState title="Ingredient not found" message="Select an ingredient from inventory." />;
   const supplier = suppliers.find((item) => item.id === ingredient.supplierId);
@@ -610,7 +653,7 @@ function IngredientDetail({ ingredientId, setPage, notify, reloadData }: { ingre
           <Button variant="secondary" onClick={async () => { await apiAction("inventory.adjust", { ingredientId, movementType: "adjustment", quantityChange: -1, unit: ingredient.baseUnit, note: "Quick adjustment from ingredient detail" }); notify(`Adjusted ${ingredient.name} by -1${ingredient.baseUnit}.`); await reloadData(); }}>Adjust Stock</Button>
           <Button variant="secondary" onClick={() => notify(`${ingredient.name} usage history is shown in the movement timeline below.`)}>View Usage</Button>
           <Button variant="ghost" onClick={() => setPage("ingredient-form")}>Edit {ingredient.name}</Button>
-          <Button variant="danger" onClick={async () => { if (!window.confirm(`Archive ${ingredient.name}? It will disappear from active inventory but historical recipe/order records remain intact.`)) return; await apiAction("ingredient.delete", { ingredientId }); notify(`${ingredient.name} archived from active inventory.`); await reloadData(); setPage("inventory"); }}>Archive</Button>
+          <Button variant="danger" onClick={() => askConfirm({ title: `Archive ${ingredient.name}?`, message: "It will disappear from active inventory, while historical recipe and order records remain intact.", confirmLabel: "Archive Ingredient", tone: "danger", onConfirm: async () => { await apiAction("ingredient.delete", { ingredientId }); notify(`${ingredient.name} archived from active inventory.`); await reloadData(); setPage("inventory"); } })}>Archive</Button>
         </div>
       </article>
       <div className="split">
@@ -702,7 +745,7 @@ function Recipes({ setPage, setSelectedRecipeId, query, setQuery }: any) {
   );
 }
 
-function RecipeDetail({ recipeId, setPage, notify, reloadData }: { recipeId: string; setPage: (page: Page) => void; notify: (message: string) => void; reloadData: () => Promise<void> }) {
+function RecipeDetail({ recipeId, setPage, notify, askConfirm, reloadData }: { recipeId: string; setPage: (page: Page) => void; notify: (message: string) => void; askConfirm: AskConfirm; reloadData: () => Promise<void> }) {
   const recipe = recipes.find((item) => item.id === recipeId);
   if (!recipe) return <EmptyState title="Recipe not found" message="Select a recipe from the database-backed recipe library." />;
   const cost = calculateRecipeCost(recipeId, recipe.baseYieldQuantity);
@@ -710,7 +753,7 @@ function RecipeDetail({ recipeId, setPage, notify, reloadData }: { recipeId: str
     <div className="detail-layout">
       <article className="detail-hero">
         <div><p className="eyebrow">{recipe.category}</p><h2>{recipe.name}</h2><p>Base yield {recipe.baseYieldQuantity} {recipe.yieldUnit} · {formatNaira(cost.totalRecipeCost)} batch cost</p></div>
-        <div className="button-row"><Button onClick={() => setPage("scaling")}><Scale size={18} /> Scale Recipe</Button><Button variant="secondary" onClick={() => setPage("recipe-form")}>Edit Recipe</Button><Button variant="secondary" onClick={() => setPage("order-create")}>Create Order</Button><Button variant="ghost" onClick={async () => { await apiAction("recipe.save", { recipe: { name: `${recipe.name} Copy`, category: recipe.category, baseYieldQuantity: recipe.baseYieldQuantity, yieldUnit: recipe.yieldUnit, notes: recipe.notes, instructions: recipe.instructions.join("\n"), items: recipeItems.filter((item) => item.recipeId === recipe.id) } }); notify("Recipe duplicated in Neon."); await reloadData(); setPage("recipes"); }}>Duplicate</Button><Button variant="danger" onClick={async () => { if (!window.confirm(`Archive ${recipe.name}? Linked order history stays intact.`)) return; await apiAction("recipe.delete", { recipeId }); notify(`${recipe.name} archived from active recipes.`); await reloadData(); setPage("recipes"); }}>Archive</Button></div>
+        <div className="button-row"><Button onClick={() => setPage("scaling")}><Scale size={18} /> Scale Recipe</Button><Button variant="secondary" onClick={() => setPage("recipe-form")}>Edit Recipe</Button><Button variant="secondary" onClick={() => setPage("order-create")}>Create Order</Button><Button variant="ghost" onClick={async () => { await apiAction("recipe.save", { recipe: { name: `${recipe.name} Copy`, category: recipe.category, baseYieldQuantity: recipe.baseYieldQuantity, yieldUnit: recipe.yieldUnit, notes: recipe.notes, instructions: recipe.instructions.join("\n"), items: recipeItems.filter((item) => item.recipeId === recipe.id) } }); notify("Recipe duplicated in Neon."); await reloadData(); setPage("recipes"); }}>Duplicate</Button><Button variant="danger" onClick={() => askConfirm({ title: `Archive ${recipe.name}?`, message: "It will disappear from active recipes. Linked order history stays intact.", confirmLabel: "Archive Recipe", tone: "danger", onConfirm: async () => { await apiAction("recipe.delete", { recipeId }); notify(`${recipe.name} archived from active recipes.`); await reloadData(); setPage("recipes"); } })}>Archive</Button></div>
       </article>
       <div className="split">
         <Section title="Ingredients"><div className="compact-list">{recipeItems.filter((item) => item.recipeId === recipeId).map((item) => <div className="row-card" key={item.id}><strong>{ingredients.find((ingredient) => ingredient.id === item.ingredientId)?.name}</strong><span>{item.quantity}{item.unit}</span></div>)}</div></Section>
@@ -878,7 +921,7 @@ function CreateOrder({ orderId, setPage, notify, reloadData }: { orderId: string
   );
 }
 
-function OrderDetail({ orderId, setPage, notify, reloadData }: { orderId: string; setPage: (page: Page) => void; notify: (message: string) => void; reloadData: () => Promise<void> }) {
+function OrderDetail({ orderId, setPage, notify, askConfirm, reloadData }: { orderId: string; setPage: (page: Page) => void; notify: (message: string) => void; askConfirm: AskConfirm; reloadData: () => Promise<void> }) {
   const order = orders.find((item) => item.id === orderId);
   if (!order) return <EmptyState title="Order not found" message="Select an order from the live order list." />;
   const requirements = requirementsForOrder(orderId);
@@ -886,7 +929,7 @@ function OrderDetail({ orderId, setPage, notify, reloadData }: { orderId: string
   const cost = calculateOrderCost(orderId);
   return (
     <div className="detail-layout">
-      <article className="detail-hero"><div><p className="eyebrow">Order detail</p><h2>{order.customerName}</h2><p>{order.customerPhone} · {order.deliveryMethod} · due {order.dueDate}</p></div><div className="button-row"><Button variant="secondary" onClick={() => setPage("order-create")}>Edit Order</Button><Button onClick={async () => { const result = await apiAction("order.reserve", { orderId }); notify(result.shortage ? "Stock is short. Reservation was not created." : result.alreadyReserved ? "Stock is already reserved for this order." : "Stock reserved in Neon."); await reloadData(); }}>Reserve Stock</Button><Button variant="secondary" onClick={async () => { await apiAction("order.status", { orderId, status: "In Production", productionStatus: "In Progress" }); notify("Order marked as in production."); await reloadData(); }}>Mark In Production</Button><Button variant="secondary" onClick={async () => { await markOrderProduced(orderId, notify); await reloadData(); }}>Mark Produced</Button><Button variant="ghost" onClick={async () => { await apiAction("order.status", { orderId, status: "Delivered", productionStatus: "Completed" }); notify("Order marked as delivered."); await reloadData(); }}>Delivered</Button><Button variant="secondary" onClick={async () => { await apiAction("order.status", { orderId, status: "Cancelled" }); notify("Order cancelled and reservations released."); await reloadData(); }}>Cancel Order</Button><Button variant="danger" onClick={async () => { if (!window.confirm(`Delete ${order.customerName}'s order from active operations? Ledger history will be preserved.`)) return; await apiAction("order.delete", { orderId }); notify("Order deleted from active list and reservation released."); await reloadData(); setPage("orders"); }}>Delete Order</Button></div></article>
+      <article className="detail-hero"><div><p className="eyebrow">Order detail</p><h2>{order.customerName}</h2><p>{order.customerPhone} · {order.deliveryMethod} · due {order.dueDate}</p></div><div className="button-row"><Button variant="secondary" onClick={() => setPage("order-create")}>Edit Order</Button><Button onClick={async () => { const result = await apiAction("order.reserve", { orderId }); notify(result.shortage ? "Stock is short. Reservation was not created." : result.alreadyReserved ? "Stock is already reserved for this order." : "Stock reserved in Neon."); await reloadData(); }}>Reserve Stock</Button><Button variant="secondary" onClick={async () => { await apiAction("order.status", { orderId, status: "In Production", productionStatus: "In Progress" }); notify("Order marked as in production."); await reloadData(); }}>Mark In Production</Button><Button variant="secondary" onClick={async () => { await markOrderProduced(orderId, notify); await reloadData(); }}>Mark Produced</Button><Button variant="ghost" onClick={async () => { await apiAction("order.status", { orderId, status: "Delivered", productionStatus: "Completed" }); notify("Order marked as delivered."); await reloadData(); }}>Delivered</Button><Button variant="secondary" onClick={async () => { await apiAction("order.status", { orderId, status: "Cancelled" }); notify("Order cancelled and reservations released."); await reloadData(); }}>Cancel Order</Button><Button variant="danger" onClick={() => askConfirm({ title: `Delete ${order.customerName}'s order?`, message: "This removes the order from active operations and releases any reservation. Ledger history is preserved.", confirmLabel: "Delete Order", tone: "danger", onConfirm: async () => { await apiAction("order.delete", { orderId }); notify("Order deleted from active list and reservation released."); await reloadData(); setPage("orders"); } })}>Delete Order</Button></div></article>
       <div className="split"><SummaryCard title="Customer Info" items={[["Name", order.customerName], ["Phone", order.customerPhone], ["Payment", order.paymentStatus], ["Notes", order.notes ?? "None"]]} /><SummaryCard title="Cost Summary" items={[["Production cost", formatNaira(cost)], ["Stock status", order.stockStatus], ["Production status", order.productionStatus], ["Order status", order.status]]} /></div>
       <Section title="Required Ingredients"><div className="compact-list">{requirements.map((item) => <div className="row-card" key={item.ingredientId}><span>{item.ingredientName}</span><strong>{item.scaledQuantity}{item.unit}</strong></div>)}</div></Section>
       <Section title="Stock Check"><div className="compact-list">{availability.map((item) => <div className="row-card" key={item.ingredientId}><span>{item.ingredientName}<small>Required {item.requiredQuantity}, available {item.availableStock}</small></span><Badge tone={item.shortageQuantity > 0 ? "danger" : "success"}>{item.shortageQuantity > 0 ? "Shortage" : "Enough Stock"}</Badge></div>)}</div></Section>
@@ -982,19 +1025,19 @@ function AiAssistant({ setPage, notify, reloadData }: { setPage: (page: Page) =>
   );
 }
 
-function ConversionLibrary({ notify, reloadData }: { notify: (message: string) => void; reloadData: () => Promise<void> }) {
+function ConversionLibrary({ notify, askConfirm, reloadData }: { notify: (message: string) => void; askConfirm: AskConfirm; reloadData: () => Promise<void> }) {
   return (
     <Section title="Approved Conversion Rules" action={<Button onClick={async () => { const factor = window.prompt("Conversion value for 1 cup flour to grams", "120"); if (factor) { await apiAction("conversion.save", { rule: { ingredientId: ingredients[0]?.id, fromUnit: "cup", toUnit: ingredients[0]?.baseUnit ?? "g", conversionFactor: Number(factor), confidenceLevel: "Medium", source: "manual entry", verified: false } }); notify("Conversion rule added to Neon."); await reloadData(); } }}><Plus size={18} /> Add Conversion Rule</Button>}>
-      <ResponsiveTable headers={["Ingredient", "From", "To", "Value", "Confidence", "Source", "Verified", "Actions"]} rows={conversionRules.map((rule) => ({ key: rule.id, cells: [ingredients.find((item) => item.id === rule.ingredientId)?.name, rule.fromUnit, rule.toUnit, `1 ${rule.fromUnit} = ${rule.conversionFactor}${rule.toUnit}`, rule.confidenceLevel, rule.source, rule.verified ? <Badge tone="success">Verified</Badge> : <Badge tone="warning">Review</Badge>, <div className="button-row"><Button variant="secondary" onClick={async () => { await apiAction("conversion.verify", { ruleId: rule.id }); notify(`Verified ${rule.fromUnit} to ${rule.toUnit} conversion rule.`); await reloadData(); }}>Mark Verified</Button><Button variant="danger" onClick={async () => { if (!window.confirm(`Delete this ${rule.fromUnit} to ${rule.toUnit} conversion rule?`)) return; await apiAction("conversion.delete", { ruleId: rule.id }); notify("Conversion rule deleted."); await reloadData(); }}>Delete</Button></div>] }))} />
+      <ResponsiveTable headers={["Ingredient", "From", "To", "Value", "Confidence", "Source", "Verified", "Actions"]} rows={conversionRules.map((rule) => ({ key: rule.id, cells: [ingredients.find((item) => item.id === rule.ingredientId)?.name, rule.fromUnit, rule.toUnit, `1 ${rule.fromUnit} = ${rule.conversionFactor}${rule.toUnit}`, rule.confidenceLevel, rule.source, rule.verified ? <Badge tone="success">Verified</Badge> : <Badge tone="warning">Review</Badge>, <div className="button-row"><Button variant="secondary" onClick={async () => { await apiAction("conversion.verify", { ruleId: rule.id }); notify(`Verified ${rule.fromUnit} to ${rule.toUnit} conversion rule.`); await reloadData(); }}>Mark Verified</Button><Button variant="danger" onClick={() => askConfirm({ title: "Delete conversion rule?", message: `This removes the ${rule.fromUnit} to ${rule.toUnit} conversion rule from the approved library.`, confirmLabel: "Delete Rule", tone: "danger", onConfirm: async () => { await apiAction("conversion.delete", { ruleId: rule.id }); notify("Conversion rule deleted."); await reloadData(); } })}>Delete</Button></div>] }))} />
     </Section>
   );
 }
 
-function Suppliers({ notify, reloadData }: { notify: (message: string) => void; reloadData: () => Promise<void> }) {
+function Suppliers({ notify, askConfirm, reloadData }: { notify: (message: string) => void; askConfirm: AskConfirm; reloadData: () => Promise<void> }) {
   return (
     <Section title="Suppliers" action={<Button onClick={async () => { const name = window.prompt("Supplier name"); if (name) { await apiAction("supplier.save", { supplier: { name, contactName: "New contact", phone: "", email: "", address: "", notes: "Added from supplier screen" } }); notify("Supplier saved to Neon."); await reloadData(); } }}><Plus size={18} /> Add Supplier</Button>}>
       <div className="card-grid">
-        {suppliers.map((supplier) => <article className="item-card" key={supplier.id}><Truck size={22} /><h3>{supplier.name}</h3><p>{supplier.contactName} · {supplier.phone}</p><small>{ingredients.filter((item) => item.supplierId === supplier.id).map((item) => item.name).slice(0, 5).join(", ")}</small><small>Last purchase: May 12, 2026</small><p>{supplier.notes}</p><div className="button-row"><Button variant="secondary" onClick={async () => { const name = window.prompt("Supplier name", supplier.name); if (name) { await apiAction("supplier.save", { supplier: { id: supplier.id, name, contactName: supplier.contactName, phone: supplier.phone, email: supplier.email, address: supplier.address, notes: supplier.notes } }); notify("Supplier updated."); await reloadData(); } }}>Edit</Button><Button variant="danger" onClick={async () => { if (!window.confirm(`Delete supplier ${supplier.name}? Ingredients will become unassigned.`)) return; await apiAction("supplier.delete", { supplierId: supplier.id }); notify("Supplier deleted and ingredients unassigned."); await reloadData(); }}>Delete</Button></div></article>)}
+        {suppliers.map((supplier) => <article className="item-card" key={supplier.id}><Truck size={22} /><h3>{supplier.name}</h3><p>{supplier.contactName} · {supplier.phone}</p><small>{ingredients.filter((item) => item.supplierId === supplier.id).map((item) => item.name).slice(0, 5).join(", ")}</small><small>Last purchase: May 12, 2026</small><p>{supplier.notes}</p><div className="button-row"><Button variant="secondary" onClick={async () => { const name = window.prompt("Supplier name", supplier.name); if (name) { await apiAction("supplier.save", { supplier: { id: supplier.id, name, contactName: supplier.contactName, phone: supplier.phone, email: supplier.email, address: supplier.address, notes: supplier.notes } }); notify("Supplier updated."); await reloadData(); } }}>Edit</Button><Button variant="danger" onClick={() => askConfirm({ title: `Delete supplier ${supplier.name}?`, message: "Ingredients from this supplier will remain in inventory, but their supplier will become unassigned.", confirmLabel: "Delete Supplier", tone: "danger", onConfirm: async () => { await apiAction("supplier.delete", { supplierId: supplier.id }); notify("Supplier deleted and ingredients unassigned."); await reloadData(); } })}>Delete</Button></div></article>)}
       </div>
     </Section>
   );
