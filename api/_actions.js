@@ -113,6 +113,11 @@ async function releaseReservation(sql, orderId) {
 export async function handleAction(sql, body) {
   const action = required(body.action, "Action");
 
+  if (action === "schema.ensure") {
+    await sql`alter table orders add column if not exists archived boolean not null default false`;
+    return { ok: true };
+  }
+
   if (action === "ingredient.save") {
     const data = body.ingredient ?? {};
     const ingredientId = data.id || id("ing");
@@ -145,6 +150,16 @@ export async function handleAction(sql, body) {
       ] : [])
     ]);
     return { ok: true, id: ingredientId };
+  }
+
+  if (action === "ingredient.delete") {
+    const ingredientId = required(body.ingredientId, "Ingredient");
+    await sql`
+      update ingredients
+      set active = false, updated_at = now()
+      where id = ${ingredientId}
+    `;
+    return { ok: true, archived: true };
   }
 
   if (action === "inventory.adjust") {
@@ -200,17 +215,29 @@ export async function handleAction(sql, body) {
     return { ok: true, id: recipeId, productId };
   }
 
+  if (action === "recipe.delete") {
+    const recipeId = required(body.recipeId, "Recipe");
+    const rows = await sql`select product_id from recipes where id = ${recipeId}`;
+    if (!rows.length) throw Object.assign(new Error("Recipe not found."), { statusCode: 404 });
+    await sql.transaction((txn) => [
+      txn`update recipes set active = false, updated_at = now() where id = ${recipeId}`,
+      txn`update products set active = false, updated_at = now() where id = ${rows[0].product_id}`
+    ]);
+    return { ok: true, archived: true };
+  }
+
   if (action === "order.save") {
+    await sql`alter table orders add column if not exists archived boolean not null default false`;
     const data = body.order ?? {};
     const orderId = data.id || id("ord");
     const items = Array.isArray(data.items) ? data.items.filter((item) => item.productId && item.recipeId && num(item.requestedYieldQuantity) > 0) : [];
     if (!items.length) throw Object.assign(new Error("Add at least one order item."), { statusCode: 400 });
     await sql.transaction((txn) => [
       txn`
-        insert into orders (id, customer_name, customer_phone, due_date, delivery_method, status, payment_status, production_status, stock_status, notes)
-        values (${orderId}, ${required(data.customerName, "Customer name")}, ${data.customerPhone || null}, ${required(data.dueDate, "Due date")}, ${data.deliveryMethod || "Pickup"}, ${data.status || "Confirmed"}, ${data.paymentStatus || "Unpaid"}, 'Not Started', 'In Stock', ${data.notes || null})
+        insert into orders (id, customer_name, customer_phone, due_date, delivery_method, status, payment_status, production_status, stock_status, notes, archived)
+        values (${orderId}, ${required(data.customerName, "Customer name")}, ${data.customerPhone || null}, ${required(data.dueDate, "Due date")}, ${data.deliveryMethod || "Pickup"}, ${data.status || "Confirmed"}, ${data.paymentStatus || "Unpaid"}, 'Not Started', 'In Stock', ${data.notes || null}, false)
         on conflict (id) do update set customer_name = excluded.customer_name, customer_phone = excluded.customer_phone, due_date = excluded.due_date,
-          delivery_method = excluded.delivery_method, status = excluded.status, payment_status = excluded.payment_status, notes = excluded.notes, updated_at = now()
+          delivery_method = excluded.delivery_method, status = excluded.status, payment_status = excluded.payment_status, notes = excluded.notes, archived = false, updated_at = now()
       `,
       txn`delete from order_items where order_id = ${orderId}`,
       ...items.map((item, index) => txn`
@@ -226,6 +253,18 @@ export async function handleAction(sql, body) {
 
   if (action === "order.reserve") return reserveOrder(sql, required(body.orderId, "Order"));
   if (action === "order.releaseReservation") return releaseReservation(sql, required(body.orderId, "Order"));
+
+  if (action === "order.delete") {
+    await sql`alter table orders add column if not exists archived boolean not null default false`;
+    const orderId = required(body.orderId, "Order");
+    await releaseReservation(sql, orderId);
+    await sql`
+      update orders
+      set archived = true, status = 'Cancelled', stock_status = 'In Stock', updated_at = now()
+      where id = ${orderId}
+    `;
+    return { ok: true, archived: true };
+  }
 
   if (action === "order.status") {
     const orderId = required(body.orderId, "Order");
@@ -282,6 +321,20 @@ export async function handleAction(sql, body) {
   if (action === "conversion.verify") {
     await sql`update conversion_rules set verified = true, source = 'measured in kitchen', updated_at = now() where id = ${required(body.ruleId, "Rule")}`;
     return { ok: true };
+  }
+
+  if (action === "conversion.delete") {
+    await sql`delete from conversion_rules where id = ${required(body.ruleId, "Rule")}`;
+    return { ok: true, deleted: true };
+  }
+
+  if (action === "supplier.delete") {
+    const supplierId = required(body.supplierId, "Supplier");
+    await sql.transaction((txn) => [
+      txn`update ingredients set supplier_id = null, updated_at = now() where supplier_id = ${supplierId}`,
+      txn`delete from suppliers where id = ${supplierId}`
+    ]);
+    return { ok: true, deleted: true };
   }
 
   if (action === "settings.save") {

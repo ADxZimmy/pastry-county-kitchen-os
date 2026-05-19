@@ -86,6 +86,7 @@ create table if not exists orders (
   production_status text not null default 'Not Started' check (production_status in ('Not Started','Ready','In Progress','Completed')),
   stock_status text not null default 'In Stock' check (stock_status in ('In Stock','Low Stock','Out of Stock','Reserved','Shortage')),
   notes text,
+  archived boolean not null default false,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );

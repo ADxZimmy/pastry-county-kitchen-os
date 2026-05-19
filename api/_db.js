@@ -16,6 +16,7 @@ export const first = (rows) => rows[0];
 
 export async function loadKitchenSnapshot() {
   const sql = getSql();
+  await sql`alter table orders add column if not exists archived boolean not null default false`;
   const [
     supplierRows,
     ingredientRows,
@@ -48,9 +49,11 @@ export async function loadKitchenSnapshot() {
       order by name
     `,
     sql`
-      select id, recipe_id as "recipeId", ingredient_id as "ingredientId", quantity::float, unit,
-        waste_percentage::float as "wastePercentage", notes
+      select recipe_items.id, recipe_id as "recipeId", ingredient_id as "ingredientId", quantity::float, unit,
+        waste_percentage::float as "wastePercentage", recipe_items.notes
       from recipe_items
+      join recipes on recipes.id = recipe_items.recipe_id
+      where recipes.active = true
       order by recipe_id, id
     `,
     sql`
@@ -58,13 +61,16 @@ export async function loadKitchenSnapshot() {
         delivery_method as "deliveryMethod", status, payment_status as "paymentStatus",
         production_status as "productionStatus", stock_status as "stockStatus", notes
       from orders
+      where coalesce(archived, false) = false
       order by due_date, customer_name
     `,
     sql`
-      select id, order_id as "orderId", product_id as "productId", recipe_id as "recipeId",
+      select order_items.id, order_id as "orderId", product_id as "productId", recipe_id as "recipeId",
         requested_yield_quantity::float as "requestedYieldQuantity", yield_unit as "yieldUnit",
-        quantity_multiplier::float as "quantityMultiplier", notes
+        quantity_multiplier::float as "quantityMultiplier", order_items.notes
       from order_items
+      join orders on orders.id = order_items.order_id
+      where coalesce(orders.archived, false) = false
       order by order_id, id
     `,
     sql`
