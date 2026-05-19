@@ -94,6 +94,48 @@ const moreItems = [
   ["settings", Settings, "Settings"]
 ] as const;
 
+const pageIds = new Set<Page>([
+  "welcome",
+  "login",
+  "dashboard",
+  "recipes",
+  "recipe-detail",
+  "recipe-form",
+  "scaling",
+  "inventory",
+  "ingredient-detail",
+  "ingredient-form",
+  "orders",
+  "order-create",
+  "order-detail",
+  "production",
+  "shopping",
+  "costing",
+  "ai",
+  "conversions",
+  "suppliers",
+  "settings"
+]);
+
+type AppSession = {
+  page?: Page;
+  selectedRecipeId?: string;
+  selectedIngredientId?: string;
+  selectedOrderId?: string;
+};
+
+function readSession(): AppSession {
+  if (typeof window === "undefined") return {};
+  const hashPage = window.location.hash.replace(/^#\/?/, "") as Page;
+  try {
+    const session = JSON.parse(window.localStorage.getItem("pastry-county-session") ?? "{}") as AppSession;
+    const page = pageIds.has(hashPage) ? hashPage : pageIds.has(session.page as Page) ? session.page : undefined;
+    return { ...session, page };
+  } catch {
+    return pageIds.has(hashPage) ? { page: hashPage } : {};
+  }
+}
+
 function Badge({ children, tone = "neutral" }: { children: React.ReactNode; tone?: "neutral" | "success" | "warning" | "danger" | "caramel" }) {
   return <span className={`badge badge-${tone}`}>{children}</span>;
 }
@@ -200,10 +242,10 @@ async function shareText(text: string, notify: Notify) {
 }
 
 function App() {
-  const [page, setPage] = useState<Page>("welcome");
-  const [selectedRecipeId, setSelectedRecipeId] = useState("");
-  const [selectedIngredientId, setSelectedIngredientId] = useState("");
-  const [selectedOrderId, setSelectedOrderId] = useState("");
+  const [page, setPage] = useState<Page>(() => readSession().page ?? "welcome");
+  const [selectedRecipeId, setSelectedRecipeId] = useState(() => readSession().selectedRecipeId ?? "");
+  const [selectedIngredientId, setSelectedIngredientId] = useState(() => readSession().selectedIngredientId ?? "");
+  const [selectedOrderId, setSelectedOrderId] = useState(() => readSession().selectedOrderId ?? "");
   const [query, setQuery] = useState("");
   const [dataStatus, setDataStatus] = useState<"loading" | "ready" | "error">("loading");
   const [dataError, setDataError] = useState("");
@@ -222,9 +264,9 @@ function App() {
         const snapshot = await response.json();
         if (!cancelled?.()) {
           setKitchenSnapshot(snapshot);
-          setSelectedRecipeId(snapshot.recipes[0]?.id ?? "");
-          setSelectedIngredientId(snapshot.ingredients[0]?.id ?? "");
-          setSelectedOrderId(snapshot.orders[0]?.id ?? "");
+          setSelectedRecipeId((current) => snapshot.recipes.some((item: Recipe) => item.id === current) ? current : snapshot.recipes[0]?.id ?? "");
+          setSelectedIngredientId((current) => snapshot.ingredients.some((item: Ingredient) => item.id === current) ? current : snapshot.ingredients[0]?.id ?? "");
+          setSelectedOrderId((current) => snapshot.orders.some((item: Order) => item.id === current) ? current : snapshot.orders[0]?.id ?? "");
           setDataStatus("ready");
           setDataVersion((version) => version + 1);
         }
@@ -243,6 +285,11 @@ function App() {
       cancelled = true;
     };
   }, [loadKitchenData]);
+
+  useEffect(() => {
+    window.localStorage.setItem("pastry-county-session", JSON.stringify({ page, selectedRecipeId, selectedIngredientId, selectedOrderId }));
+    window.history.replaceState(null, "", `#${page}`);
+  }, [page, selectedIngredientId, selectedOrderId, selectedRecipeId]);
 
   const navigate = (next: Page) => {
     if (next === "settings" && page !== "settings") {
@@ -562,7 +609,7 @@ function IngredientDetail({ ingredientId, setPage, notify, reloadData }: { ingre
           <Button onClick={async () => { await apiAction("inventory.adjust", { ingredientId, movementType: "purchase", quantityChange: 100, unit: ingredient.baseUnit, note: "Quick add stock from ingredient detail" }); notify(`Added 100${ingredient.baseUnit} to ${ingredient.name}.`); await reloadData(); }}><PackagePlus size={18} /> Add Stock</Button>
           <Button variant="secondary" onClick={async () => { await apiAction("inventory.adjust", { ingredientId, movementType: "adjustment", quantityChange: -1, unit: ingredient.baseUnit, note: "Quick adjustment from ingredient detail" }); notify(`Adjusted ${ingredient.name} by -1${ingredient.baseUnit}.`); await reloadData(); }}>Adjust Stock</Button>
           <Button variant="secondary" onClick={() => notify(`${ingredient.name} usage history is shown in the movement timeline below.`)}>View Usage</Button>
-          <Button variant="ghost" onClick={() => setPage("ingredient-form")}>Edit</Button>
+          <Button variant="ghost" onClick={() => setPage("ingredient-form")}>Edit {ingredient.name}</Button>
         </div>
       </article>
       <div className="split">
