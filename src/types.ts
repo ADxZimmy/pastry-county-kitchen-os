@@ -12,6 +12,8 @@ export interface Supplier {
   email: string;
   address: string;
   defaultCurrency: string;
+  leadTimeDays?: number;
+  suppliedIngredientIds?: string[];
   notes: string;
 }
 
@@ -120,4 +122,7 @@ export interface Settings {
   requireAiConversionConfirmation: boolean;
   gramRoundingPreference: 1 | 5 | 10;
   eggRoundingPreference: "nearest_whole_egg" | "allow_gram_conversion";
+  safetyMarginPercentage?: number;
+  defaultTaxPercentage?: number;
+  lowStockNotificationEmail?: string;
 }

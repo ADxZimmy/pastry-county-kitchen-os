@@ -18,6 +18,11 @@ export async function loadKitchenSnapshot() {
   const sql = getSql();
   await sql`alter table orders add column if not exists archived boolean not null default false`;
   await sql`alter table suppliers add column if not exists default_currency text not null default 'NGN'`;
+  await sql`alter table suppliers add column if not exists lead_time_days integer not null default 2`;
+  await sql`alter table suppliers add column if not exists supplied_ingredient_ids text[] not null default '{}'`;
+  await sql`alter table settings add column if not exists safety_margin_percentage numeric(6,3) not null default 10`;
+  await sql`alter table settings add column if not exists default_tax_percentage numeric(6,3) not null default 0`;
+  await sql`alter table settings add column if not exists low_stock_notification_email text`;
   const [
     supplierRows,
     ingredientRows,
@@ -30,7 +35,7 @@ export async function loadKitchenSnapshot() {
     conversionRows,
     settingRows
   ] = await Promise.all([
-    sql`select id, name, contact_name as "contactName", phone, email, address, default_currency as "defaultCurrency", notes from suppliers order by name`,
+    sql`select id, name, contact_name as "contactName", phone, email, address, default_currency as "defaultCurrency", lead_time_days as "leadTimeDays", supplied_ingredient_ids as "suppliedIngredientIds", notes from suppliers order by name`,
     sql`
       select id, name, category, base_unit as "baseUnit", current_stock::float as "currentStock",
         reorder_level::float as "reorderLevel", latest_unit_cost::float as "latestUnitCost",
@@ -95,7 +100,10 @@ export async function loadKitchenSnapshot() {
         allow_negative_inventory as "allowNegativeInventory",
         require_ai_conversion_confirmation as "requireAiConversionConfirmation",
         gram_rounding_preference as "gramRoundingPreference",
-        egg_rounding_preference as "eggRoundingPreference"
+        egg_rounding_preference as "eggRoundingPreference",
+        safety_margin_percentage::float as "safetyMarginPercentage",
+        default_tax_percentage::float as "defaultTaxPercentage",
+        low_stock_notification_email as "lowStockNotificationEmail"
       from settings
       order by updated_at desc
       limit 1
@@ -122,7 +130,10 @@ export async function loadKitchenSnapshot() {
       allowNegativeInventory: false,
       requireAiConversionConfirmation: true,
       gramRoundingPreference: 5,
-      eggRoundingPreference: "nearest_whole_egg"
+      eggRoundingPreference: "nearest_whole_egg",
+      safetyMarginPercentage: 10,
+      defaultTaxPercentage: 0,
+      lowStockNotificationEmail: ""
     }
   };
 }

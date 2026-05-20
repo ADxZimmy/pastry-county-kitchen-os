@@ -206,6 +206,15 @@ function formNumber(form: HTMLFormElement, name: string, fallback = 0) {
   return Number.isFinite(value) ? value : fallback;
 }
 
+function formValues(form: HTMLFormElement, name: string) {
+  return new FormData(form).getAll(name).map(String).filter(Boolean);
+}
+
+function netSellingPrice(grossPrice: number) {
+  const taxRate = (settings.defaultTaxPercentage ?? 0) / 100;
+  return taxRate > 0 ? grossPrice / (1 + taxRate) : grossPrice;
+}
+
 async function apiAction(action: string, payload: Record<string, unknown> = {}) {
   const response = await fetch(`${apiBaseUrl}/api/actions`, {
     method: "POST",
@@ -423,11 +432,17 @@ function App() {
 
 function LoadingScreen() {
   return (
-    <main className="auth-screen">
-      <article className="auth-card">
+    <main className="auth-screen" aria-busy="true">
+      <article className="auth-card loading-card">
         <BrandMark />
         <h1>Opening the kitchen</h1>
         <p>Loading live inventory, recipes, orders, and conversion rules from Postgres.</p>
+        <div className="skeleton-grid" aria-hidden="true">
+          <span />
+          <span />
+          <span />
+          <span />
+        </div>
       </article>
     </main>
   );
@@ -754,6 +769,8 @@ function IngredientForm({ ingredientId, setPage, notify, reloadData }: { ingredi
           purchasePrice: formNumber(form, "purchasePrice"),
           supplierId: supplierName || undefined,
           expiryTrackingEnabled: formValue(form, "expiryTrackingEnabled"),
+          defaultExpiryDays: formNumber(form, "defaultExpiryDays"),
+          expiryDate: formValue(form, "expiryDate"),
           notes: formValue(form, "notes")
         }
       });
@@ -773,6 +790,8 @@ function IngredientForm({ ingredientId, setPage, notify, reloadData }: { ingredi
         <Field label="Purchase price"><input name="purchasePrice" type="number" min="0" step="0.01" placeholder="0" /></Field>
         <Field label="Supplier"><select name="supplierId" defaultValue={ingredient?.supplierId ?? ""}><option value="">Unassigned</option>{suppliers.map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.name}</option>)}</select></Field>
         <Field label="Expiry tracking"><select name="expiryTrackingEnabled" defaultValue={ingredient?.expiryTrackingEnabled ? "Yes" : "No"}><option>Yes</option><option>No</option></select></Field>
+        <Field label="Default expiry days"><input name="defaultExpiryDays" type="number" min="0" step="1" defaultValue={ingredient?.defaultExpiryDays ?? ""} placeholder="e.g. 14" /></Field>
+        <Field label="Current batch expiry"><input name="expiryDate" type="date" defaultValue={ingredient?.expiryDate?.slice(0, 10) ?? ""} /></Field>
         <Field label="Notes"><textarea name="notes" defaultValue={ingredient?.notes ?? ""} placeholder="Storage notes, preferred brands, or supplier details" /></Field>
       </div>
     </FormShell>
@@ -838,7 +857,12 @@ function RecipeForm({ recipeId, setPage, notify, reloadData }: { recipeId: strin
         quantity: formNumber(form, `quantity-${index}`),
         unit: formValue(form, `unit-${index}`),
         wastePercentage: formNumber(form, `wastePercentage-${index}`)
-      }));
+      })).map((item) => {
+        const ingredient = ingredients.find((candidate) => candidate.id === item.ingredientId);
+        if (!ingredient || item.unit === ingredient.baseUnit) return item;
+        const conversion = convertUnit(item.quantity, item.unit as Unit, ingredient.baseUnit, ingredient.id);
+        return conversion.needsReview ? item : { ...item, quantity: Number(conversion.convertedQuantity.toFixed(3)), unit: ingredient.baseUnit };
+      });
       await apiAction("recipe.save", {
         recipe: {
           id: recipe?.id,
@@ -866,7 +890,12 @@ function RecipeForm({ recipeId, setPage, notify, reloadData }: { recipeId: strin
           })}
         </div>
       </Section>
-      <Section title="AI helper"><div className="button-row"><Button variant="secondary" onClick={() => notify("Paste-to-structure helper is available from the AI Assistant page.")}><Bot size={18} /> Paste recipe and let AI structure it</Button><Button variant="secondary" onClick={() => notify("Conversion helper is available from the AI Assistant page.")}><Wand2 size={18} /> Convert cups/spoons to grams</Button></div></Section>
+      <Section title="Conversion helper"><div className="compact-list">{builderRows.map((row, index) => {
+        const item = existingItems[index];
+        const ingredient = ingredients.find((candidate) => candidate.id === item?.ingredientId);
+        const rule = item && ingredient ? conversionRules.find((candidate) => candidate.ingredientId === ingredient.id && candidate.fromUnit === item.unit && candidate.toUnit === ingredient.baseUnit) : undefined;
+        return <div className="row-card" key={row}><span>Row {index + 1}<small>{rule ? `Saved rule available: 1 ${rule.fromUnit} = ${rule.conversionFactor}${rule.toUnit}` : "Saved conversion rules apply automatically on save when available."}</small></span><Badge tone={rule ? "success" : "neutral"}>{rule ? "Ready" : "Auto-check"}</Badge></div>;
+      })}</div><div className="button-row"><Button variant="secondary" onClick={() => notify("Verified conversion rules are applied to recipe ingredients when you save.")}><Wand2 size={18} /> Apply saved conversions on save</Button><Button variant="secondary" onClick={() => notify("Paste-to-structure helper is available from the AI Assistant page.")}><Bot size={18} /> Paste recipe and structure</Button></div></Section>
       <Section title="Instructions"><Field label="Method"><textarea name="instructions" defaultValue={recipe?.instructions.join("\n") ?? ""} placeholder="Add the recipe method step by step" /></Field></Section>
     </FormShell>
   );
@@ -933,7 +962,9 @@ function CreateOrder({ orderId, setPage, notify, reloadData }: { orderId: string
   const requirements = previewOrderId ? requirementsForOrder(previewOrderId) : [];
   const availability = checkStockAvailability(requirements);
   const cost = previewOrderId ? calculateOrderCost(previewOrderId) : 0;
-  const margin = calculateMargin(18000, cost);
+  const sampleSellingPrice = 18000;
+  const netPrice = netSellingPrice(sampleSellingPrice);
+  const margin = calculateMargin(netPrice, cost);
   const previewItem = orderItems.find((item) => item.orderId === previewOrderId);
   return (
     <FormShell title={order ? "Edit Order" : "Create Order"} action="Confirm and Reserve Stock" onDone={async (form) => {
@@ -976,7 +1007,7 @@ function CreateOrder({ orderId, setPage, notify, reloadData }: { orderId: string
       <Section title="Stock Availability"><div className="compact-list">{availability.map((item) => <div className="row-card" key={item.ingredientId}><span>{item.ingredientName}<small>Available {item.availableStock}</small></span><Badge tone={item.status === "shortage" ? "danger" : "success"}>{item.status.replace(/_/g, " ")}</Badge></div>)}</div></Section>
       </div>
       {availability.some((item) => item.shortageQuantity > 0) && <article className="warning-card"><AlertTriangle size={22} /> Some ingredients are short. You can still save this order, but production cannot be completed until stock is updated.</article>}
-      <div className="metric-grid small"><Metric label="Estimated Production Cost" value={formatNaira(cost)} /><Metric label="Estimated Gross Margin" value={`${margin.grossMarginPercentage.toFixed(1)}%`} /></div>
+      <div className="metric-grid small"><Metric label="Estimated Production Cost" value={formatNaira(cost)} /><Metric label="Net Selling Price" value={formatNaira(netPrice)} /><Metric label="Estimated Gross Margin" value={`${margin.grossMarginPercentage.toFixed(1)}%`} /></div>
     </FormShell>
   );
 }
@@ -1049,7 +1080,11 @@ function Production({ setPage, setSelectedOrderId, notify, reloadData }: any) {
                 <h3>{recipe?.name ?? "Recipe"}</h3>
                 <p>{batch.totalYield} {recipe?.yieldUnit ?? "units"} · due {batch.dueDate}</p>
                 <small>{batch.orderIds.length} order{batch.orderIds.length === 1 ? "" : "s"} · {batchRequirements.slice(0, 3).map((item) => `${item.ingredientName} ${item.scaledQuantity}${item.unit}`).join(", ")}</small>
-                <div className="button-row"><Button variant="secondary" onClick={() => notify(`${recipe?.name ?? "Batch"} requirements grouped for ${batch.orderIds.length} order${batch.orderIds.length === 1 ? "" : "s"}.`)}>Review Batch</Button></div>
+                <div className="button-row">
+                  <Button variant="secondary" onClick={() => notify(`${recipe?.name ?? "Batch"} requirements grouped for ${batch.orderIds.length} order${batch.orderIds.length === 1 ? "" : "s"}.`)}>Review Batch</Button>
+                  <Button variant="secondary" onClick={async () => { await apiAction("production.batchStatus", { orderIds: batch.orderIds, status: "In Production", productionStatus: "In Progress" }); notify(`${recipe?.name ?? "Batch"} batch started.`); await reloadData(); }} disabled={hasShortage}>Start Batch</Button>
+                  <Button onClick={async () => { await apiAction("production.batchStatus", { orderIds: batch.orderIds, status: "Produced", productionStatus: "Completed" }); notify(`${recipe?.name ?? "Batch"} batch completed and stock deducted.`); await reloadData(); }} disabled={hasShortage}>Complete Batch</Button>
+                </div>
               </article>
             );
           })}
@@ -1162,12 +1197,13 @@ function Costing() {
   if (!recipe) return <EmptyState title="No recipes available" message="Create a recipe in the database before using costing." />;
   const safeYieldQty = yieldQty > 0 ? yieldQty : recipe.baseYieldQuantity;
   const cost = calculateRecipeCost(recipe.id, safeYieldQty);
-  const margin = calculateMargin(sellingPrice, cost.totalRecipeCost);
+  const netPrice = netSellingPrice(sellingPrice);
+  const margin = calculateMargin(netPrice, cost.totalRecipeCost);
   return (
     <div className="page-grid">
       <div className="split">
         <Section title="Recipe Cost Calculator"><div className="form-grid"><Field label="Recipe"><select value={recipe.id} onChange={(event) => { setSelectedRecipeId(event.target.value); const nextRecipe = recipes.find((item) => item.id === event.target.value); if (nextRecipe) setYieldQty(nextRecipe.baseYieldQuantity); }}>{recipes.map((recipe) => <option key={recipe.id} value={recipe.id}>{recipe.name}</option>)}</select></Field><Field label="Desired yield"><input type="number" min="0.001" step="0.001" value={yieldQty} onChange={(event) => setYieldQty(Number(event.target.value))} /></Field><Metric label="Ingredient cost" value={formatNaira(cost.totalRecipeCost)} /><Metric label={`Cost per ${recipe.yieldUnit}`} value={formatNaira(cost.costPerYieldUnit)} /></div></Section>
-        <Section title="Margin Calculator"><div className="form-grid"><Field label="Selling price"><input type="number" min="0" step="0.01" value={sellingPrice} onChange={(event) => setSellingPrice(Number(event.target.value))} /></Field><Metric label="Gross profit" value={formatNaira(margin.grossProfit)} /><Metric label="Gross margin" value={`${margin.grossMarginPercentage.toFixed(1)}%`} /></div></Section>
+        <Section title="Margin Calculator"><div className="form-grid"><Field label="Selling price"><input type="number" min="0" step="0.01" value={sellingPrice} onChange={(event) => setSellingPrice(Number(event.target.value))} /></Field><Metric label="Tax setting" value={`${settings.defaultTaxPercentage ?? 0}%`} /><Metric label="Net selling price" value={formatNaira(netPrice)} /><Metric label="Gross profit" value={formatNaira(margin.grossProfit)} /><Metric label="Gross margin" value={`${margin.grossMarginPercentage.toFixed(1)}%`} /></div></Section>
       </div>
       <Section title="Cost Breakdown Chart"><div className="bar-chart">{cost.ingredientCostBreakdown.slice(0, 6).map((item) => <div key={item.ingredientId}><span>{item.ingredientName}</span><div><i style={{ width: `${cost.totalRecipeCost > 0 ? Math.min(100, (item.cost / cost.totalRecipeCost) * 220) : 0}%` }} /></div><strong>{formatNaira(item.cost)}</strong></div>)}</div></Section>
       <article className="warning-card"><AlertTriangle size={22} /> Costs are calculated from the selected recipe and latest ingredient unit costs.</article>
@@ -1284,7 +1320,7 @@ function Suppliers({ notify, askConfirm, reloadData }: { notify: (message: strin
       {editingSupplier && <SupplierForm supplier={editingSupplier} notify={notify} reloadData={reloadData} onCancel={() => setEditingSupplier(null)} />}
       <Section title="Suppliers" action={<Button onClick={() => setEditingSupplier({ defaultCurrency: "NGN" })}><Plus size={18} /> Add Supplier</Button>}>
         <div className="card-grid">
-          {suppliers.map((supplier) => <article className="item-card" key={supplier.id}><Truck size={22} /><h3>{supplier.name}</h3><p>{supplier.contactName || "No contact"} · {supplier.phone || "No phone"}</p><small>{ingredients.filter((item) => item.supplierId === supplier.id).map((item) => item.name).slice(0, 5).join(", ") || "No linked ingredients"}</small><small>Default currency: {supplier.defaultCurrency ?? "NGN"}</small><p>{supplier.notes}</p><div className="button-row"><Button variant="secondary" onClick={() => setEditingSupplier(supplier)}>Edit</Button><Button variant="danger" onClick={() => askConfirm({ title: `Delete supplier ${supplier.name}?`, message: "Ingredients from this supplier will remain in inventory, but their supplier will become unassigned.", confirmLabel: "Delete Supplier", tone: "danger", onConfirm: async () => { await apiAction("supplier.delete", { supplierId: supplier.id }); notify("Supplier deleted and ingredients unassigned."); await reloadData(); } })}>Delete</Button></div></article>)}
+          {suppliers.map((supplier) => <article className="item-card" key={supplier.id}><Truck size={22} /><h3>{supplier.name}</h3><p>{supplier.contactName || "No contact"} · {supplier.phone || "No phone"}</p><small>{(supplier.suppliedIngredientIds?.length ? supplier.suppliedIngredientIds : ingredients.filter((item) => item.supplierId === supplier.id).map((item) => item.id)).map((id) => ingredients.find((item) => item.id === id)?.name).filter(Boolean).slice(0, 6).join(", ") || "No linked ingredients"}</small><small>Lead time: {supplier.leadTimeDays ?? 2} day{supplier.leadTimeDays === 1 ? "" : "s"} · Currency: {supplier.defaultCurrency ?? "NGN"}</small><p>{supplier.notes}</p><div className="button-row"><Button variant="secondary" onClick={() => setEditingSupplier(supplier)}>Edit</Button><Button variant="danger" onClick={() => askConfirm({ title: `Delete supplier ${supplier.name}?`, message: "Ingredients from this supplier will remain in inventory, but their supplier will become unassigned.", confirmLabel: "Delete Supplier", tone: "danger", onConfirm: async () => { await apiAction("supplier.delete", { supplierId: supplier.id }); notify("Supplier deleted and ingredients unassigned."); await reloadData(); } })}>Delete</Button></div></article>)}
         </div>
       </Section>
     </div>
@@ -1305,6 +1341,8 @@ function SupplierForm({ supplier, notify, reloadData, onCancel }: { supplier: Pa
           email: formValue(form, "email"),
           address: formValue(form, "address"),
           defaultCurrency: formValue(form, "defaultCurrency") || "NGN",
+          leadTimeDays: formNumber(form, "leadTimeDays", 2),
+          suppliedIngredientIds: formValues(form, "suppliedIngredientIds"),
           notes: formValue(form, "notes")
         }
       });
@@ -1320,6 +1358,8 @@ function SupplierForm({ supplier, notify, reloadData, onCancel }: { supplier: Pa
         <Field label="Email"><input name="email" type="email" defaultValue={supplier.email ?? ""} /></Field>
         <Field label="Address"><input name="address" defaultValue={supplier.address ?? ""} /></Field>
         <Field label="Default currency"><select name="defaultCurrency" defaultValue={supplier.defaultCurrency ?? "NGN"}><option value="NGN">Nigerian Naira</option></select></Field>
+        <Field label="Lead time days"><input name="leadTimeDays" type="number" min="0" step="1" defaultValue={supplier.leadTimeDays ?? 2} /></Field>
+        <Field label="Supplied items" helper="Hold Ctrl or Cmd to select multiple ingredients."><select name="suppliedIngredientIds" multiple defaultValue={supplier.suppliedIngredientIds ?? []}>{ingredients.map((ingredient) => <option key={ingredient.id} value={ingredient.id}>{ingredient.name}</option>)}</select></Field>
         <Field label="Notes"><textarea name="notes" defaultValue={supplier.notes ?? ""} placeholder="Lead time, preferred ordering channel, supplied items" /></Field>
       </div>
     </form>
@@ -1342,7 +1382,10 @@ function SettingsPage({ setPage, notify, reloadData }: { setPage: (page: Page) =
             eggRoundingPreference: formValue(form, "eggRoundingPreference"),
             defaultDeductionStage: formValue(form, "defaultDeductionStage"),
             allowNegativeInventory: formValue(form, "allowNegativeInventory"),
-            requireAiConversionConfirmation: formValue(form, "requireAiConversionConfirmation")
+            requireAiConversionConfirmation: formValue(form, "requireAiConversionConfirmation"),
+            safetyMarginPercentage: formNumber(form, "safetyMarginPercentage", 10),
+            defaultTaxPercentage: formNumber(form, "defaultTaxPercentage", 0),
+            lowStockNotificationEmail: formValue(form, "lowStockNotificationEmail")
           }
         });
         notify("Settings saved to Neon.");
@@ -1357,6 +1400,9 @@ function SettingsPage({ setPage, notify, reloadData }: { setPage: (page: Page) =
           <Field label="Deduct inventory when"><select name="defaultDeductionStage" defaultValue={settings.defaultDeductionStage}><option value="confirmation">Order is confirmed</option><option value="production_start">Production starts</option><option value="production_completion">Production is completed</option></select></Field>
           <Field label="Allow negative inventory"><select name="allowNegativeInventory" defaultValue={settings.allowNegativeInventory ? "Yes" : "No"}><option>Yes</option><option>No</option></select></Field>
           <Field label="Require confirmation before AI conversions"><select name="requireAiConversionConfirmation" defaultValue={settings.requireAiConversionConfirmation ? "Yes" : "No"}><option>Yes</option><option>No</option></select></Field>
+          <Field label="Purchase safety margin %"><input name="safetyMarginPercentage" type="number" min="0" step="0.1" defaultValue={settings.safetyMarginPercentage ?? 10} /></Field>
+          <Field label="Default tax %"><input name="defaultTaxPercentage" type="number" min="0" step="0.1" defaultValue={settings.defaultTaxPercentage ?? 0} /></Field>
+          <Field label="Low-stock notification email"><input name="lowStockNotificationEmail" type="email" defaultValue={settings.lowStockNotificationEmail ?? ""} placeholder="ops@example.com" /></Field>
           <Field label="User roles"><select defaultValue="Owner/Admin"><option>Owner/Admin</option><option>Baker</option><option>Inventory Manager</option><option>Viewer</option></select></Field>
         </div>
       </Section>
@@ -1374,10 +1420,17 @@ function Chips({ items, active, setActive }: { items: string[]; active: string; 
 }
 
 function ResponsiveTable({ headers, rows }: { headers: string[]; rows: { key: string; cells: React.ReactNode[]; onClick?: () => void }[] }) {
+  const activateRow = (event: React.MouseEvent, onClick?: () => void) => {
+    const target = event.target as HTMLElement;
+    if (target.closest("button,input,select,textarea,a")) return;
+    onClick?.();
+  };
   return (
     <div className="responsive-table">
-      <table><thead><tr>{headers.map((header) => <th key={header}>{header}</th>)}</tr></thead><tbody>{rows.map((row) => <tr key={row.key} onClick={row.onClick}>{row.cells.map((cell, index) => <td key={index}>{cell}</td>)}</tr>)}</tbody></table>
-      <div className="mobile-table-cards">{rows.map((row) => <article key={row.key} className="item-card" onClick={row.onClick}>{row.cells.map((cell, index) => <div className="mobile-row" key={index}><span>{headers[index]}</span><strong>{cell}</strong></div>)}</article>)}</div>
+      {rows.length === 0 ? <p className="empty-note">No rows to show.</p> : <>
+        <table><thead><tr>{headers.map((header) => <th key={header} scope="col">{header}</th>)}</tr></thead><tbody>{rows.map((row) => <tr key={row.key} onClick={(event) => activateRow(event, row.onClick)}>{row.cells.map((cell, index) => <td key={index} data-label={headers[index]}>{cell}</td>)}</tr>)}</tbody></table>
+        <div className="mobile-table-cards">{rows.map((row) => <article key={row.key} className="item-card" onClick={(event) => activateRow(event, row.onClick)}>{row.cells.map((cell, index) => <div className="mobile-row" key={index}><span>{headers[index]}</span><strong>{cell}</strong></div>)}</article>)}</div>
+      </>}
     </div>
   );
 }

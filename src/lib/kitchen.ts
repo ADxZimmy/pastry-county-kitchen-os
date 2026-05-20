@@ -190,7 +190,8 @@ export function generateShoppingList(orderIds = orders.filter((order) => ["Confi
     const afterUse = available - item.scaledQuantity;
     const shortage = Math.max(0, item.scaledQuantity - available);
     const reorderTopUp = Math.max(0, ingredient.reorderLevel - afterUse);
-    const suggestedBuyQuantity = roundByPreference(shortage + reorderTopUp, ingredient.baseUnit);
+    const safetyMargin = 1 + ((settings.safetyMarginPercentage ?? 0) / 100);
+    const suggestedBuyQuantity = roundByPreference((shortage + reorderTopUp) * safetyMargin, ingredient.baseUnit);
     const supplier = suppliers.find((candidate) => candidate.id === ingredient.supplierId);
     const demandOrderCount = orderIds.filter((orderId) => requirementsForOrder(orderId).some((requirement) => requirement.ingredientId === ingredient.id)).length;
     return {

@@ -16,6 +16,8 @@ create table if not exists suppliers (
   email text,
   address text,
   default_currency text not null default 'NGN',
+  lead_time_days integer not null default 2 check (lead_time_days >= 0),
+  supplied_ingredient_ids text[] not null default '{}',
   notes text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -158,6 +160,9 @@ create table if not exists settings (
   require_ai_conversion_confirmation boolean not null default true,
   gram_rounding_preference integer not null default 5 check (gram_rounding_preference in (1,5,10)),
   egg_rounding_preference text not null default 'nearest_whole_egg' check (egg_rounding_preference in ('nearest_whole_egg','allow_gram_conversion')),
+  safety_margin_percentage numeric(6,3) not null default 10 check (safety_margin_percentage >= 0),
+  default_tax_percentage numeric(6,3) not null default 0 check (default_tax_percentage >= 0),
+  low_stock_notification_email text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );

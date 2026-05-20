@@ -278,6 +278,11 @@ export async function handleAction(sql, body) {
   if (action === "schema.ensure") {
     await sql`alter table orders add column if not exists archived boolean not null default false`;
     await sql`alter table suppliers add column if not exists default_currency text not null default 'NGN'`;
+    await sql`alter table suppliers add column if not exists lead_time_days integer not null default 2`;
+    await sql`alter table suppliers add column if not exists supplied_ingredient_ids text[] not null default '{}'`;
+    await sql`alter table settings add column if not exists safety_margin_percentage numeric(6,3) not null default 10`;
+    await sql`alter table settings add column if not exists default_tax_percentage numeric(6,3) not null default 0`;
+    await sql`alter table settings add column if not exists low_stock_notification_email text`;
     return { ok: true };
   }
 
@@ -309,14 +314,19 @@ export async function handleAction(sql, body) {
     const stockAfterPurchase = currentStock + purchaseQuantity;
     const convertedPurchaseQuantity = purchaseQuantity || currentStock;
     const latestUnitCost = purchasePrice > 0 && purchaseQuantity > 0 ? purchasePrice / purchaseQuantity : fallbackUnitCost;
+    const defaultExpiryDays = num(data.defaultExpiryDays) || null;
+    const expiryDate = data.expiryDate || (bool(data.expiryTrackingEnabled) && defaultExpiryDays
+      ? new Date(Date.now() + defaultExpiryDays * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+      : null);
 
     await sql.transaction((txn) => [
       txn`
-        insert into ingredients (id, name, category, base_unit, current_stock, reorder_level, latest_unit_cost, supplier_id, expiry_tracking_enabled, notes)
-        values (${ingredientId}, ${name}, ${category}, ${baseUnit}, ${stockAfterPurchase}, ${reorderLevel}, ${latestUnitCost}, ${supplierId}, ${bool(data.expiryTrackingEnabled)}, ${data.notes || null})
+        insert into ingredients (id, name, category, base_unit, current_stock, reorder_level, latest_unit_cost, supplier_id, expiry_tracking_enabled, default_expiry_days, expiry_date, notes)
+        values (${ingredientId}, ${name}, ${category}, ${baseUnit}, ${stockAfterPurchase}, ${reorderLevel}, ${latestUnitCost}, ${supplierId}, ${bool(data.expiryTrackingEnabled)}, ${defaultExpiryDays}, ${expiryDate}, ${data.notes || null})
         on conflict (id) do update set name = excluded.name, category = excluded.category, base_unit = excluded.base_unit,
           current_stock = excluded.current_stock, reorder_level = excluded.reorder_level, latest_unit_cost = excluded.latest_unit_cost,
-          supplier_id = excluded.supplier_id, expiry_tracking_enabled = excluded.expiry_tracking_enabled, notes = excluded.notes, updated_at = now()
+          supplier_id = excluded.supplier_id, expiry_tracking_enabled = excluded.expiry_tracking_enabled, default_expiry_days = excluded.default_expiry_days,
+          expiry_date = excluded.expiry_date, notes = excluded.notes, updated_at = now()
       `,
       ...(purchaseQuantity > 0 ? [
         txn`
@@ -327,19 +337,38 @@ export async function handleAction(sql, body) {
           insert into inventory_movements (id, ingredient_id, movement_type, quantity_change, unit, note, created_by)
           values (${id("mov")}, ${ingredientId}, 'purchase', ${purchaseQuantity}, ${baseUnit}, 'Added stock from ingredient form purchase', 'system')
         `
-      ] : [])
+      ] : [
+        txn`
+          insert into inventory_movements (id, ingredient_id, movement_type, quantity_change, unit, note, created_by)
+          values (${id("mov-audit")}, ${ingredientId}, 'correction', 0, ${baseUnit}, ${data.id ? "Ingredient profile updated" : "Ingredient profile created"}, 'system')
+        `
+      ])
     ]);
     return { ok: true, id: ingredientId };
   }
 
   if (action === "ingredient.delete") {
     const ingredientId = required(body.ingredientId, "Ingredient");
-    await sql`
-      update ingredients
-      set active = false, updated_at = now()
-      where id = ${ingredientId}
-    `;
+    await sql.transaction((txn) => [
+      txn`
+        update ingredients
+        set active = false, updated_at = now()
+        where id = ${ingredientId}
+      `,
+      txn`
+        insert into inventory_movements (id, ingredient_id, movement_type, quantity_change, unit, note, created_by)
+        select ${id("mov-archive")}, id, 'correction', 0, base_unit, 'Ingredient archived', 'system'
+        from ingredients
+        where id = ${ingredientId}
+      `
+    ]);
     return { ok: true, archived: true };
+  }
+
+  if (action === "ingredient.restore") {
+    const ingredientId = required(body.ingredientId, "Ingredient");
+    await sql`update ingredients set active = true, updated_at = now() where id = ${ingredientId}`;
+    return { ok: true, restored: true };
   }
 
   if (action === "inventory.adjust") {
@@ -370,11 +399,13 @@ export async function handleAction(sql, body) {
   if (action === "supplier.save") {
     const data = body.supplier ?? {};
     const supplierId = data.id || id("sup");
+    const suppliedIngredientIds = Array.isArray(data.suppliedIngredientIds) ? data.suppliedIngredientIds.map(String) : [];
     await sql`
-      insert into suppliers (id, name, contact_name, phone, email, address, default_currency, notes)
-      values (${supplierId}, ${required(data.name, "Supplier name")}, ${data.contactName || null}, ${data.phone || null}, ${data.email || null}, ${data.address || null}, ${data.defaultCurrency || "NGN"}, ${data.notes || null})
+      insert into suppliers (id, name, contact_name, phone, email, address, default_currency, lead_time_days, supplied_ingredient_ids, notes)
+      values (${supplierId}, ${required(data.name, "Supplier name")}, ${data.contactName || null}, ${data.phone || null}, ${data.email || null}, ${data.address || null}, ${data.defaultCurrency || "NGN"}, ${nonNegative(num(data.leadTimeDays, 2), "Lead time")}, ${suppliedIngredientIds}, ${data.notes || null})
       on conflict (id) do update set name = excluded.name, contact_name = excluded.contact_name, phone = excluded.phone,
-        email = excluded.email, address = excluded.address, default_currency = excluded.default_currency, notes = excluded.notes, updated_at = now()
+        email = excluded.email, address = excluded.address, default_currency = excluded.default_currency, lead_time_days = excluded.lead_time_days,
+        supplied_ingredient_ids = excluded.supplied_ingredient_ids, notes = excluded.notes, updated_at = now()
     `;
     return { ok: true, id: supplierId };
   }
@@ -469,6 +500,7 @@ export async function handleAction(sql, body) {
         throw Object.assign(new Error("Cannot start production until ingredient shortages are resolved."), { statusCode: 409 });
       }
     }
+    if (status === "Produced") return produceOrder(sql, orderId);
     if (status === "Delivered") {
       const rows = await sql`select status from orders where id = ${orderId}`;
       if (rows[0]?.status !== "Produced") {
@@ -482,6 +514,43 @@ export async function handleAction(sql, body) {
     `;
     if (status === "Cancelled") await releaseReservation(sql, orderId);
     return { ok: true };
+  }
+
+  if (action === "production.batchStatus") {
+    const orderIds = Array.isArray(body.orderIds) ? body.orderIds.map(String) : [];
+    if (!orderIds.length) throw Object.assign(new Error("Select at least one order for this production batch."), { statusCode: 400 });
+    const status = required(body.status, "Status");
+    const productionStatus = body.productionStatus || (status === "In Production" ? "In Progress" : status === "Produced" ? "Completed" : "Ready");
+    if (status === "Produced") {
+      const results = [];
+      for (const orderId of orderIds) {
+        const reservation = await reserveOrder(sql, orderId);
+        if (reservation.shortage) {
+          throw Object.assign(new Error("Cannot complete this batch until ingredient shortages are resolved."), { statusCode: 409 });
+        }
+        await sql`
+          update orders
+          set status = 'In Production', production_status = 'In Progress', updated_at = now()
+          where id = ${orderId} and status not in ('Produced', 'Delivered', 'Cancelled')
+        `;
+        results.push(await produceOrder(sql, orderId));
+      }
+      return { ok: true, count: results.length, results };
+    }
+    if (status === "In Production") {
+      for (const orderId of orderIds) {
+        const reservation = await reserveOrder(sql, orderId);
+        if (reservation.shortage) {
+          throw Object.assign(new Error("Cannot start this batch until ingredient shortages are resolved."), { statusCode: 409 });
+        }
+      }
+    }
+    await sql.transaction((txn) => orderIds.map((orderId) => txn`
+      update orders
+      set status = ${status}, production_status = ${productionStatus}, updated_at = now()
+      where id = ${orderId}
+    `));
+    return { ok: true, count: orderIds.length };
   }
 
   if (action === "shopping.purchaseSuggested") {
@@ -563,11 +632,13 @@ export async function handleAction(sql, body) {
   if (action === "settings.save") {
     const data = body.settings ?? {};
     await sql`
-      insert into settings (id, business_name, currency, default_deduction_stage, allow_negative_inventory, require_ai_conversion_confirmation, gram_rounding_preference, egg_rounding_preference)
-      values ('default', ${data.businessName || "Pastry County"}, 'NGN', ${data.defaultDeductionStage || "production_completion"}, ${bool(data.allowNegativeInventory)}, ${bool(data.requireAiConversionConfirmation)}, ${num(data.gramRoundingPreference, 5)}, ${data.eggRoundingPreference || "nearest_whole_egg"})
+      insert into settings (id, business_name, currency, default_deduction_stage, allow_negative_inventory, require_ai_conversion_confirmation, gram_rounding_preference, egg_rounding_preference, safety_margin_percentage, default_tax_percentage, low_stock_notification_email)
+      values ('default', ${data.businessName || "Pastry County"}, 'NGN', ${data.defaultDeductionStage || "production_completion"}, ${bool(data.allowNegativeInventory)}, ${bool(data.requireAiConversionConfirmation)}, ${num(data.gramRoundingPreference, 5)}, ${data.eggRoundingPreference || "nearest_whole_egg"}, ${nonNegative(num(data.safetyMarginPercentage, 10), "Safety margin")}, ${nonNegative(num(data.defaultTaxPercentage, 0), "Tax percentage")}, ${data.lowStockNotificationEmail || null})
       on conflict (id) do update set business_name = excluded.business_name, default_deduction_stage = excluded.default_deduction_stage,
         allow_negative_inventory = excluded.allow_negative_inventory, require_ai_conversion_confirmation = excluded.require_ai_conversion_confirmation,
-        gram_rounding_preference = excluded.gram_rounding_preference, egg_rounding_preference = excluded.egg_rounding_preference, updated_at = now()
+        gram_rounding_preference = excluded.gram_rounding_preference, egg_rounding_preference = excluded.egg_rounding_preference,
+        safety_margin_percentage = excluded.safety_margin_percentage, default_tax_percentage = excluded.default_tax_percentage,
+        low_stock_notification_email = excluded.low_stock_notification_email, updated_at = now()
     `;
     return { ok: true };
   }

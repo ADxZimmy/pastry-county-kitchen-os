@@ -2,11 +2,11 @@ insert into app_users (id, email, full_name, role, password_hash) values
   ('user-owner', 'owner@pastrycounty.ng', 'Pastry County Owner', 'Owner/Admin', '$2a$10$/zx3vcuPpG/HOzAb8pM2tO4FnQdHDT1nCsxRdUaA636c22zbGtlCu')
 on conflict (id) do update set email = excluded.email, full_name = excluded.full_name, role = excluded.role, password_hash = excluded.password_hash, updated_at = now();
 
-insert into suppliers (id, name, contact_name, phone, email, address, default_currency, notes) values
-  ('sup-market', 'Balogun Baking Market', 'Mrs Ade', '+234 801 555 0140', 'orders@balogunmarket.ng', 'Lagos Island', 'NGN', 'Reliable dry goods and chocolate.'),
-  ('sup-farm', 'Fresh Crate Farms', 'Timi', '+234 802 555 0172', 'hello@freshcrate.ng', 'Lekki', 'NGN', 'Eggs, berries, lemons, bananas.'),
-  ('sup-pack', 'Ivory Pack Studio', 'Nora', '+234 803 555 0188', 'sales@ivorypack.ng', 'Yaba', 'NGN', 'Boxes, stickers, parchment.')
-on conflict (id) do update set name = excluded.name, contact_name = excluded.contact_name, phone = excluded.phone, email = excluded.email, address = excluded.address, default_currency = excluded.default_currency, notes = excluded.notes, updated_at = now();
+insert into suppliers (id, name, contact_name, phone, email, address, default_currency, lead_time_days, supplied_ingredient_ids, notes) values
+  ('sup-market', 'Balogun Baking Market', 'Mrs Ade', '+234 801 555 0140', 'orders@balogunmarket.ng', 'Lagos Island', 'NGN', 2, array['flour','sugar','cocoa','dark-chocolate','white-chocolate','coconut-oil','vanilla','baking-powder','salt','peanuts'], 'Reliable dry goods and chocolate.'),
+  ('sup-farm', 'Fresh Crate Farms', 'Timi', '+234 802 555 0172', 'hello@freshcrate.ng', 'Lekki', 'NGN', 1, array['eggs','egg-yolks','egg-whites','lemon','blueberries','banana'], 'Eggs, berries, lemons, bananas.'),
+  ('sup-pack', 'Ivory Pack Studio', 'Nora', '+234 803 555 0188', 'sales@ivorypack.ng', 'Yaba', 'NGN', 3, array['box','parchment','stickers'], 'Boxes, stickers, parchment.')
+on conflict (id) do update set name = excluded.name, contact_name = excluded.contact_name, phone = excluded.phone, email = excluded.email, address = excluded.address, default_currency = excluded.default_currency, lead_time_days = excluded.lead_time_days, supplied_ingredient_ids = excluded.supplied_ingredient_ids, notes = excluded.notes, updated_at = now();
 
 insert into ingredients (id, name, category, base_unit, current_stock, reserved_stock, reorder_level, latest_unit_cost, supplier_id, expiry_tracking_enabled, notes) values
   ('flour', 'Flour', 'Dry Goods', 'g', 10000, 0, 3000, 0.50, 'sup-market', false, null),
@@ -85,6 +85,6 @@ insert into conversion_rules (id, ingredient_id, from_unit, to_unit, conversion_
   ('cr-white', 'egg-whites', 'white', 'g', 30, 'ingredient_specific', 'Medium', 'seed rule', true)
 on conflict (id) do update set ingredient_id = excluded.ingredient_id, from_unit = excluded.from_unit, to_unit = excluded.to_unit, conversion_factor = excluded.conversion_factor, conversion_type = excluded.conversion_type, confidence_level = excluded.confidence_level, source = excluded.source, verified = excluded.verified, updated_at = now();
 
-insert into settings (id, business_name, currency, default_deduction_stage, allow_negative_inventory, require_ai_conversion_confirmation, gram_rounding_preference, egg_rounding_preference) values
-  ('default', 'Pastry County', 'NGN', 'production_completion', false, true, 5, 'nearest_whole_egg')
-on conflict (id) do update set business_name = excluded.business_name, currency = excluded.currency, default_deduction_stage = excluded.default_deduction_stage, allow_negative_inventory = excluded.allow_negative_inventory, require_ai_conversion_confirmation = excluded.require_ai_conversion_confirmation, gram_rounding_preference = excluded.gram_rounding_preference, egg_rounding_preference = excluded.egg_rounding_preference, updated_at = now();
+insert into settings (id, business_name, currency, default_deduction_stage, allow_negative_inventory, require_ai_conversion_confirmation, gram_rounding_preference, egg_rounding_preference, safety_margin_percentage, default_tax_percentage, low_stock_notification_email) values
+  ('default', 'Pastry County', 'NGN', 'production_completion', false, true, 5, 'nearest_whole_egg', 10, 0, null)
+on conflict (id) do update set business_name = excluded.business_name, currency = excluded.currency, default_deduction_stage = excluded.default_deduction_stage, allow_negative_inventory = excluded.allow_negative_inventory, require_ai_conversion_confirmation = excluded.require_ai_conversion_confirmation, gram_rounding_preference = excluded.gram_rounding_preference, egg_rounding_preference = excluded.egg_rounding_preference, safety_margin_percentage = excluded.safety_margin_percentage, default_tax_percentage = excluded.default_tax_percentage, low_stock_notification_email = excluded.low_stock_notification_email, updated_at = now();
