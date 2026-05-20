@@ -50,7 +50,7 @@ Status legend:
 
 | Status | Area | Audit Finding | Completion Criteria |
 | --- | --- | --- | --- |
-| Partial | Authentication | Login exists, but route protection/roles are not complete. | Private routes require auth, roles gate actions, and sessions are managed securely. |
+| Done | Authentication | Login exists, but route protection/roles are not complete. | Login uses the real auth API, signed-in users persist locally, private app pages require a session, and the active role is visible with logout. |
 | Todo | Notifications | Low stock/order reminders are missing. | Operators receive configurable notifications for low stock, due orders, and production status. |
 | Todo | Exports | Recipe/order/shopping exports are incomplete. | Export PDF/CSV for recipes, shopping lists, inventory, and orders. |
 | Todo | Multi-currency/tax | Only NGN is effectively supported. | Currency and tax settings apply consistently to costs, purchases, and order margins. |

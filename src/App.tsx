@@ -123,6 +123,14 @@ type AppSession = {
   selectedRecipeId?: string;
   selectedIngredientId?: string;
   selectedOrderId?: string;
+  user?: AppUser;
+};
+
+type AppUser = {
+  id: string;
+  email: string;
+  fullName: string;
+  role: "Owner/Admin" | "Baker" | "Inventory Manager" | "Viewer";
 };
 
 function readSession(): AppSession {
@@ -268,10 +276,12 @@ async function shareText(text: string, notify: Notify) {
 }
 
 function App() {
-  const [page, setPage] = useState<Page>(() => readSession().page ?? "welcome");
-  const [selectedRecipeId, setSelectedRecipeId] = useState(() => readSession().selectedRecipeId ?? "");
-  const [selectedIngredientId, setSelectedIngredientId] = useState(() => readSession().selectedIngredientId ?? "");
-  const [selectedOrderId, setSelectedOrderId] = useState(() => readSession().selectedOrderId ?? "");
+  const savedSession = readSession();
+  const [user, setUser] = useState<AppUser | undefined>(() => savedSession.user);
+  const [page, setPage] = useState<Page>(() => savedSession.user ? savedSession.page ?? "dashboard" : savedSession.page === "login" ? "login" : "welcome");
+  const [selectedRecipeId, setSelectedRecipeId] = useState(() => savedSession.selectedRecipeId ?? "");
+  const [selectedIngredientId, setSelectedIngredientId] = useState(() => savedSession.selectedIngredientId ?? "");
+  const [selectedOrderId, setSelectedOrderId] = useState(() => savedSession.selectedOrderId ?? "");
   const [query, setQuery] = useState("");
   const [dataStatus, setDataStatus] = useState<"loading" | "ready" | "error">("loading");
   const [dataError, setDataError] = useState("");
@@ -318,9 +328,9 @@ function App() {
   }, [loadKitchenData]);
 
   useEffect(() => {
-    window.localStorage.setItem("pastry-county-session", JSON.stringify({ page, selectedRecipeId, selectedIngredientId, selectedOrderId }));
+    window.localStorage.setItem("pastry-county-session", JSON.stringify({ page, selectedRecipeId, selectedIngredientId, selectedOrderId, user }));
     window.history.replaceState(null, "", `#${page}`);
-  }, [page, selectedIngredientId, selectedOrderId, selectedRecipeId]);
+  }, [page, selectedIngredientId, selectedOrderId, selectedRecipeId, user]);
 
   const navigate = (next: Page) => {
     if (next !== page) setQuery("");
@@ -337,7 +347,7 @@ function App() {
       case "welcome":
         return <Welcome setPage={navigate} />;
       case "login":
-        return <Login setPage={navigate} />;
+        return <Login setPage={navigate} setUser={setUser} notify={notify} />;
       case "dashboard":
         return <Dashboard {...props} />;
       case "recipes":
@@ -375,9 +385,11 @@ function App() {
       case "settings":
         return <SettingsPage setPage={navigate} notify={notify} reloadData={() => loadKitchenData()} />;
     }
-  }, [page, selectedIngredientId, selectedOrderId, selectedRecipeId, query, notify, askConfirm, loadKitchenData, dataVersion]);
+  }, [page, selectedIngredientId, selectedOrderId, selectedRecipeId, query, notify, askConfirm, loadKitchenData, dataVersion, user]);
 
   if (page === "welcome" || page === "login") return <>{content}</>;
+
+  if (!user) return <Login setPage={navigate} setUser={setUser} notify={notify} />;
 
   if (dataStatus === "loading") {
     return <LoadingScreen />;
@@ -410,9 +422,13 @@ function App() {
             <p className="eyebrow">Pastry County Kitchen OS</p>
             <h1>{titleFor(page)}</h1>
           </div>
-          <Button variant="secondary" onClick={() => navigate("ai")}>
-            <Bot size={18} /> Ask AI
-          </Button>
+          <div className="button-row">
+            <Badge tone="caramel">{user.role}</Badge>
+            <Button variant="secondary" onClick={() => navigate("ai")}>
+              <Bot size={18} /> Ask AI
+            </Button>
+            <Button variant="ghost" onClick={() => { setUser(undefined); setPage("login"); notify("Logged out."); }}>Logout</Button>
+          </div>
         </header>
         {content}
       </main>
@@ -511,21 +527,42 @@ function Welcome({ setPage }: { setPage: (page: Page) => void }) {
   );
 }
 
-function Login({ setPage }: { setPage: (page: Page) => void }) {
+function Login({ setPage, setUser, notify }: { setPage: (page: Page) => void; setUser: (user: AppUser) => void; notify: Notify }) {
+  const [working, setWorking] = useState(false);
   return (
     <main className="auth-screen">
-      <form className="auth-card" onSubmit={(event) => { event.preventDefault(); setPage("dashboard"); }}>
+      <form className="auth-card" onSubmit={async (event) => {
+        event.preventDefault();
+        setWorking(true);
+        const form = event.currentTarget;
+        try {
+          const response = await fetch(`${apiBaseUrl}/api/auth/login`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ email: formValue(form, "email"), password: formValue(form, "password") })
+          });
+          const result = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(result.error || "Login failed.");
+          setUser(result as AppUser);
+          notify(`Signed in as ${(result as AppUser).role}.`);
+          setPage("dashboard");
+        } catch (error) {
+          notify(error instanceof Error ? error.message : "Login failed.");
+        } finally {
+          setWorking(false);
+        }
+      }}>
         <BrandMark />
         <h1>Welcome back</h1>
         <p>Built for bakery teams that measure twice and bake once.</p>
         <Field label="Email">
-          <input type="email" autoComplete="email" placeholder="owner@pastrycounty.ng" />
+          <input name="email" type="email" autoComplete="email" placeholder="owner@pastrycounty.ng" required />
         </Field>
         <Field label="Password">
-          <input type="password" autoComplete="current-password" placeholder="••••••••" />
+          <input name="password" type="password" autoComplete="current-password" placeholder="Password" required />
         </Field>
-        <Button type="submit">
-          <LogIn size={18} /> Login
+        <Button type="submit" disabled={working}>
+          <LogIn size={18} /> {working ? "Checking..." : "Login"}
         </Button>
         <button type="button" className="text-link" onClick={() => alert("Password reset will be connected when team email delivery is configured.")}>Forgot password?</button>
       </form>
