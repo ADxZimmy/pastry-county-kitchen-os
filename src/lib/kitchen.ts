@@ -1,4 +1,4 @@
-import { conversionRules, ingredients, orderItems, orders, recipeItems, recipes, settings, suppliers } from "../data";
+import { conversionRules, ingredients, inventoryMovements, orderItems, orders, recipeItems, recipes, settings, suppliers } from "../data";
 import type { ConversionRule, Ingredient, Order, OrderItem, Recipe, RecipeItem, Unit } from "../types";
 
 export interface ScaledIngredient {
@@ -99,6 +99,42 @@ export function checkStockAvailability(scaledIngredients: ScaledIngredient[], in
   });
 }
 
+export function reservationQuantityForOrder(orderId: string, ingredientId: string, unit: Unit) {
+  return inventoryMovements
+    .filter((movement) => movement.relatedOrderId === orderId && movement.ingredientId === ingredientId && movement.unit === unit && ["reservation", "reservation_release"].includes(movement.movementType))
+    .reduce((sum, movement) => sum + movement.quantityChange, 0);
+}
+
+export function checkOrderStockAvailability(orderId: string, ingredientList = ingredients): StockAvailability[] {
+  return requirementsForOrder(orderId).map((item) => {
+    const ingredient = ingredientList.find((candidate) => candidate.id === item.ingredientId);
+    if (!ingredient) throw new Error(`Ingredient ${item.ingredientId} was not found`);
+    const reservedStock = ingredient.reservedStock ?? 0;
+    const reservedForThisOrder = Math.max(0, reservationQuantityForOrder(orderId, item.ingredientId, item.unit));
+    const availableStock = ingredient.currentStock - Math.max(0, reservedStock - reservedForThisOrder);
+    const shortageQuantity = Math.max(0, item.scaledQuantity - availableStock);
+    const remaining = availableStock - item.scaledQuantity;
+    const status =
+      ingredient.currentStock <= 0
+        ? "out_of_stock"
+        : shortageQuantity > 0
+          ? "shortage"
+          : remaining <= ingredient.reorderLevel
+            ? "low_stock_after_use"
+            : "enough_stock";
+    return {
+      ingredientId: item.ingredientId,
+      ingredientName: item.ingredientName,
+      requiredQuantity: item.scaledQuantity,
+      currentStock: ingredient.currentStock,
+      reservedStock,
+      availableStock,
+      shortageQuantity,
+      status
+    };
+  });
+}
+
 export function calculateRecipeCost(recipeId: string, requestedYieldQuantity: number) {
   const scaled = scaleRecipe(recipeId, requestedYieldQuantity);
   const ingredientCostBreakdown = scaled.map((item) => {
@@ -156,16 +192,22 @@ export function generateShoppingList(orderIds = orders.filter((order) => ["Confi
     const reorderTopUp = Math.max(0, ingredient.reorderLevel - afterUse);
     const suggestedBuyQuantity = roundByPreference(shortage + reorderTopUp, ingredient.baseUnit);
     const supplier = suppliers.find((candidate) => candidate.id === ingredient.supplierId);
+    const demandOrderCount = orderIds.filter((orderId) => requirementsForOrder(orderId).some((requirement) => requirement.ingredientId === ingredient.id)).length;
     return {
       ingredientId: ingredient.id,
       ingredientName: ingredient.name,
       currentStock: ingredient.currentStock,
+      availableStock: available,
       requiredQuantity: item.scaledQuantity,
       shortageQuantity: shortage,
       reorderLevel: ingredient.reorderLevel,
       suggestedBuyQuantity,
       estimatedCost: suggestedBuyQuantity * ingredient.latestUnitCost,
+      unitCost: ingredient.latestUnitCost,
+      supplierId: ingredient.supplierId,
       supplier: supplier?.name ?? "Unassigned",
+      demandOrderCount,
+      reason: shortage > 0 ? "Order shortage" : "Below reorder level",
       unit: ingredient.baseUnit
     };
   }).filter((item) => item.suggestedBuyQuantity > 0);

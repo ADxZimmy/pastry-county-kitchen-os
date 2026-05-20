@@ -26,9 +26,9 @@ Status legend:
 
 | Status | Area | Audit Finding | Completion Criteria |
 | --- | --- | --- | --- |
-| Partial | Shopping list | Shortage calculations need broader real-order coverage and editable purchase cost. | Shopping list aggregates all active demand, low-stock top-ups, editable quantities/prices, supplier assignment, and purchase notes. |
-| Partial | Order reservation | Reservation is all-or-nothing. Audit requested partial reservation. | Operators can reserve available stock, see remaining shortages, and release/adjust partial reservations. |
-| Partial | Production module | Production page still needs deeper batching and schedule logic. | Orders are grouped by recipe/date, batch quantities are calculated, and production tasks progress independently. |
+| Done | Shopping list | Shortage calculations need broader real-order coverage and editable purchase cost. | Shopping list aggregates active demand, low-stock top-ups, editable quantities/prices, supplier assignment, and purchase notes. |
+| Done | Order reservation | Reservation is all-or-nothing. Audit requested partial reservation. | Operators can reserve available stock, see remaining shortages, and reserve the remainder after stock is purchased. |
+| Partial | Production module | Production page still needs deeper task workflow, though grouping is now available. | Orders are grouped by recipe/date and batch quantities are calculated; remaining work is independent task progress per batch. |
 | Partial | Supplier management | Supplier CRUD exists, but supply catalogs and lead times are missing. | Suppliers can be linked to supplied ingredients, lead time, currency, and preferred ordering details. |
 | Partial | Settings | Settings page exists for core preferences, but more settings are needed. | Business profile, currency/unit preferences, rounding, deduction timing, AI confirmation, and tax defaults all persist and affect app behavior. |
 | Partial | Conversion library reuse | Conversion rules save, but recipe-builder reuse is incomplete. | Recipe entry can apply saved conversion rules while adding or parsing ingredients. |
@@ -69,8 +69,8 @@ Status legend:
 
 ## Next Recommended Work
 
-1. Finish partial reservation and richer shopping-list purchasing.
-2. Complete production batching and scheduling.
-3. Run a full mobile/accessibility pass.
-4. Add route-level code splitting, loading states, and Lighthouse-driven performance fixes.
-5. Finish auth/roles and broader audit logging.
+1. Complete independent production task progress per grouped batch.
+2. Run a full mobile/accessibility pass.
+3. Add route-level code splitting, loading states, and Lighthouse-driven performance fixes.
+4. Finish auth/roles and broader audit logging.
+5. Add expiry/batch tracking and broader export support.

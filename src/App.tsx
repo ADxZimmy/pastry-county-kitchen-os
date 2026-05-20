@@ -32,6 +32,7 @@ import {
   calculateMargin,
   calculateOrderCost,
   calculateRecipeCost,
+  checkOrderStockAvailability,
   checkStockAvailability,
   convertUnit,
   formatNaira,
@@ -178,7 +179,7 @@ function stockTone(status: StockStatus | string) {
 }
 
 function hasShortageForOrder(orderId: string) {
-  return checkStockAvailability(requirementsForOrder(orderId)).some((item) => item.shortageQuantity > 0);
+  return checkOrderStockAvailability(orderId).some((item) => item.shortageQuantity > 0);
 }
 
 function formatQuantity(value: number, unit: Unit) {
@@ -984,10 +985,10 @@ function OrderDetail({ orderId, setPage, notify, askConfirm, reloadData }: { ord
   const order = orders.find((item) => item.id === orderId);
   if (!order) return <EmptyState title="Order not found" message="Select an order from the live order list." />;
   const requirements = requirementsForOrder(orderId);
-  const availability = checkStockAvailability(requirements);
+  const availability = checkOrderStockAvailability(orderId);
   const hasShortage = availability.some((item) => item.shortageQuantity > 0);
   const isFinal = ["Produced", "Delivered", "Cancelled"].includes(order.status);
-  const canReserve = !hasShortage && !["Stock Reserved", "In Production", "Produced", "Delivered", "Cancelled"].includes(order.status);
+  const canReserve = !["Produced", "Delivered", "Cancelled"].includes(order.status);
   const canStartProduction = !hasShortage && ["Confirmed", "Stock Reserved", "In Production"].includes(order.status);
   const canProduce = !hasShortage && ["Stock Reserved", "In Production"].includes(order.status);
   const canDeliver = order.status === "Produced";
@@ -1002,7 +1003,7 @@ function OrderDetail({ orderId, setPage, notify, askConfirm, reloadData }: { ord
         </div>
         <div className="button-row">
           <Button variant="secondary" onClick={() => setPage("order-create")} disabled={isFinal}>Edit Order</Button>
-          <Button onClick={async () => { const result = await apiAction("order.reserve", { orderId }); notify(result.shortage ? "Stock is short. Reservation was not created." : result.alreadyReserved ? "Stock is already reserved for this order." : "Stock reserved in Neon."); await reloadData(); }} disabled={!canReserve}>Reserve Stock</Button>
+          <Button onClick={async () => { const result = await apiAction("order.reserve", { orderId }); notify(result.partial ? `Partially reserved ${result.reservedLines.length} ingredient${result.reservedLines.length === 1 ? "" : "s"}; shortages remain.` : result.shortage ? "No additional stock could be reserved; shortages remain." : result.alreadyReserved ? "Stock is already fully reserved for this order." : "Stock reserved in Neon."); await reloadData(); }} disabled={!canReserve}>Reserve Stock</Button>
           <Button variant="secondary" onClick={async () => { await apiAction("order.status", { orderId, status: "In Production", productionStatus: "In Progress" }); notify("Order marked as in production."); await reloadData(); }} disabled={!canStartProduction}>Mark In Production</Button>
           <Button variant="secondary" onClick={async () => { await markOrderProduced(orderId, notify); await reloadData(); }} disabled={!canProduce}>Mark Produced</Button>
           <Button variant="ghost" onClick={async () => { await apiAction("order.status", { orderId, status: "Delivered", productionStatus: "Completed" }); notify("Order marked as delivered."); await reloadData(); }} disabled={!canDeliver}>Delivered</Button>
@@ -1020,15 +1021,40 @@ function OrderDetail({ orderId, setPage, notify, askConfirm, reloadData }: { ord
 }
 
 function Production({ setPage, setSelectedOrderId, notify, reloadData }: any) {
-  const grouped = orderItems.reduce<Record<string, number>>((acc, item) => {
-    acc[item.recipeId] = (acc[item.recipeId] ?? 0) + item.requestedYieldQuantity;
+  const activeOrders = orders.filter((order) => !["Delivered", "Cancelled"].includes(order.status));
+  const batches = Object.values(orderItems.reduce<Record<string, { key: string; recipeId: string; dueDate: string; orderIds: string[]; totalYield: number }>>((acc, item) => {
+    const order = activeOrders.find((candidate) => candidate.id === item.orderId);
+    if (!order) return acc;
+    const key = `${order.dueDate}:${item.recipeId}`;
+    acc[key] ??= { key, recipeId: item.recipeId, dueDate: order.dueDate, orderIds: [], totalYield: 0 };
+    if (!acc[key].orderIds.includes(order.id)) acc[key].orderIds.push(order.id);
+    acc[key].totalYield += item.requestedYieldQuantity * item.quantityMultiplier;
     return acc;
-  }, {});
-  const topGroup = Object.entries(grouped).sort((a, b) => b[1] - a[1])[0];
-  const groupedRecipe = recipes.find((recipe) => recipe.id === topGroup?.[0]);
+  }, {})).sort((a, b) => a.dueDate.localeCompare(b.dueDate) || b.totalYield - a.totalYield);
+  const topGroup = batches[0];
+  const groupedRecipe = recipes.find((recipe) => recipe.id === topGroup?.recipeId);
   return (
     <div className="page-grid">
-      <article className="ai-card"><ChefHat size={24} /><div><h3>Batch production mode</h3><p>{groupedRecipe ? `Group similar recipes: total ${groupedRecipe.name} needed is ${topGroup?.[1]} ${groupedRecipe.yieldUnit}.` : "Group similar recipes once orders are available."}</p></div><Button variant="secondary" onClick={() => notify(groupedRecipe ? `${groupedRecipe.name} is grouped for ${topGroup?.[1]} ${groupedRecipe.yieldUnit}.` : "No recipes to group yet.")}>Group similar recipes</Button></article>
+      <article className="ai-card"><ChefHat size={24} /><div><h3>Batch production mode</h3><p>{groupedRecipe ? `Next batch: ${groupedRecipe.name}, ${topGroup?.totalYield} ${groupedRecipe.yieldUnit}, across ${topGroup?.orderIds.length} order${topGroup?.orderIds.length === 1 ? "" : "s"}.` : "Group similar recipes once orders are available."}</p></div><Button variant="secondary" onClick={() => notify(groupedRecipe ? `${groupedRecipe.name} batch is grouped for ${topGroup?.totalYield} ${groupedRecipe.yieldUnit}.` : "No recipes to group yet.")}>Group similar recipes</Button></article>
+      <Section title="Grouped Batches">
+        <div className="card-grid">
+          {batches.map((batch) => {
+            const recipe = recipes.find((item) => item.id === batch.recipeId);
+            const batchRequirements = recipe ? scaleRecipe(recipe.id, batch.totalYield) : [];
+            const availability = checkStockAvailability(batchRequirements);
+            const hasShortage = availability.some((item) => item.shortageQuantity > 0);
+            return (
+              <article className="item-card" key={batch.key}>
+                <div className="item-card-head"><ChefHat size={20} /><Badge tone={hasShortage ? "danger" : "success"}>{hasShortage ? "Shortage" : "Ready"}</Badge></div>
+                <h3>{recipe?.name ?? "Recipe"}</h3>
+                <p>{batch.totalYield} {recipe?.yieldUnit ?? "units"} · due {batch.dueDate}</p>
+                <small>{batch.orderIds.length} order{batch.orderIds.length === 1 ? "" : "s"} · {batchRequirements.slice(0, 3).map((item) => `${item.ingredientName} ${item.scaledQuantity}${item.unit}`).join(", ")}</small>
+                <div className="button-row"><Button variant="secondary" onClick={() => notify(`${recipe?.name ?? "Batch"} requirements grouped for ${batch.orderIds.length} order${batch.orderIds.length === 1 ? "" : "s"}.`)}>Review Batch</Button></div>
+              </article>
+            );
+          })}
+        </div>
+      </Section>
       {["Today", "Tomorrow", "This Week"].map((bucket) => (
         <Section title={bucket} key={bucket}>
           <div className="card-grid">
@@ -1056,6 +1082,7 @@ function Production({ setPage, setSelectedOrderId, notify, reloadData }: any) {
 function ShoppingList({ notify, reloadData }: { notify: (message: string) => void; reloadData: () => Promise<void> }) {
   const list = generateShoppingList();
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [purchaseDrafts, setPurchaseDrafts] = useState<Record<string, { quantity: number; unitCost: number; note: string }>>({});
   useEffect(() => {
     setSelectedIds((current) => {
       const available = new Set(list.map((item) => item.ingredientId));
@@ -1063,19 +1090,64 @@ function ShoppingList({ notify, reloadData }: { notify: (message: string) => voi
       return kept.length ? kept : list.map((item) => item.ingredientId);
     });
   }, [list.map((item) => item.ingredientId).join("|")]);
+  useEffect(() => {
+    setPurchaseDrafts((current) => {
+      const next = { ...current };
+      list.forEach((item) => {
+        next[item.ingredientId] ??= {
+          quantity: item.suggestedBuyQuantity,
+          unitCost: item.unitCost,
+          note: `${item.reason}${item.demandOrderCount ? ` for ${item.demandOrderCount} order${item.demandOrderCount === 1 ? "" : "s"}` : ""}`
+        };
+      });
+      return next;
+    });
+  }, [list.map((item) => `${item.ingredientId}:${item.suggestedBuyQuantity}:${item.unitCost}`).join("|")]);
   const selectedItems = list
     .filter((item) => selectedIds.includes(item.ingredientId))
-    .map((item) => ({ ...item, unitCost: item.suggestedBuyQuantity > 0 ? item.estimatedCost / item.suggestedBuyQuantity : 0 }));
+    .map((item) => {
+      const draft = purchaseDrafts[item.ingredientId] ?? { quantity: item.suggestedBuyQuantity, unitCost: item.unitCost, note: "" };
+      return {
+        ...item,
+        purchaseQuantity: draft.quantity,
+        unitCost: draft.unitCost,
+        estimatedCost: draft.quantity * draft.unitCost,
+        note: draft.note
+      };
+    });
+  const updateDraft = (ingredientId: string, patch: Partial<{ quantity: number; unitCost: number; note: string }>) => {
+    setPurchaseDrafts((current) => ({ ...current, [ingredientId]: { ...(current[ingredientId] ?? { quantity: 0, unitCost: 0, note: "" }), ...patch } }));
+  };
   const exportShoppingList = () => {
-    const text = list.map((item) => `${item.ingredientName}: buy ${item.suggestedBuyQuantity}${item.unit} (${formatNaira(item.estimatedCost)})`).join("\n");
+    const text = list.map((item) => {
+      const draft = purchaseDrafts[item.ingredientId] ?? { quantity: item.suggestedBuyQuantity, unitCost: item.unitCost };
+      return `${item.ingredientName}: buy ${draft.quantity}${item.unit} (${formatNaira(draft.quantity * draft.unitCost)})`;
+    }).join("\n");
     downloadText("pastry-county-shopping-list.txt", text || "No shopping list items.");
     notify("Shopping list exported.");
   };
+  const selectedCost = selectedItems.reduce((sum, item) => sum + item.estimatedCost, 0);
   return (
     <div className="page-grid">
-      <div className="metric-grid small"><Metric label="Needed for Orders" value={list.filter((item) => item.requiredQuantity > 0).length} /><Metric label="Below Reorder Level" value={ingredients.filter((item) => item.currentStock <= item.reorderLevel).length} /><Metric label="Estimated Cost" value={formatNaira(list.reduce((sum, item) => sum + item.estimatedCost, 0))} /></div>
+      <div className="metric-grid small"><Metric label="Needed for Orders" value={list.filter((item) => item.requiredQuantity > 0).length} /><Metric label="Below Reorder Level" value={ingredients.filter((item) => item.currentStock <= item.reorderLevel).length} /><Metric label="Selected Cost" value={formatNaira(selectedCost)} /></div>
       <Section title="Suggested Purchases" action={<Button variant="secondary" onClick={() => shareText(list.map((item) => `${item.ingredientName}: ${item.suggestedBuyQuantity}${item.unit}`).join("\n"), notify)}>Send to WhatsApp</Button>}>
-        <ResponsiveTable headers={["Buy", "Ingredient", "Current", "Needed", "Shortage", "Suggested", "Cost", "Supplier"]} rows={list.map((item) => ({ key: item.ingredientId, cells: [<input aria-label={`Purchase ${item.ingredientName}`} type="checkbox" checked={selectedIds.includes(item.ingredientId)} onChange={(event) => setSelectedIds((ids) => event.target.checked ? [...new Set([...ids, item.ingredientId])] : ids.filter((id) => id !== item.ingredientId))} />, item.ingredientName, `${item.currentStock}${item.unit}`, `${item.requiredQuantity}${item.unit}`, `${item.shortageQuantity}${item.unit}`, `${item.suggestedBuyQuantity}${item.unit}`, formatNaira(item.estimatedCost), item.supplier] }))} />
+        <ResponsiveTable headers={["Buy", "Ingredient", "Available", "Needed", "Purchase Qty", "Unit Cost", "Cost", "Reason", "Supplier"]} rows={list.map((item) => {
+          const draft = purchaseDrafts[item.ingredientId] ?? { quantity: item.suggestedBuyQuantity, unitCost: item.unitCost, note: "" };
+          return {
+            key: item.ingredientId,
+            cells: [
+              <input aria-label={`Purchase ${item.ingredientName}`} type="checkbox" checked={selectedIds.includes(item.ingredientId)} onChange={(event) => setSelectedIds((ids) => event.target.checked ? [...new Set([...ids, item.ingredientId])] : ids.filter((id) => id !== item.ingredientId))} />,
+              item.ingredientName,
+              `${item.availableStock}${item.unit}`,
+              `${item.requiredQuantity}${item.unit}`,
+              <input aria-label={`${item.ingredientName} purchase quantity`} type="number" min="0.001" step="0.001" value={draft.quantity} onChange={(event) => updateDraft(item.ingredientId, { quantity: Number(event.target.value) })} />,
+              <input aria-label={`${item.ingredientName} unit cost`} type="number" min="0" step="0.0001" value={draft.unitCost} onChange={(event) => updateDraft(item.ingredientId, { unitCost: Number(event.target.value) })} />,
+              formatNaira(draft.quantity * draft.unitCost),
+              <input aria-label={`${item.ingredientName} purchase note`} value={draft.note} onChange={(event) => updateDraft(item.ingredientId, { note: event.target.value })} />,
+              item.supplier
+            ]
+          };
+        })} />
       </Section>
       <div className="sticky-actions"><Button onClick={async () => { await apiAction("shopping.purchaseSuggested", { items: selectedItems }); notify(`${selectedItems.length} purchase${selectedItems.length === 1 ? "" : "s"} logged and inventory updated.`); await reloadData(); }} disabled={!selectedItems.length}>Mark Selected Purchased</Button><Button variant="secondary" onClick={() => setSelectedIds(list.map((item) => item.ingredientId))}>Select All</Button><Button variant="secondary" onClick={exportShoppingList}>Export/Share List</Button></div>
     </div>

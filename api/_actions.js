@@ -67,32 +67,78 @@ async function stockStatusForRequirements(sql, requirements) {
 async function reserveOrder(sql, orderId) {
   const orderRows = await sql`select status from orders where id = ${orderId}`;
   if (!orderRows.length) throw Object.assign(new Error("Order not found."), { statusCode: 404 });
-  if (["Stock Reserved", "In Production", "Produced", "Delivered"].includes(orderRows[0].status) || await pendingReservationTotal(sql, orderId) > 0) {
-    return { reserved: false, alreadyReserved: true };
+  if (["Produced", "Delivered", "Cancelled"].includes(orderRows[0].status)) {
+    return { reserved: false, alreadyFinal: true };
   }
 
   const requirements = await requirementsForOrder(sql, orderId);
-  const stockStatus = await stockStatusForRequirements(sql, requirements);
-  if (stockStatus === "Shortage") {
-    await sql`update orders set stock_status = 'Shortage', updated_at = now() where id = ${orderId}`;
-    return { reserved: false, shortage: true };
+  const reservations = await reservationBalancesForOrder(sql, orderId);
+  const plan = await Promise.all(requirements.map(async (item) => {
+    const ingredientRows = await sql`
+      select current_stock::float as current_stock, reserved_stock::float as reserved_stock
+      from ingredients
+      where id = ${item.ingredient_id}
+    `;
+    const ingredient = ingredientRows[0];
+    const requiredQuantity = Number(item.quantity);
+    const alreadyReserved = reservations.get(`${item.ingredient_id}:${item.unit}`) ?? 0;
+    const remainingRequired = Math.max(0, requiredQuantity - alreadyReserved);
+    const availableStock = Math.max(0, Number(ingredient?.current_stock ?? 0) - Number(ingredient?.reserved_stock ?? 0));
+    const reserveQuantity = Math.min(remainingRequired, availableStock);
+    return {
+      ingredientId: item.ingredient_id,
+      unit: item.unit,
+      requiredQuantity,
+      alreadyReserved,
+      reserveQuantity,
+      shortageQuantity: Math.max(0, remainingRequired - reserveQuantity)
+    };
+  }));
+  const reservationsToCreate = plan.filter((item) => item.reserveQuantity > 0);
+  const shortages = plan.filter((item) => item.shortageQuantity > 0);
+  const isComplete = shortages.length === 0;
+
+  if (reservationsToCreate.length) {
+    await sql.transaction((txn) => [
+      ...reservationsToCreate.flatMap((item, index) => [
+        txn`
+          insert into inventory_movements (id, ingredient_id, movement_type, quantity_change, unit, related_order_id, note, created_by)
+          values (${id(`mov-res-${index}`)}, ${item.ingredientId}, 'reservation', ${item.reserveQuantity}, ${item.unit}, ${orderId}, ${isComplete ? "Reserved stock for confirmed order" : "Partially reserved available stock for confirmed order"}, 'system')
+        `,
+        txn`
+          update ingredients
+          set reserved_stock = reserved_stock + ${item.reserveQuantity}, updated_at = now()
+          where id = ${item.ingredientId}
+        `
+      ]),
+      txn`
+        update orders
+        set status = ${isComplete ? "Stock Reserved" : orderRows[0].status},
+          stock_status = ${isComplete ? "Reserved" : "Shortage"},
+          production_status = ${isComplete ? "Ready" : orderRows[0].production_status ?? "Not Started"},
+          updated_at = now()
+        where id = ${orderId}
+      `
+    ]);
+  } else {
+    await sql`
+      update orders
+      set status = ${isComplete ? "Stock Reserved" : orderRows[0].status},
+        stock_status = ${isComplete ? "Reserved" : "Shortage"},
+        production_status = ${isComplete ? "Ready" : orderRows[0].production_status ?? "Not Started"},
+        updated_at = now()
+      where id = ${orderId}
+    `;
   }
 
-  await sql.transaction((txn) => [
-    ...requirements.flatMap((item, index) => [
-      txn`
-        insert into inventory_movements (id, ingredient_id, movement_type, quantity_change, unit, related_order_id, note, created_by)
-        values (${id(`mov-res-${index}`)}, ${item.ingredient_id}, 'reservation', ${Number(item.quantity)}, ${item.unit}, ${orderId}, 'Reserved stock for confirmed order', 'system')
-      `,
-      txn`
-        update ingredients
-        set reserved_stock = reserved_stock + ${Number(item.quantity)}, updated_at = now()
-        where id = ${item.ingredient_id}
-      `
-    ]),
-    txn`update orders set status = 'Stock Reserved', stock_status = 'Reserved', production_status = 'Ready', updated_at = now() where id = ${orderId}`
-  ]);
-  return { reserved: true };
+  return {
+    reserved: isComplete,
+    partial: reservationsToCreate.length > 0 && !isComplete,
+    alreadyReserved: reservationsToCreate.length === 0 && isComplete,
+    shortage: !isComplete,
+    reservedLines: reservationsToCreate,
+    shortages
+  };
 }
 
 async function releaseReservation(sql, orderId) {
@@ -140,6 +186,21 @@ async function pendingReservationTotal(sql, orderId) {
       and movement_type in ('reservation', 'reservation_release')
   `;
   return Math.max(0, Number(rows[0]?.quantity ?? 0));
+}
+
+async function reservationBalancesForOrder(sql, orderId) {
+  const rows = await sql`
+    select ingredient_id, unit, coalesce(sum(case
+      when movement_type = 'reservation' then quantity_change
+      when movement_type = 'reservation_release' then quantity_change
+      else 0
+    end), 0)::float as quantity
+    from inventory_movements
+    where related_order_id = ${orderId}
+      and movement_type in ('reservation', 'reservation_release')
+    group by ingredient_id, unit
+  `;
+  return new Map(rows.map((row) => [`${row.ingredient_id}:${row.unit}`, Math.max(0, Number(row.quantity))]));
 }
 
 async function shortagesForProduction(sql, orderId, requirements) {
@@ -424,31 +485,47 @@ export async function handleAction(sql, body) {
   }
 
   if (action === "shopping.purchaseSuggested") {
-    const purchases = Array.isArray(body.items) ? body.items.filter((item) => item.ingredientId && num(item.suggestedBuyQuantity) > 0) : [];
+    const purchases = Array.isArray(body.items) ? body.items.filter((item) => item.ingredientId && num(item.purchaseQuantity ?? item.suggestedBuyQuantity) > 0) : [];
     if (!purchases.length) throw Object.assign(new Error("No shopping list items to purchase."), { statusCode: 400 });
-    await sql.transaction((txn) => purchases.flatMap((item, index) => {
-      const purchaseId = id(`pur-${index}`);
-      const quantity = num(item.suggestedBuyQuantity);
-      const cost = num(item.estimatedCost);
+    const normalizedPurchases = await Promise.all(purchases.map(async (item, index) => {
+      const ingredientId = required(item.ingredientId, "Ingredient");
+      const quantity = positive(num(item.purchaseQuantity ?? item.suggestedBuyQuantity), "Purchase quantity");
+      const unitCost = nonNegative(num(item.unitCost), "Unit cost");
+      const purchasePrice = item.purchasePrice === undefined ? quantity * unitCost : nonNegative(num(item.purchasePrice), "Purchase price");
+      const ingredientRows = await sql`select supplier_id, base_unit from ingredients where id = ${ingredientId}`;
+      if (!ingredientRows.length) throw Object.assign(new Error("Ingredient not found."), { statusCode: 404 });
+      return {
+        index,
+        purchaseId: id(`pur-${index}`),
+        ingredientId,
+        supplierId: item.supplierId || ingredientRows[0].supplier_id || null,
+        quantity,
+        unit: normalizeUnit(item.unit, ingredientRows[0].base_unit),
+        purchasePrice,
+        unitCost: purchasePrice > 0 ? purchasePrice / quantity : unitCost,
+        note: item.note || "Marked purchased from shopping list"
+      };
+    }));
+    await sql.transaction((txn) => normalizedPurchases.flatMap((item) => {
       return [
         txn`
           insert into purchase_logs (id, supplier_id, ingredient_id, purchase_quantity, purchase_unit, purchase_price, converted_quantity_in_base_unit, cost_per_base_unit, notes)
-          values (${purchaseId}, null, ${item.ingredientId}, ${quantity}, ${item.unit}, ${cost}, ${quantity}, ${quantity > 0 && cost > 0 ? cost / quantity : num(item.unitCost)}, 'Marked purchased from shopping list')
+          values (${item.purchaseId}, ${item.supplierId}, ${item.ingredientId}, ${item.quantity}, ${item.unit}, ${item.purchasePrice}, ${item.quantity}, ${item.unitCost}, ${item.note})
         `,
         txn`
           insert into inventory_movements (id, ingredient_id, movement_type, quantity_change, unit, related_purchase_id, note, created_by)
-          values (${id(`mov-${index}`)}, ${item.ingredientId}, 'purchase', ${quantity}, ${item.unit}, ${purchaseId}, 'Purchased from shopping list', 'system')
+          values (${id(`mov-${item.index}`)}, ${item.ingredientId}, 'purchase', ${item.quantity}, ${item.unit}, ${item.purchaseId}, ${item.note}, 'system')
         `,
         txn`
           update ingredients
-          set current_stock = current_stock + ${quantity},
-            latest_unit_cost = case when ${quantity} > 0 and ${cost} > 0 then ${cost / quantity} else latest_unit_cost end,
+          set current_stock = current_stock + ${item.quantity},
+            latest_unit_cost = case when ${item.unitCost} > 0 then ${item.unitCost} else latest_unit_cost end,
             updated_at = now()
           where id = ${item.ingredientId}
         `
       ];
     }));
-    return { ok: true, count: purchases.length };
+    return { ok: true, count: normalizedPurchases.length };
   }
 
   if (action === "conversion.save") {
