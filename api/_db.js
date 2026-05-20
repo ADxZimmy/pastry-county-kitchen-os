@@ -20,9 +20,38 @@ export async function loadKitchenSnapshot() {
   await sql`alter table suppliers add column if not exists default_currency text not null default 'NGN'`;
   await sql`alter table suppliers add column if not exists lead_time_days integer not null default 2`;
   await sql`alter table suppliers add column if not exists supplied_ingredient_ids text[] not null default '{}'`;
+  await sql`alter table suppliers add column if not exists active boolean not null default true`;
+  await sql`alter table conversion_rules add column if not exists active boolean not null default true`;
   await sql`alter table settings add column if not exists safety_margin_percentage numeric(6,3) not null default 10`;
   await sql`alter table settings add column if not exists default_tax_percentage numeric(6,3) not null default 0`;
   await sql`alter table settings add column if not exists low_stock_notification_email text`;
+  await sql`
+    create table if not exists ingredient_batches (
+      id text primary key,
+      ingredient_id text not null references ingredients(id),
+      purchase_id text references purchase_logs(id),
+      quantity_received numeric(14,3) not null default 0,
+      quantity_remaining numeric(14,3) not null default 0,
+      unit text not null,
+      expiry_date date,
+      received_date date not null default current_date,
+      notes text,
+      created_at timestamptz not null default now(),
+      updated_at timestamptz not null default now()
+    )
+  `;
+  await sql`
+    create table if not exists audit_logs (
+      id text primary key,
+      entity_type text not null,
+      entity_id text not null,
+      action text not null,
+      before_data jsonb,
+      after_data jsonb,
+      actor text not null default 'system',
+      created_at timestamptz not null default now()
+    )
+  `;
   const [
     supplierRows,
     ingredientRows,
@@ -32,10 +61,12 @@ export async function loadKitchenSnapshot() {
     orderRows,
     orderItemRows,
     movementRows,
+    batchRows,
+    auditRows,
     conversionRows,
     settingRows
   ] = await Promise.all([
-    sql`select id, name, contact_name as "contactName", phone, email, address, default_currency as "defaultCurrency", lead_time_days as "leadTimeDays", supplied_ingredient_ids as "suppliedIngredientIds", notes from suppliers order by name`,
+    sql`select id, name, contact_name as "contactName", phone, email, address, default_currency as "defaultCurrency", lead_time_days as "leadTimeDays", supplied_ingredient_ids as "suppliedIngredientIds", notes, active from suppliers where active = true order by name`,
     sql`
       select id, name, category, base_unit as "baseUnit", current_stock::float as "currentStock",
         reorder_level::float as "reorderLevel", latest_unit_cost::float as "latestUnitCost",
@@ -89,10 +120,26 @@ export async function loadKitchenSnapshot() {
       limit 200
     `,
     sql`
+      select id, ingredient_id as "ingredientId", purchase_id as "purchaseId", quantity_received::float as "quantityReceived",
+        quantity_remaining::float as "quantityRemaining", unit, expiry_date::text as "expiryDate", received_date::text as "receivedDate", notes
+      from ingredient_batches
+      where quantity_remaining > 0
+      order by expiry_date nulls last, received_date
+      limit 300
+    `,
+    sql`
+      select id, entity_type as "entityType", entity_id as "entityId", action, before_data as "beforeData",
+        after_data as "afterData", actor, created_at as "createdAt"
+      from audit_logs
+      order by created_at desc
+      limit 100
+    `,
+    sql`
       select id, ingredient_id as "ingredientId", from_unit as "fromUnit", to_unit as "toUnit",
         conversion_factor::float as "conversionFactor", conversion_type as "conversionType",
-        confidence_level as "confidenceLevel", source, verified, notes, updated_at::date::text as "updatedAt"
+        confidence_level as "confidenceLevel", source, verified, notes, active, updated_at::date::text as "updatedAt"
       from conversion_rules
+      where active = true
       order by ingredient_id, from_unit
     `,
     sql`
@@ -122,6 +169,8 @@ export async function loadKitchenSnapshot() {
     orders: orderRows,
     orderItems: orderItemRows,
     inventoryMovements: movementRows,
+    ingredientBatches: batchRows,
+    auditLogs: auditRows,
     conversionRules: conversionRows,
     settings: first(settingRows) ?? {
       businessName: "Pastry County",

@@ -141,6 +141,87 @@ async function reserveOrder(sql, orderId) {
   };
 }
 
+async function ensureOperationalTables(sql) {
+  await sql`alter table orders add column if not exists archived boolean not null default false`;
+  await sql`alter table suppliers add column if not exists default_currency text not null default 'NGN'`;
+  await sql`alter table suppliers add column if not exists lead_time_days integer not null default 2`;
+  await sql`alter table suppliers add column if not exists supplied_ingredient_ids text[] not null default '{}'`;
+  await sql`alter table suppliers add column if not exists active boolean not null default true`;
+  await sql`alter table conversion_rules add column if not exists active boolean not null default true`;
+  await sql`alter table settings add column if not exists safety_margin_percentage numeric(6,3) not null default 10`;
+  await sql`alter table settings add column if not exists default_tax_percentage numeric(6,3) not null default 0`;
+  await sql`alter table settings add column if not exists low_stock_notification_email text`;
+  await sql`
+    create table if not exists ingredient_batches (
+      id text primary key,
+      ingredient_id text not null references ingredients(id),
+      purchase_id text references purchase_logs(id),
+      quantity_received numeric(14,3) not null default 0,
+      quantity_remaining numeric(14,3) not null default 0,
+      unit text not null,
+      expiry_date date,
+      received_date date not null default current_date,
+      notes text,
+      created_at timestamptz not null default now(),
+      updated_at timestamptz not null default now()
+    )
+  `;
+  await sql`
+    create table if not exists audit_logs (
+      id text primary key,
+      entity_type text not null,
+      entity_id text not null,
+      action text not null,
+      before_data jsonb,
+      after_data jsonb,
+      actor text not null default 'system',
+      created_at timestamptz not null default now()
+    )
+  `;
+}
+
+async function audit(sql, entityType, entityId, action, beforeData, afterData) {
+  await sql`
+    insert into audit_logs (id, entity_type, entity_id, action, before_data, after_data, actor)
+    values (${id("audit")}, ${entityType}, ${entityId}, ${action}, ${beforeData ? JSON.stringify(beforeData) : null}, ${afterData ? JSON.stringify(afterData) : null}, 'system')
+  `;
+}
+
+async function rowById(sql, table, entityId) {
+  if (table === "ingredients") return (await sql`select * from ingredients where id = ${entityId}`)[0] ?? null;
+  if (table === "suppliers") return (await sql`select * from suppliers where id = ${entityId}`)[0] ?? null;
+  if (table === "recipes") return (await sql`select * from recipes where id = ${entityId}`)[0] ?? null;
+  if (table === "orders") return (await sql`select * from orders where id = ${entityId}`)[0] ?? null;
+  if (table === "conversion_rules") return (await sql`select * from conversion_rules where id = ${entityId}`)[0] ?? null;
+  if (table === "settings") return (await sql`select * from settings where id = ${entityId}`)[0] ?? null;
+  return null;
+}
+
+function createBatchFromPurchase(txn, item) {
+  return txn`
+    insert into ingredient_batches (id, ingredient_id, purchase_id, quantity_received, quantity_remaining, unit, expiry_date, notes)
+    values (${id("batch")}, ${item.ingredientId}, ${item.purchaseId}, ${item.quantity}, ${item.quantity}, ${item.unit}, ${item.expiryDate || null}, ${item.note || "Purchased stock lot"})
+  `;
+}
+
+async function batchDeductionsForRequirement(sql, requirement) {
+  let remaining = Number(requirement.quantity);
+  const batches = await sql`
+    select id, quantity_remaining::float as quantity_remaining
+    from ingredient_batches
+    where ingredient_id = ${requirement.ingredient_id}
+      and unit = ${requirement.unit}
+      and quantity_remaining > 0
+    order by expiry_date nulls last, received_date, created_at
+  `;
+  return batches.flatMap((batch) => {
+    if (remaining <= 0) return [];
+    const take = Math.min(remaining, Number(batch.quantity_remaining));
+    remaining -= take;
+    return [{ batchId: batch.id, quantity: take }];
+  });
+}
+
 async function releaseReservation(sql, orderId) {
   const reservations = await sql`
     select ingredient_id, unit, sum(quantity_change)::float as quantity
@@ -253,6 +334,7 @@ export async function produceOrder(sql, orderId) {
     throw Object.assign(new Error("Cannot mark produced while ingredients are short."), { statusCode: 409, details: shortages });
   }
 
+  const batchDeductions = await Promise.all(requirements.map((requirement) => batchDeductionsForRequirement(sql, requirement)));
   await sql.transaction((txn) => [
     ...requirements.flatMap((requirement, index) => [
       txn`
@@ -267,23 +349,54 @@ export async function produceOrder(sql, orderId) {
         where id = ${requirement.ingredient_id}
       `
     ]),
+    ...batchDeductions.flatMap((deductions) => deductions.map((deduction) => txn`
+      update ingredient_batches
+      set quantity_remaining = greatest(0, quantity_remaining - ${deduction.quantity}), updated_at = now()
+      where id = ${deduction.batchId}
+    `)),
     txn`update orders set status = 'Produced', production_status = 'Completed', stock_status = 'In Stock', updated_at = now() where id = ${orderId}`
   ]);
+  await audit(sql, "orders", orderId, "produce", { status }, await rowById(sql, "orders", orderId));
   return { produced: true };
 }
 
 export async function handleAction(sql, body) {
   const action = required(body.action, "Action");
+  await ensureOperationalTables(sql);
 
   if (action === "schema.ensure") {
-    await sql`alter table orders add column if not exists archived boolean not null default false`;
-    await sql`alter table suppliers add column if not exists default_currency text not null default 'NGN'`;
-    await sql`alter table suppliers add column if not exists lead_time_days integer not null default 2`;
-    await sql`alter table suppliers add column if not exists supplied_ingredient_ids text[] not null default '{}'`;
-    await sql`alter table settings add column if not exists safety_margin_percentage numeric(6,3) not null default 10`;
-    await sql`alter table settings add column if not exists default_tax_percentage numeric(6,3) not null default 0`;
-    await sql`alter table settings add column if not exists low_stock_notification_email text`;
     return { ok: true };
+  }
+
+  if (action === "archive.list") {
+    const [archivedIngredients, archivedRecipes, archivedOrders, archivedSuppliers, archivedConversions, auditRows] = await Promise.all([
+      sql`select id, name from ingredients where active = false order by updated_at desc limit 50`,
+      sql`select id, name from recipes where active = false order by updated_at desc limit 50`,
+      sql`select id, customer_name as name from orders where archived = true order by updated_at desc limit 50`,
+      sql`select id, name from suppliers where active = false order by updated_at desc limit 50`,
+      sql`select conversion_rules.id, ingredients.name || ' ' || from_unit || ' to ' || to_unit as name from conversion_rules join ingredients on ingredients.id = conversion_rules.ingredient_id where conversion_rules.active = false order by conversion_rules.updated_at desc limit 50`,
+      sql`select id, entity_type as "entityType", entity_id as "entityId", action, created_at as "createdAt" from audit_logs order by created_at desc limit 50`
+    ]);
+    return { archivedIngredients, archivedRecipes, archivedOrders, archivedSuppliers, archivedConversions, auditRows };
+  }
+
+  if (action === "archive.restore") {
+    const entityType = required(body.entityType, "Entity type");
+    const entityId = required(body.entityId, "Entity");
+    const before = await rowById(sql, entityType === "order" ? "orders" : entityType === "conversion" ? "conversion_rules" : `${entityType}s`, entityId);
+    if (entityType === "ingredient") await sql`update ingredients set active = true, updated_at = now() where id = ${entityId}`;
+    else if (entityType === "recipe") {
+      const rows = await sql`select product_id from recipes where id = ${entityId}`;
+      await sql.transaction((txn) => [
+        txn`update recipes set active = true, updated_at = now() where id = ${entityId}`,
+        ...(rows[0]?.product_id ? [txn`update products set active = true, updated_at = now() where id = ${rows[0].product_id}`] : [])
+      ]);
+    } else if (entityType === "order") await sql`update orders set archived = false, updated_at = now() where id = ${entityId}`;
+    else if (entityType === "supplier") await sql`update suppliers set active = true, updated_at = now() where id = ${entityId}`;
+    else if (entityType === "conversion") await sql`update conversion_rules set active = true, updated_at = now() where id = ${entityId}`;
+    else throw Object.assign(new Error("Unsupported archive type."), { statusCode: 400 });
+    await audit(sql, entityType, entityId, "restore", before, { restored: true });
+    return { ok: true, restored: true };
   }
 
   if (action === "ingredient.save") {
@@ -310,6 +423,7 @@ export async function handleAction(sql, body) {
       throw Object.assign(new Error(`${name} already exists in inventory. Open the existing ingredient to edit stock or cost.`), { statusCode: 409 });
     }
     const existingRows = data.id ? await sql`select latest_unit_cost::float as latest_unit_cost from ingredients where id = ${data.id}` : [];
+    const before = data.id ? await rowById(sql, "ingredients", data.id) : null;
     const fallbackUnitCost = data.latestUnitCost === undefined || data.latestUnitCost === "" ? Number(existingRows[0]?.latest_unit_cost ?? 0) : nonNegative(num(data.latestUnitCost), "Latest unit cost");
     const stockAfterPurchase = currentStock + purchaseQuantity;
     const convertedPurchaseQuantity = purchaseQuantity || currentStock;
@@ -319,6 +433,7 @@ export async function handleAction(sql, body) {
       ? new Date(Date.now() + defaultExpiryDays * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
       : null);
 
+    const purchaseId = id("pur");
     await sql.transaction((txn) => [
       txn`
         insert into ingredients (id, name, category, base_unit, current_stock, reorder_level, latest_unit_cost, supplier_id, expiry_tracking_enabled, default_expiry_days, expiry_date, notes)
@@ -330,13 +445,14 @@ export async function handleAction(sql, body) {
       `,
       ...(purchaseQuantity > 0 ? [
         txn`
-          insert into purchase_logs (id, supplier_id, ingredient_id, purchase_quantity, purchase_unit, purchase_price, converted_quantity_in_base_unit, cost_per_base_unit, notes)
-          values (${id("pur")}, ${supplierId}, ${ingredientId}, ${purchaseQuantity}, ${normalizeUnit(data.purchaseUnit, baseUnit)}, ${purchasePrice}, ${convertedPurchaseQuantity}, ${latestUnitCost}, 'Initial purchase from ingredient form')
+          insert into purchase_logs (id, supplier_id, ingredient_id, purchase_quantity, purchase_unit, purchase_price, converted_quantity_in_base_unit, cost_per_base_unit, expiry_date, notes)
+          values (${purchaseId}, ${supplierId}, ${ingredientId}, ${purchaseQuantity}, ${normalizeUnit(data.purchaseUnit, baseUnit)}, ${purchasePrice}, ${convertedPurchaseQuantity}, ${latestUnitCost}, ${expiryDate}, 'Initial purchase from ingredient form')
         `,
         txn`
           insert into inventory_movements (id, ingredient_id, movement_type, quantity_change, unit, note, created_by)
           values (${id("mov")}, ${ingredientId}, 'purchase', ${purchaseQuantity}, ${baseUnit}, 'Added stock from ingredient form purchase', 'system')
-        `
+        `,
+        createBatchFromPurchase(txn, { purchaseId, ingredientId, quantity: purchaseQuantity, unit: baseUnit, expiryDate, note: "Initial purchase from ingredient form" })
       ] : [
         txn`
           insert into inventory_movements (id, ingredient_id, movement_type, quantity_change, unit, note, created_by)
@@ -344,11 +460,13 @@ export async function handleAction(sql, body) {
         `
       ])
     ]);
+    await audit(sql, "ingredients", ingredientId, data.id ? "update" : "create", before, await rowById(sql, "ingredients", ingredientId));
     return { ok: true, id: ingredientId };
   }
 
   if (action === "ingredient.delete") {
     const ingredientId = required(body.ingredientId, "Ingredient");
+    const before = await rowById(sql, "ingredients", ingredientId);
     await sql.transaction((txn) => [
       txn`
         update ingredients
@@ -362,12 +480,15 @@ export async function handleAction(sql, body) {
         where id = ${ingredientId}
       `
     ]);
+    await audit(sql, "ingredients", ingredientId, "archive", before, await rowById(sql, "ingredients", ingredientId));
     return { ok: true, archived: true };
   }
 
   if (action === "ingredient.restore") {
     const ingredientId = required(body.ingredientId, "Ingredient");
+    const before = await rowById(sql, "ingredients", ingredientId);
     await sql`update ingredients set active = true, updated_at = now() where id = ${ingredientId}`;
+    await audit(sql, "ingredients", ingredientId, "restore", before, await rowById(sql, "ingredients", ingredientId));
     return { ok: true, restored: true };
   }
 
@@ -382,6 +503,7 @@ export async function handleAction(sql, body) {
       throw Object.assign(new Error("Adjustment quantity cannot be zero."), { statusCode: 400 });
     }
     const ingredientRows = await sql`select current_stock::float as current_stock from ingredients where id = ${ingredientId}`;
+    const before = await rowById(sql, "ingredients", ingredientId);
     if (!ingredientRows.length) throw Object.assign(new Error("Ingredient not found."), { statusCode: 404 });
     if (Number(ingredientRows[0].current_stock) + quantity < 0) {
       throw Object.assign(new Error("Adjustment would make stock negative."), { statusCode: 400 });
@@ -393,20 +515,23 @@ export async function handleAction(sql, body) {
       `,
       txn`update ingredients set current_stock = current_stock + ${quantity}, updated_at = now() where id = ${ingredientId}`
     ]);
+    await audit(sql, "ingredients", ingredientId, "stock_adjust", before, await rowById(sql, "ingredients", ingredientId));
     return { ok: true };
   }
 
   if (action === "supplier.save") {
     const data = body.supplier ?? {};
     const supplierId = data.id || id("sup");
+    const before = data.id ? await rowById(sql, "suppliers", data.id) : null;
     const suppliedIngredientIds = Array.isArray(data.suppliedIngredientIds) ? data.suppliedIngredientIds.map(String) : [];
     await sql`
       insert into suppliers (id, name, contact_name, phone, email, address, default_currency, lead_time_days, supplied_ingredient_ids, notes)
       values (${supplierId}, ${required(data.name, "Supplier name")}, ${data.contactName || null}, ${data.phone || null}, ${data.email || null}, ${data.address || null}, ${data.defaultCurrency || "NGN"}, ${nonNegative(num(data.leadTimeDays, 2), "Lead time")}, ${suppliedIngredientIds}, ${data.notes || null})
       on conflict (id) do update set name = excluded.name, contact_name = excluded.contact_name, phone = excluded.phone,
         email = excluded.email, address = excluded.address, default_currency = excluded.default_currency, lead_time_days = excluded.lead_time_days,
-        supplied_ingredient_ids = excluded.supplied_ingredient_ids, notes = excluded.notes, updated_at = now()
+        supplied_ingredient_ids = excluded.supplied_ingredient_ids, notes = excluded.notes, active = true, updated_at = now()
     `;
+    await audit(sql, "suppliers", supplierId, data.id ? "update" : "create", before, await rowById(sql, "suppliers", supplierId));
     return { ok: true, id: supplierId };
   }
 
@@ -414,6 +539,7 @@ export async function handleAction(sql, body) {
     const data = body.recipe ?? {};
     const productId = data.productId || id("prod");
     const recipeId = data.id || id("rec");
+    const before = data.id ? await rowById(sql, "recipes", data.id) : null;
     const items = Array.isArray(data.items) ? data.items.filter((item) => item.ingredientId && num(item.quantity) > 0) : [];
     if (!items.length) throw Object.assign(new Error("Add at least one recipe ingredient."), { statusCode: 400 });
     const instructions = String(data.instructions || "").split(/\n+/).map((step) => step.trim()).filter(Boolean);
@@ -435,6 +561,7 @@ export async function handleAction(sql, body) {
         values (${id(`ri-${index}`)}, ${recipeId}, ${item.ingredientId}, ${num(item.quantity)}, ${normalizeUnit(item.unit)}, ${num(item.wastePercentage)}, ${item.notes || null})
       `)
     ]);
+    await audit(sql, "recipes", recipeId, data.id ? "update" : "create", before, await rowById(sql, "recipes", recipeId));
     return { ok: true, id: recipeId, productId };
   }
 
@@ -442,10 +569,12 @@ export async function handleAction(sql, body) {
     const recipeId = required(body.recipeId, "Recipe");
     const rows = await sql`select product_id from recipes where id = ${recipeId}`;
     if (!rows.length) throw Object.assign(new Error("Recipe not found."), { statusCode: 404 });
+    const before = await rowById(sql, "recipes", recipeId);
     await sql.transaction((txn) => [
       txn`update recipes set active = false, updated_at = now() where id = ${recipeId}`,
       txn`update products set active = false, updated_at = now() where id = ${rows[0].product_id}`
     ]);
+    await audit(sql, "recipes", recipeId, "archive", before, await rowById(sql, "recipes", recipeId));
     return { ok: true, archived: true };
   }
 
@@ -453,6 +582,7 @@ export async function handleAction(sql, body) {
     await sql`alter table orders add column if not exists archived boolean not null default false`;
     const data = body.order ?? {};
     const orderId = data.id || id("ord");
+    const before = data.id ? await rowById(sql, "orders", data.id) : null;
     const items = Array.isArray(data.items) ? data.items.filter((item) => item.productId && item.recipeId && num(item.requestedYieldQuantity) > 0) : [];
     if (!items.length) throw Object.assign(new Error("Add at least one order item."), { statusCode: 400 });
     await sql.transaction((txn) => [
@@ -471,6 +601,7 @@ export async function handleAction(sql, body) {
     const stockStatus = await stockStatusForRequirements(sql, await requirementsForOrder(sql, orderId));
     await sql`update orders set stock_status = ${stockStatus}, updated_at = now() where id = ${orderId}`;
     const reservation = body.reserve ? await reserveOrder(sql, orderId) : null;
+    await audit(sql, "orders", orderId, data.id ? "update" : "create", before, await rowById(sql, "orders", orderId));
     return { ok: true, id: orderId, stockStatus, reservation };
   }
 
@@ -481,18 +612,21 @@ export async function handleAction(sql, body) {
   if (action === "order.delete") {
     await sql`alter table orders add column if not exists archived boolean not null default false`;
     const orderId = required(body.orderId, "Order");
+    const before = await rowById(sql, "orders", orderId);
     await releaseReservation(sql, orderId);
     await sql`
       update orders
       set archived = true, status = 'Cancelled', stock_status = 'In Stock', updated_at = now()
       where id = ${orderId}
     `;
+    await audit(sql, "orders", orderId, "archive", before, await rowById(sql, "orders", orderId));
     return { ok: true, archived: true };
   }
 
   if (action === "order.status") {
     const orderId = required(body.orderId, "Order");
     const status = required(body.status, "Status");
+    const before = await rowById(sql, "orders", orderId);
     const productionStatus = body.productionStatus || (status === "In Production" ? "In Progress" : status === "Delivered" || status === "Produced" ? "Completed" : undefined);
     if (status === "In Production") {
       const reservation = await reserveOrder(sql, orderId);
@@ -513,6 +647,7 @@ export async function handleAction(sql, body) {
       where id = ${orderId}
     `;
     if (status === "Cancelled") await releaseReservation(sql, orderId);
+    await audit(sql, "orders", orderId, "status_change", before, await rowById(sql, "orders", orderId));
     return { ok: true };
   }
 
@@ -572,14 +707,15 @@ export async function handleAction(sql, body) {
         unit: normalizeUnit(item.unit, ingredientRows[0].base_unit),
         purchasePrice,
         unitCost: purchasePrice > 0 ? purchasePrice / quantity : unitCost,
+        expiryDate: item.expiryDate || null,
         note: item.note || "Marked purchased from shopping list"
       };
     }));
     await sql.transaction((txn) => normalizedPurchases.flatMap((item) => {
       return [
         txn`
-          insert into purchase_logs (id, supplier_id, ingredient_id, purchase_quantity, purchase_unit, purchase_price, converted_quantity_in_base_unit, cost_per_base_unit, notes)
-          values (${item.purchaseId}, ${item.supplierId}, ${item.ingredientId}, ${item.quantity}, ${item.unit}, ${item.purchasePrice}, ${item.quantity}, ${item.unitCost}, ${item.note})
+          insert into purchase_logs (id, supplier_id, ingredient_id, purchase_quantity, purchase_unit, purchase_price, converted_quantity_in_base_unit, cost_per_base_unit, expiry_date, notes)
+          values (${item.purchaseId}, ${item.supplierId}, ${item.ingredientId}, ${item.quantity}, ${item.unit}, ${item.purchasePrice}, ${item.quantity}, ${item.unitCost}, ${item.expiryDate}, ${item.note})
         `,
         txn`
           insert into inventory_movements (id, ingredient_id, movement_type, quantity_change, unit, related_purchase_id, note, created_by)
@@ -591,15 +727,18 @@ export async function handleAction(sql, body) {
             latest_unit_cost = case when ${item.unitCost} > 0 then ${item.unitCost} else latest_unit_cost end,
             updated_at = now()
           where id = ${item.ingredientId}
-        `
+        `,
+        createBatchFromPurchase(txn, item)
       ];
     }));
+    await Promise.all(normalizedPurchases.map((item) => audit(sql, "ingredients", item.ingredientId, "purchase", null, { purchaseId: item.purchaseId, quantity: item.quantity, unit: item.unit, expiryDate: item.expiryDate })));
     return { ok: true, count: normalizedPurchases.length };
   }
 
   if (action === "conversion.save") {
     const data = body.rule ?? {};
     const ruleId = data.id || id("conv");
+    const before = data.id ? await rowById(sql, "conversion_rules", data.id) : null;
     await sql`
       insert into conversion_rules (id, ingredient_id, from_unit, to_unit, conversion_factor, conversion_type, confidence_level, source, verified, notes)
       values (${ruleId}, ${required(data.ingredientId, "Ingredient")}, ${required(data.fromUnit, "From unit")}, ${required(data.toUnit, "To unit")}, ${num(data.conversionFactor, 1)}, ${data.conversionType || "ingredient_specific"}, ${data.confidenceLevel || "Medium"}, ${data.source || "manual entry"}, ${bool(data.verified)}, ${data.notes || null})
@@ -607,30 +746,40 @@ export async function handleAction(sql, body) {
         conversion_factor = excluded.conversion_factor, conversion_type = excluded.conversion_type, confidence_level = excluded.confidence_level,
         source = excluded.source, verified = excluded.verified, notes = excluded.notes, updated_at = now()
     `;
+    await audit(sql, "conversion_rules", ruleId, data.id ? "update" : "create", before, await rowById(sql, "conversion_rules", ruleId));
     return { ok: true, id: ruleId };
   }
 
   if (action === "conversion.verify") {
-    await sql`update conversion_rules set verified = true, source = 'measured in kitchen', updated_at = now() where id = ${required(body.ruleId, "Rule")}`;
+    const ruleId = required(body.ruleId, "Rule");
+    const before = await rowById(sql, "conversion_rules", ruleId);
+    await sql`update conversion_rules set verified = true, source = 'measured in kitchen', updated_at = now() where id = ${ruleId}`;
+    await audit(sql, "conversion_rules", ruleId, "verify", before, await rowById(sql, "conversion_rules", ruleId));
     return { ok: true };
   }
 
   if (action === "conversion.delete") {
-    await sql`delete from conversion_rules where id = ${required(body.ruleId, "Rule")}`;
-    return { ok: true, deleted: true };
+    const ruleId = required(body.ruleId, "Rule");
+    const before = await rowById(sql, "conversion_rules", ruleId);
+    await sql`update conversion_rules set active = false, updated_at = now() where id = ${ruleId}`;
+    await audit(sql, "conversion_rules", ruleId, "archive", before, await rowById(sql, "conversion_rules", ruleId));
+    return { ok: true, archived: true };
   }
 
   if (action === "supplier.delete") {
     const supplierId = required(body.supplierId, "Supplier");
+    const before = await rowById(sql, "suppliers", supplierId);
     await sql.transaction((txn) => [
       txn`update ingredients set supplier_id = null, updated_at = now() where supplier_id = ${supplierId}`,
-      txn`delete from suppliers where id = ${supplierId}`
+      txn`update suppliers set active = false, updated_at = now() where id = ${supplierId}`
     ]);
-    return { ok: true, deleted: true };
+    await audit(sql, "suppliers", supplierId, "archive", before, await rowById(sql, "suppliers", supplierId));
+    return { ok: true, archived: true };
   }
 
   if (action === "settings.save") {
     const data = body.settings ?? {};
+    const before = await rowById(sql, "settings", "default");
     await sql`
       insert into settings (id, business_name, currency, default_deduction_stage, allow_negative_inventory, require_ai_conversion_confirmation, gram_rounding_preference, egg_rounding_preference, safety_margin_percentage, default_tax_percentage, low_stock_notification_email)
       values ('default', ${data.businessName || "Pastry County"}, 'NGN', ${data.defaultDeductionStage || "production_completion"}, ${bool(data.allowNegativeInventory)}, ${bool(data.requireAiConversionConfirmation)}, ${num(data.gramRoundingPreference, 5)}, ${data.eggRoundingPreference || "nearest_whole_egg"}, ${nonNegative(num(data.safetyMarginPercentage, 10), "Safety margin")}, ${nonNegative(num(data.defaultTaxPercentage, 0), "Tax percentage")}, ${data.lowStockNotificationEmail || null})
@@ -640,6 +789,7 @@ export async function handleAction(sql, body) {
         safety_margin_percentage = excluded.safety_margin_percentage, default_tax_percentage = excluded.default_tax_percentage,
         low_stock_notification_email = excluded.low_stock_notification_email, updated_at = now()
     `;
+    await audit(sql, "settings", "default", "update", before, await rowById(sql, "settings", "default"));
     return { ok: true };
   }
 

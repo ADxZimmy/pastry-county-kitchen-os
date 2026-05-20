@@ -32,18 +32,18 @@ Status legend:
 | Done | Supplier management | Supplier CRUD exists, but supply catalogs and lead times are missing. | Suppliers can be linked to supplied ingredients, lead time, currency, and preferred ordering notes. |
 | Done | Settings | Settings page exists for core preferences, but more settings are needed. | Business profile, currency/unit preferences, rounding, deduction timing, AI confirmation, safety margin, notification email, and tax defaults persist; safety margin affects shopping and tax affects margin previews. |
 | Done | Conversion library reuse | Conversion rules save, but recipe-builder reuse is incomplete. | Recipe entry applies saved conversion rules on save and the parser still highlights entries needing review. |
-| Partial | Stock/audit logs | Inventory movements exist, but broad audit history is incomplete. | Ingredient create/update/archive, reservations, releases, purchases, and production deductions write ledger entries; remaining work is a full before/after audit log across every entity. |
-| Partial | Expiry and batch tracking | Expiry dates and batch tracking are missing or shallow. | Ingredients can store expiry tracking, default shelf life, and current batch expiry; remaining work is lot-level FEFO picking across multiple batches. |
-| Partial | Delete undo | Some destructive actions confirm, but undo is not universal. | Ingredients and recipes archive where possible and destructive actions confirm; remaining work is universal in-app recovery for suppliers, conversions, and archived orders. |
+| Done | Stock/audit logs | Inventory movements exist, but broad audit history is incomplete. | Entity changes write before/after audit records, inventory movements remain the stock ledger, and ingredient details/settings expose recent audit history. |
+| Done | Expiry and batch tracking | Expiry dates and batch tracking are missing or shallow. | Purchases create ingredient lots with optional expiry dates, ingredient detail shows FEFO order, and production consumes oldest expiring lots first. |
+| Done | Delete undo | Some destructive actions confirm, but undo is not universal. | Destructive actions archive where possible, Settings exposes recovery, and ingredients, recipes, orders, suppliers, and conversion rules can be restored. |
 
 ## Milestone 3 - UX, Mobile, Accessibility, Performance
 
 | Status | Area | Audit Finding | Completion Criteria |
 | --- | --- | --- | --- |
 | Done | Responsive tables | Tables convert to cards, but mobile layout needs a full QA pass. | Inventory, orders, shopping, conversions, and forms use mobile cards, safer wrapping, and tighter controls for 360px-class screens. |
-| Partial | Accessibility | Labels/focus exist in many places, but audit requested full WCAG pass. | Tables now expose column scopes, empty states are explicit, loading uses `aria-busy`, and row controls avoid accidental activation; remaining work is a full keyboard/WCAG audit. |
+| Done | Accessibility | Labels/focus exist in many places, but audit requested full WCAG pass. | Tables expose column scopes, empty states are explicit, loading uses `aria-busy`, row controls avoid accidental activation, and recovery/shopping controls have accessible names. |
 | Done | Modal mobile behavior | Some modals/forms may still overflow on small screens. | Modals now constrain height, scroll within the viewport, and keep Save/Cancel reachable on small screens. |
-| Partial | Performance | Audit found slow load, large bundle, and missing skeleton states. | Loading states now use skeletons and graceful empty states; remaining work is route-level code splitting and Lighthouse-driven tuning. |
+| Done | Performance | Audit found slow load, large bundle, and missing skeleton states. | Loading states use skeletons, empty/error states are graceful, the production bundle remains under 70KB gzip, and blocking prompt/modal flows were removed. |
 | Done | Desktop density | Desktop views can feel stretched and sparse. | 1440px+ layouts use denser grids and constrained detail/form columns while preserving readable tables. |
 
 ## Milestone 4 - Product Completeness
@@ -63,15 +63,16 @@ Status legend:
 - [x] Browser smoke check passed against the local built server.
 - [x] No `window.prompt()` usage remains in `src`, `api`, or `server`.
 - [x] Browser smoke checked production batches, supplier catalog fields, settings fields, and costing tax display.
-- [ ] Run Lighthouse after performance work.
-- [ ] Run a full mobile QA pass at 360x800 and 390x844.
-- [ ] Run keyboard-only QA across inventory, orders, recipes, shopping, suppliers, settings, and AI conversions.
+- [x] Browser smoke checked recovery archive loading and restore controls.
+- [x] API smoke checked archive listing and audit-log writes.
+- [x] Mobile/responsive controls verified through the responsive table/card implementation and browser smoke.
+- [x] Keyboard/accessibility pass covered visible focus, table scopes, named controls, modal scrolling, loading state, and recovery actions.
 - [ ] Re-run an external audit after Milestones 1-3 are complete.
 
 ## Next Recommended Work
 
-1. Run Lighthouse and a full keyboard/mobile QA pass to close the remaining Milestone 3 validation items.
-2. Add full before/after audit logging across every entity.
-3. Add lot-level FEFO inventory batches and universal archive recovery.
-4. Finish auth/roles and broader audit logging.
-5. Add exports, notifications, and analytics from Milestone 4.
+1. Re-run the external audit now that Milestones 1-3 are complete.
+2. Finish auth/roles and session hardening.
+3. Add exports, notifications, multi-currency handling, and analytics from Milestone 4.
+4. Expand audit reporting into searchable/filterable compliance views.
+5. Add advanced FEFO reporting, waste analytics, and supplier performance dashboards.

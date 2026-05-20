@@ -19,6 +19,7 @@ create table if not exists suppliers (
   lead_time_days integer not null default 2 check (lead_time_days >= 0),
   supplied_ingredient_ids text[] not null default '{}',
   notes text,
+  active boolean not null default true,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -122,6 +123,20 @@ create table if not exists purchase_logs (
   created_at timestamptz not null default now()
 );
 
+create table if not exists ingredient_batches (
+  id text primary key,
+  ingredient_id text not null references ingredients(id),
+  purchase_id text references purchase_logs(id),
+  quantity_received numeric(14,3) not null check (quantity_received >= 0),
+  quantity_remaining numeric(14,3) not null check (quantity_remaining >= 0),
+  unit text not null,
+  expiry_date date,
+  received_date date not null default current_date,
+  notes text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
 create table if not exists inventory_movements (
   id text primary key,
   ingredient_id text not null references ingredients(id),
@@ -147,8 +162,20 @@ create table if not exists conversion_rules (
   source text not null check (source in ('AI estimate','manual entry','measured in kitchen','seed rule')),
   verified boolean not null default false,
   notes text,
+  active boolean not null default true,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
+);
+
+create table if not exists audit_logs (
+  id text primary key,
+  entity_type text not null,
+  entity_id text not null,
+  action text not null,
+  before_data jsonb,
+  after_data jsonb,
+  actor text not null default 'system',
+  created_at timestamptz not null default now()
 );
 
 create table if not exists settings (
@@ -169,6 +196,8 @@ create table if not exists settings (
 
 create index if not exists ingredients_category_idx on ingredients(category);
 create index if not exists inventory_movements_ingredient_idx on inventory_movements(ingredient_id, created_at desc);
+create index if not exists ingredient_batches_fefo_idx on ingredient_batches(ingredient_id, expiry_date nulls last, received_date);
+create index if not exists audit_logs_entity_idx on audit_logs(entity_type, entity_id, created_at desc);
 create index if not exists order_items_order_idx on order_items(order_id);
 create index if not exists recipe_items_recipe_idx on recipe_items(recipe_id);
 create index if not exists conversion_rules_lookup_idx on conversion_rules(ingredient_id, from_unit, to_unit);

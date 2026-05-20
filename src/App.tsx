@@ -26,7 +26,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { apiBaseUrl, backendMode } from "./lib/backend";
-import { conversionRules, ingredients, inventoryMovements, orderItems, orders, products, recipeItems, recipes, settings, suppliers, setKitchenSnapshot } from "./data";
+import { auditLogs, conversionRules, ingredientBatches, ingredients, inventoryMovements, orderItems, orders, products, recipeItems, recipes, settings, suppliers, setKitchenSnapshot } from "./data";
 import type { ConversionRule, Ingredient, Order, Recipe, StockStatus, Supplier, Unit } from "./types";
 import {
   calculateMargin,
@@ -666,6 +666,8 @@ function IngredientDetail({ ingredientId, setPage, notify, askConfirm, reloadDat
   if (!ingredient) return <EmptyState title="Ingredient not found" message="Select an ingredient from inventory." />;
   const supplier = suppliers.find((item) => item.id === ingredient.supplierId);
   const movements = inventoryMovements.filter((item) => item.ingredientId === ingredientId);
+  const batches = ingredientBatches.filter((item) => item.ingredientId === ingredientId);
+  const auditTrail = auditLogs.filter((item) => item.entityType === "ingredients" && item.entityId === ingredientId).slice(0, 8);
   return (
     <div className="detail-layout">
       <article className="detail-hero">
@@ -686,6 +688,32 @@ function IngredientDetail({ ingredientId, setPage, notify, askConfirm, reloadDat
         <SummaryCard title="Stock Summary" items={[["Current stock", `${ingredient.currentStock}${ingredient.baseUnit}`], ["Reserved stock", `${ingredient.reservedStock ?? 0}${ingredient.baseUnit}`], ["Available stock", `${ingredient.currentStock - (ingredient.reservedStock ?? 0)}${ingredient.baseUnit}`], ["Reorder level", `${ingredient.reorderLevel}${ingredient.baseUnit}`]]} />
         <SummaryCard title="Cost Summary" items={[["Last purchase price", `${formatNaira(ingredient.latestUnitCost)}/${ingredient.baseUnit}`], ["Supplier", supplier?.name ?? "Unassigned"], ["Expiry date", ingredient.expiryDate ?? "Not tracked"], ["Price trend", "18% increase placeholder"]]} />
       </div>
+      <Section title="Batch Lots & FEFO">
+        <ResponsiveTable headers={["Lot", "Remaining", "Expiry", "Received", "Guidance"]} rows={batches.map((batch, index) => ({
+          key: batch.id,
+          cells: [
+            batch.id,
+            `${batch.quantityRemaining}${batch.unit}`,
+            batch.expiryDate?.slice(0, 10) ?? "No expiry",
+            batch.receivedDate?.slice(0, 10) ?? "Unknown",
+            index === 0 ? <Badge tone="warning">Use first</Badge> : <Badge tone="neutral">Queued</Badge>
+          ]
+        }))} />
+      </Section>
+      <Section title="Audit Trail">
+        <div className="timeline">
+          {auditTrail.length === 0 && <p>No audit records for this ingredient yet.</p>}
+          {auditTrail.map((entry) => (
+            <article key={entry.id}>
+              <ListChecks size={18} />
+              <div>
+                <strong>{entry.action.replace(/_/g, " ")}</strong>
+                <small>{entry.actor} · {new Date(entry.createdAt).toLocaleString()}</small>
+              </div>
+            </article>
+          ))}
+        </div>
+      </Section>
       <Section title="Stock Movement Timeline">
         <div className="timeline">
           {movements.length === 0 && <p>No stock movements recorded yet.</p>}
@@ -1117,7 +1145,7 @@ function Production({ setPage, setSelectedOrderId, notify, reloadData }: any) {
 function ShoppingList({ notify, reloadData }: { notify: (message: string) => void; reloadData: () => Promise<void> }) {
   const list = generateShoppingList();
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [purchaseDrafts, setPurchaseDrafts] = useState<Record<string, { quantity: number; unitCost: number; note: string }>>({});
+  const [purchaseDrafts, setPurchaseDrafts] = useState<Record<string, { quantity: number; unitCost: number; note: string; expiryDate: string }>>({});
   useEffect(() => {
     setSelectedIds((current) => {
       const available = new Set(list.map((item) => item.ingredientId));
@@ -1132,7 +1160,8 @@ function ShoppingList({ notify, reloadData }: { notify: (message: string) => voi
         next[item.ingredientId] ??= {
           quantity: item.suggestedBuyQuantity,
           unitCost: item.unitCost,
-          note: `${item.reason}${item.demandOrderCount ? ` for ${item.demandOrderCount} order${item.demandOrderCount === 1 ? "" : "s"}` : ""}`
+          note: `${item.reason}${item.demandOrderCount ? ` for ${item.demandOrderCount} order${item.demandOrderCount === 1 ? "" : "s"}` : ""}`,
+          expiryDate: ""
         };
       });
       return next;
@@ -1141,17 +1170,18 @@ function ShoppingList({ notify, reloadData }: { notify: (message: string) => voi
   const selectedItems = list
     .filter((item) => selectedIds.includes(item.ingredientId))
     .map((item) => {
-      const draft = purchaseDrafts[item.ingredientId] ?? { quantity: item.suggestedBuyQuantity, unitCost: item.unitCost, note: "" };
+      const draft = purchaseDrafts[item.ingredientId] ?? { quantity: item.suggestedBuyQuantity, unitCost: item.unitCost, note: "", expiryDate: "" };
       return {
         ...item,
         purchaseQuantity: draft.quantity,
         unitCost: draft.unitCost,
         estimatedCost: draft.quantity * draft.unitCost,
-        note: draft.note
+        note: draft.note,
+        expiryDate: draft.expiryDate
       };
     });
-  const updateDraft = (ingredientId: string, patch: Partial<{ quantity: number; unitCost: number; note: string }>) => {
-    setPurchaseDrafts((current) => ({ ...current, [ingredientId]: { ...(current[ingredientId] ?? { quantity: 0, unitCost: 0, note: "" }), ...patch } }));
+  const updateDraft = (ingredientId: string, patch: Partial<{ quantity: number; unitCost: number; note: string; expiryDate: string }>) => {
+    setPurchaseDrafts((current) => ({ ...current, [ingredientId]: { ...(current[ingredientId] ?? { quantity: 0, unitCost: 0, note: "", expiryDate: "" }), ...patch } }));
   };
   const exportShoppingList = () => {
     const text = list.map((item) => {
@@ -1166,8 +1196,8 @@ function ShoppingList({ notify, reloadData }: { notify: (message: string) => voi
     <div className="page-grid">
       <div className="metric-grid small"><Metric label="Needed for Orders" value={list.filter((item) => item.requiredQuantity > 0).length} /><Metric label="Below Reorder Level" value={ingredients.filter((item) => item.currentStock <= item.reorderLevel).length} /><Metric label="Selected Cost" value={formatNaira(selectedCost)} /></div>
       <Section title="Suggested Purchases" action={<Button variant="secondary" onClick={() => shareText(list.map((item) => `${item.ingredientName}: ${item.suggestedBuyQuantity}${item.unit}`).join("\n"), notify)}>Send to WhatsApp</Button>}>
-        <ResponsiveTable headers={["Buy", "Ingredient", "Available", "Needed", "Purchase Qty", "Unit Cost", "Cost", "Reason", "Supplier"]} rows={list.map((item) => {
-          const draft = purchaseDrafts[item.ingredientId] ?? { quantity: item.suggestedBuyQuantity, unitCost: item.unitCost, note: "" };
+        <ResponsiveTable headers={["Buy", "Ingredient", "Available", "Needed", "Purchase Qty", "Unit Cost", "Expiry", "Cost", "Reason", "Supplier"]} rows={list.map((item) => {
+          const draft = purchaseDrafts[item.ingredientId] ?? { quantity: item.suggestedBuyQuantity, unitCost: item.unitCost, note: "", expiryDate: "" };
           return {
             key: item.ingredientId,
             cells: [
@@ -1177,6 +1207,7 @@ function ShoppingList({ notify, reloadData }: { notify: (message: string) => voi
               `${item.requiredQuantity}${item.unit}`,
               <input aria-label={`${item.ingredientName} purchase quantity`} type="number" min="0.001" step="0.001" value={draft.quantity} onChange={(event) => updateDraft(item.ingredientId, { quantity: Number(event.target.value) })} />,
               <input aria-label={`${item.ingredientName} unit cost`} type="number" min="0" step="0.0001" value={draft.unitCost} onChange={(event) => updateDraft(item.ingredientId, { unitCost: Number(event.target.value) })} />,
+              <input aria-label={`${item.ingredientName} expiry date`} type="date" value={draft.expiryDate} onChange={(event) => updateDraft(item.ingredientId, { expiryDate: event.target.value })} />,
               formatNaira(draft.quantity * draft.unitCost),
               <input aria-label={`${item.ingredientName} purchase note`} value={draft.note} onChange={(event) => updateDraft(item.ingredientId, { note: event.target.value })} />,
               item.supplier
@@ -1367,6 +1398,20 @@ function SupplierForm({ supplier, notify, reloadData, onCancel }: { supplier: Pa
 }
 
 function SettingsPage({ setPage, notify, reloadData }: { setPage: (page: Page) => void; notify: (message: string) => void; reloadData: () => Promise<void> }) {
+  const [archiveData, setArchiveData] = useState<Record<string, { id: string; name: string }[]> | null>(null);
+  const loadArchive = async () => {
+    const result = await apiAction("archive.list");
+    setArchiveData(result as Record<string, { id: string; name: string }[]>);
+  };
+  useEffect(() => {
+    loadArchive().catch(() => notify("Archive recovery could not be loaded."));
+  }, []);
+  const restoreArchive = async (entityType: string, entityId: string) => {
+    await apiAction("archive.restore", { entityType, entityId });
+    notify("Archived item restored.");
+    await loadArchive();
+    await reloadData();
+  };
   return (
     <div className="page-grid">
       <div className="more-grid">
@@ -1407,6 +1452,39 @@ function SettingsPage({ setPage, notify, reloadData }: { setPage: (page: Page) =
         </div>
       </Section>
       </form>
+      <Section title="Recovery & Audit" action={<Button variant="secondary" onClick={loadArchive}>Refresh Archive</Button>}>
+        <div className="split">
+          {[
+            ["ingredient", "Archived Ingredients", "archivedIngredients"],
+            ["recipe", "Archived Recipes", "archivedRecipes"],
+            ["order", "Archived Orders", "archivedOrders"],
+            ["supplier", "Archived Suppliers", "archivedSuppliers"],
+            ["conversion", "Archived Conversions", "archivedConversions"]
+          ].map(([entityType, title, key]) => (
+            <article className="summary-card" key={key}>
+              <h3>{title}</h3>
+              {(archiveData?.[key] ?? []).length === 0 && <small>{archiveData ? "Nothing archived." : "Refresh to load recoverable records."}</small>}
+              {(archiveData?.[key] ?? []).map((item) => (
+                <div key={item.id}>
+                  <span>{item.name}</span>
+                  <Button variant="secondary" onClick={() => restoreArchive(entityType, item.id)}>Restore</Button>
+                </div>
+              ))}
+            </article>
+          ))}
+        </div>
+        <div className="timeline">
+          {(archiveData?.auditRows ?? auditLogs.slice(0, 8)).map((entry: any) => (
+            <article key={entry.id}>
+              <ListChecks size={18} />
+              <div>
+                <strong>{entry.entityType} · {entry.action}</strong>
+                <small>{entry.entityId} · {new Date(entry.createdAt).toLocaleString()}</small>
+              </div>
+            </article>
+          ))}
+        </div>
+      </Section>
     </div>
   );
 }

@@ -15,6 +15,7 @@ export interface Supplier {
   leadTimeDays?: number;
   suppliedIngredientIds?: string[];
   notes: string;
+  active?: boolean;
 }
 
 export interface Ingredient {
@@ -100,6 +101,29 @@ export interface InventoryMovement {
   createdAt: string;
 }
 
+export interface IngredientBatch {
+  id: string;
+  ingredientId: string;
+  purchaseId?: string;
+  quantityReceived: number;
+  quantityRemaining: number;
+  unit: Unit;
+  expiryDate?: string;
+  receivedDate: string;
+  notes?: string;
+}
+
+export interface AuditLog {
+  id: string;
+  entityType: string;
+  entityId: string;
+  action: string;
+  beforeData?: Record<string, unknown>;
+  afterData?: Record<string, unknown>;
+  actor: string;
+  createdAt: string;
+}
+
 export interface ConversionRule {
   id: string;
   ingredientId: string;
@@ -111,6 +135,7 @@ export interface ConversionRule {
   source: "AI estimate" | "manual entry" | "measured in kitchen" | "seed rule";
   verified: boolean;
   notes?: string;
+  active?: boolean;
   updatedAt: string;
 }
 
