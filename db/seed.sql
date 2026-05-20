@@ -2,11 +2,11 @@ insert into app_users (id, email, full_name, role, password_hash) values
   ('user-owner', 'owner@pastrycounty.ng', 'Pastry County Owner', 'Owner/Admin', '$2a$10$/zx3vcuPpG/HOzAb8pM2tO4FnQdHDT1nCsxRdUaA636c22zbGtlCu')
 on conflict (id) do update set email = excluded.email, full_name = excluded.full_name, role = excluded.role, password_hash = excluded.password_hash, updated_at = now();
 
-insert into suppliers (id, name, contact_name, phone, email, address, notes) values
-  ('sup-market', 'Balogun Baking Market', 'Mrs Ade', '+234 801 555 0140', 'orders@balogunmarket.ng', 'Lagos Island', 'Reliable dry goods and chocolate.'),
-  ('sup-farm', 'Fresh Crate Farms', 'Timi', '+234 802 555 0172', 'hello@freshcrate.ng', 'Lekki', 'Eggs, berries, lemons, bananas.'),
-  ('sup-pack', 'Ivory Pack Studio', 'Nora', '+234 803 555 0188', 'sales@ivorypack.ng', 'Yaba', 'Boxes, stickers, parchment.')
-on conflict (id) do update set name = excluded.name, contact_name = excluded.contact_name, phone = excluded.phone, email = excluded.email, address = excluded.address, notes = excluded.notes, updated_at = now();
+insert into suppliers (id, name, contact_name, phone, email, address, default_currency, notes) values
+  ('sup-market', 'Balogun Baking Market', 'Mrs Ade', '+234 801 555 0140', 'orders@balogunmarket.ng', 'Lagos Island', 'NGN', 'Reliable dry goods and chocolate.'),
+  ('sup-farm', 'Fresh Crate Farms', 'Timi', '+234 802 555 0172', 'hello@freshcrate.ng', 'Lekki', 'NGN', 'Eggs, berries, lemons, bananas.'),
+  ('sup-pack', 'Ivory Pack Studio', 'Nora', '+234 803 555 0188', 'sales@ivorypack.ng', 'Yaba', 'NGN', 'Boxes, stickers, parchment.')
+on conflict (id) do update set name = excluded.name, contact_name = excluded.contact_name, phone = excluded.phone, email = excluded.email, address = excluded.address, default_currency = excluded.default_currency, notes = excluded.notes, updated_at = now();
 
 insert into ingredients (id, name, category, base_unit, current_stock, reserved_stock, reorder_level, latest_unit_cost, supplier_id, expiry_tracking_enabled, notes) values
   ('flour', 'Flour', 'Dry Goods', 'g', 10000, 0, 3000, 0.50, 'sup-market', false, null),

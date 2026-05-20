@@ -5,7 +5,7 @@ import { calculateMargin, calculateRecipeCost, checkStockAvailability, convertUn
 describe("kitchen calculations", () => {
   beforeEach(() => {
     setKitchenSnapshot({
-      suppliers: [{ id: "sup-market", name: "Market", contactName: "Ade", phone: "", email: "", address: "", notes: "" }],
+      suppliers: [{ id: "sup-market", name: "Market", contactName: "Ade", phone: "", email: "", address: "", defaultCurrency: "NGN", notes: "" }],
       ingredients: [
         { id: "flour", name: "Flour", category: "Dry Goods", baseUnit: "g", currentStock: 10000, reorderLevel: 3000, latestUnitCost: 0.5, supplierId: "sup-market" },
         { id: "sugar", name: "Sugar", category: "Dry Goods", baseUnit: "g", currentStock: 8000, reorderLevel: 2500, latestUnitCost: 0.62, supplierId: "sup-market" },
@@ -57,6 +57,7 @@ describe("kitchen calculations", () => {
     const scaled = scaleRecipe("recipe-classic", 12);
     expect(scaled.find((item) => item.ingredientName === "Flour")?.scaledQuantity).toBe(225);
     expect(scaled.find((item) => item.ingredientName === "Sugar")?.scaledQuantity).toBe(375);
+    expect(scaled.find((item) => item.ingredientName === "Dark Chocolate")?.scaledQuantity).toBe(187.5);
     expect(scaled.find((item) => item.ingredientName === "Eggs")?.scaledQuantity).toBe(3);
   });
 

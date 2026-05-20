@@ -15,6 +15,7 @@ create table if not exists suppliers (
   phone text,
   email text,
   address text,
+  default_currency text not null default 'NGN',
   notes text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -25,8 +26,8 @@ create table if not exists ingredients (
   name text not null,
   category text not null,
   base_unit text not null check (base_unit in ('g','kg','ml','litre','pcs','cup','tablespoon','teaspoon','pack','roll','egg','yolk','white')),
-  current_stock numeric(14,3) not null default 0,
-  reserved_stock numeric(14,3) not null default 0,
+  current_stock numeric(14,3) not null default 0 check (current_stock >= 0),
+  reserved_stock numeric(14,3) not null default 0 check (reserved_stock >= 0),
   reorder_level numeric(14,3) not null default 0 check (reorder_level >= 0),
   latest_unit_cost numeric(14,4) not null default 0 check (latest_unit_cost >= 0),
   supplier_id text references suppliers(id) on delete set null,

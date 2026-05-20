@@ -5,7 +5,7 @@ import bcrypt from "bcryptjs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadKitchenSnapshot } from "../api/_db.js";
-import { handleAction } from "../api/_actions.js";
+import { handleAction, produceOrder } from "../api/_actions.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, "..");
@@ -74,6 +74,15 @@ app.post("/api/actions", requireDatabase, async (req, res, next) => {
 app.post("/api/inventory-movements", requireDatabase, async (req, res, next) => {
   try {
     const { ingredientId, movementType, quantityChange, unit, note, createdBy = "system" } = req.body;
+    const ingredientRows = await sql`select current_stock::float as current_stock from ingredients where id = ${ingredientId}`;
+    if (!ingredientRows.length) {
+      res.status(404).json({ error: "Ingredient not found" });
+      return;
+    }
+    if (Number(ingredientRows[0].current_stock) + Number(quantityChange) < 0) {
+      res.status(400).json({ error: "Adjustment would make stock negative." });
+      return;
+    }
     const [movementRows] = await sql.transaction((txn) => [
       txn`
         insert into inventory_movements (id, ingredient_id, movement_type, quantity_change, unit, note, created_by)
@@ -95,40 +104,7 @@ app.post("/api/inventory-movements", requireDatabase, async (req, res, next) => 
 app.post("/api/orders/:orderId/produced", requireDatabase, async (req, res, next) => {
   try {
     const { orderId } = req.params;
-    const orderRows = await sql`select status from orders where id = ${orderId}`;
-    if (!orderRows.length) {
-      res.status(404).json({ error: "Order not found" });
-      return;
-    }
-    if (orderRows[0].status === "Produced") {
-      res.json({ produced: false, alreadyProduced: true });
-      return;
-    }
-    const requirements = await sql`
-      select ri.ingredient_id, ri.unit, sum(ri.quantity * oi.requested_yield_quantity / r.base_yield_quantity * oi.quantity_multiplier) as quantity
-      from order_items oi
-      join recipes r on r.id = oi.recipe_id
-      join recipe_items ri on ri.recipe_id = r.id
-      where oi.order_id = ${orderId}
-      group by ri.ingredient_id, ri.unit
-    `;
-    await sql.transaction((txn) => [
-      ...requirements.flatMap((requirement, index) => [
-        txn`
-          insert into inventory_movements (id, ingredient_id, movement_type, quantity_change, unit, related_order_id, note, created_by)
-          values (${`mov-${Date.now()}-${index}`}, ${requirement.ingredient_id}, 'production_use', ${-Number(requirement.quantity)}, ${requirement.unit}, ${orderId}, 'Deducted when order was marked produced', 'system')
-        `,
-        txn`
-          update ingredients
-          set current_stock = current_stock - ${Number(requirement.quantity)},
-            reserved_stock = greatest(0, reserved_stock - ${Number(requirement.quantity)}),
-            updated_at = now()
-          where id = ${requirement.ingredient_id}
-        `
-      ]),
-      txn`update orders set status = 'Produced', production_status = 'Completed', updated_at = now() where id = ${orderId}`
-    ]);
-    res.json({ produced: true });
+    res.json(await produceOrder(sql, orderId));
   } catch (error) {
     next(error);
   }
@@ -141,7 +117,7 @@ app.get("*", (_req, res) => {
 
 app.use((error, _req, res, _next) => {
   console.error(error);
-  res.status(500).json({ error: error.message ?? "Unexpected server error" });
+  res.status(error.statusCode ?? 500).json({ error: error.message ?? "Unexpected server error" });
 });
 
 app.listen(port, () => {

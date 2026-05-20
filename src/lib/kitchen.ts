@@ -32,6 +32,12 @@ export function roundByPreference(value: number, unit: Unit) {
   return Number(value.toFixed(2));
 }
 
+export function roundScaledQuantity(value: number, unit: Unit) {
+  if (["pcs", "pack", "roll", "egg", "yolk", "white"].includes(unit)) return Math.ceil(value);
+  if (["g", "kg", "ml", "litre", "cup", "tablespoon", "teaspoon"].includes(unit)) return Number(value.toFixed(1));
+  return Number(value.toFixed(2));
+}
+
 export function scaleRecipe(recipeId: string, requestedYieldQuantity: number, recipeList = recipes, itemList = recipeItems, ingredientList = ingredients): ScaledIngredient[] {
   const recipe = recipeList.find((item) => item.id === recipeId);
   if (!recipe) throw new Error(`Recipe ${recipeId} was not found`);
@@ -46,7 +52,7 @@ export function scaleRecipe(recipeId: string, requestedYieldQuantity: number, re
         ingredientId: ingredient.id,
         ingredientName: ingredient.name,
         originalQuantity: item.quantity,
-        scaledQuantity: roundByPreference(withWaste * scaleFactor, item.unit),
+        scaledQuantity: roundScaledQuantity(withWaste * scaleFactor, item.unit),
         unit: item.unit,
         scaleFactor
       };

@@ -22,6 +22,7 @@
 body { margin: 0; min-width: 320px; min-height: 100dvh; background: radial-gradient(circle at top left, #fff5df 0, transparent 28rem), var(--bg); }
 button, input, select, textarea { font: inherit; }
 button { cursor: pointer; }
+button:disabled { cursor: not-allowed; opacity: .55; }
 input, select, textarea {
   width: 100%;
   min-height: 48px;
@@ -30,6 +31,11 @@ input, select, textarea {
   background: #fffdf8;
   color: var(--ink);
   padding: 0 14px;
+}
+input[type="checkbox"] {
+  width: 22px;
+  min-height: 22px;
+  accent-color: var(--caramel);
 }
 textarea { min-height: 110px; padding: 12px 14px; resize: vertical; }
 input:focus, select:focus, textarea:focus, button:focus-visible { outline: 3px solid rgba(194, 97, 22, 0.28); outline-offset: 2px; }
@@ -299,6 +305,7 @@ tbody tr:hover { background: #fff4e6; }
   border: 1px solid var(--border);
   box-shadow: 0 24px 70px rgba(36, 22, 13, .3);
 }
+.confirm-modal.wide { width: min(100%, 680px); }
 .confirm-modal h2 { margin: 0; }
 .confirm-modal p { margin: 0; color: var(--muted); }
 .confirm-modal .button-row { justify-content: flex-end; }

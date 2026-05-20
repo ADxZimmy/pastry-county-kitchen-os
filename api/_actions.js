@@ -22,6 +22,22 @@ function normalizeUnit(unit, fallback = "g") {
   return String(unit || fallback);
 }
 
+const movementTypes = new Set(["purchase", "production_use", "reservation", "reservation_release", "adjustment", "waste", "return", "correction"]);
+
+function nonNegative(value, label) {
+  if (value < 0) {
+    throw Object.assign(new Error(`${label} cannot be negative.`), { statusCode: 400 });
+  }
+  return value;
+}
+
+function positive(value, label) {
+  if (value <= 0) {
+    throw Object.assign(new Error(`${label} must be greater than zero.`), { statusCode: 400 });
+  }
+  return value;
+}
+
 async function requirementsForOrder(sql, orderId) {
   return sql`
     select ri.ingredient_id, ri.unit, sum(ri.quantity * oi.requested_yield_quantity / r.base_yield_quantity * oi.quantity_multiplier) as quantity
@@ -51,7 +67,9 @@ async function stockStatusForRequirements(sql, requirements) {
 async function reserveOrder(sql, orderId) {
   const orderRows = await sql`select status from orders where id = ${orderId}`;
   if (!orderRows.length) throw Object.assign(new Error("Order not found."), { statusCode: 404 });
-  if (orderRows[0].status === "Stock Reserved") return { reserved: false, alreadyReserved: true };
+  if (["Stock Reserved", "In Production", "Produced", "Delivered"].includes(orderRows[0].status) || await pendingReservationTotal(sql, orderId) > 0) {
+    return { reserved: false, alreadyReserved: true };
+  }
 
   const requirements = await requirementsForOrder(sql, orderId);
   const stockStatus = await stockStatusForRequirements(sql, requirements);
@@ -110,11 +128,95 @@ async function releaseReservation(sql, orderId) {
   return { released: true };
 }
 
+async function pendingReservationTotal(sql, orderId) {
+  const rows = await sql`
+    select coalesce(sum(case
+      when movement_type = 'reservation' then quantity_change
+      when movement_type = 'reservation_release' then quantity_change
+      else 0
+    end), 0)::float as quantity
+    from inventory_movements
+    where related_order_id = ${orderId}
+      and movement_type in ('reservation', 'reservation_release')
+  `;
+  return Math.max(0, Number(rows[0]?.quantity ?? 0));
+}
+
+async function shortagesForProduction(sql, orderId, requirements) {
+  return Promise.all(requirements.map(async (item) => {
+    const rows = await sql`
+      select current_stock::float as current_stock, reserved_stock::float as reserved_stock
+      from ingredients
+      where id = ${item.ingredient_id}
+    `;
+    const reservationRows = await sql`
+      select coalesce(sum(case
+        when movement_type = 'reservation' then quantity_change
+        when movement_type = 'reservation_release' then quantity_change
+        else 0
+      end), 0)::float as quantity
+      from inventory_movements
+      where related_order_id = ${orderId}
+        and ingredient_id = ${item.ingredient_id}
+        and movement_type in ('reservation', 'reservation_release')
+    `;
+    const ingredient = rows[0];
+    const requiredQuantity = Number(item.quantity);
+    const currentStock = Number(ingredient?.current_stock ?? 0);
+    const reservedStock = Number(ingredient?.reserved_stock ?? 0);
+    const reservedForOrder = Math.max(0, Number(reservationRows[0]?.quantity ?? 0));
+    const usableStock = currentStock - Math.max(0, reservedStock - reservedForOrder);
+    return {
+      ingredientId: item.ingredient_id,
+      unit: item.unit,
+      requiredQuantity,
+      availableQuantity: usableStock,
+      shortageQuantity: Math.max(0, requiredQuantity - usableStock)
+    };
+  })).then((rows) => rows.filter((row) => row.shortageQuantity > 0));
+}
+
+export async function produceOrder(sql, orderId) {
+  const orderRows = await sql`select status from orders where id = ${orderId}`;
+  if (!orderRows.length) throw Object.assign(new Error("Order not found."), { statusCode: 404 });
+  const status = orderRows[0].status;
+  if (status === "Produced") return { produced: false, alreadyProduced: true };
+  if (!["Stock Reserved", "In Production"].includes(status)) {
+    throw Object.assign(new Error("Start production before marking this order as produced."), { statusCode: 409 });
+  }
+
+  const requirements = await requirementsForOrder(sql, orderId);
+  const shortages = await shortagesForProduction(sql, orderId, requirements);
+  if (shortages.length) {
+    await sql`update orders set stock_status = 'Shortage', updated_at = now() where id = ${orderId}`;
+    throw Object.assign(new Error("Cannot mark produced while ingredients are short."), { statusCode: 409, details: shortages });
+  }
+
+  await sql.transaction((txn) => [
+    ...requirements.flatMap((requirement, index) => [
+      txn`
+        insert into inventory_movements (id, ingredient_id, movement_type, quantity_change, unit, related_order_id, note, created_by)
+        values (${id(`mov-prod-${index}`)}, ${requirement.ingredient_id}, 'production_use', ${-Number(requirement.quantity)}, ${requirement.unit}, ${orderId}, 'Deducted when order was marked produced', 'system')
+      `,
+      txn`
+        update ingredients
+        set current_stock = current_stock - ${Number(requirement.quantity)},
+          reserved_stock = greatest(0, reserved_stock - ${Number(requirement.quantity)}),
+          updated_at = now()
+        where id = ${requirement.ingredient_id}
+      `
+    ]),
+    txn`update orders set status = 'Produced', production_status = 'Completed', stock_status = 'In Stock', updated_at = now() where id = ${orderId}`
+  ]);
+  return { produced: true };
+}
+
 export async function handleAction(sql, body) {
   const action = required(body.action, "Action");
 
   if (action === "schema.ensure") {
     await sql`alter table orders add column if not exists archived boolean not null default false`;
+    await sql`alter table suppliers add column if not exists default_currency text not null default 'NGN'`;
     return { ok: true };
   }
 
@@ -123,17 +225,34 @@ export async function handleAction(sql, body) {
     const ingredientId = data.id || id("ing");
     const supplierId = data.supplierId || null;
     const baseUnit = normalizeUnit(data.baseUnit);
-    const currentStock = num(data.currentStock);
-    const purchaseQuantity = num(data.purchaseQuantity);
-    const purchasePrice = num(data.purchasePrice);
+    const name = required(data.name, "Ingredient name");
+    const category = required(data.category, "Category");
+    const currentStock = nonNegative(num(data.currentStock), "Current stock");
+    const reorderLevel = nonNegative(num(data.reorderLevel), "Reorder level");
+    const purchaseQuantity = nonNegative(num(data.purchaseQuantity), "Purchase quantity");
+    const purchasePrice = nonNegative(num(data.purchasePrice), "Purchase price");
+    if (purchasePrice > 0 && purchaseQuantity <= 0) {
+      throw Object.assign(new Error("Purchase quantity is required when purchase price is entered."), { statusCode: 400 });
+    }
+    const duplicateRows = data.id ? [] : await sql`
+      select id
+      from ingredients
+      where active = true and lower(name) = lower(${name})
+      limit 1
+    `;
+    if (duplicateRows.length) {
+      throw Object.assign(new Error(`${name} already exists in inventory. Open the existing ingredient to edit stock or cost.`), { statusCode: 409 });
+    }
+    const existingRows = data.id ? await sql`select latest_unit_cost::float as latest_unit_cost from ingredients where id = ${data.id}` : [];
+    const fallbackUnitCost = data.latestUnitCost === undefined || data.latestUnitCost === "" ? Number(existingRows[0]?.latest_unit_cost ?? 0) : nonNegative(num(data.latestUnitCost), "Latest unit cost");
     const stockAfterPurchase = currentStock + purchaseQuantity;
     const convertedPurchaseQuantity = purchaseQuantity || currentStock;
-    const latestUnitCost = purchasePrice > 0 && convertedPurchaseQuantity > 0 ? purchasePrice / convertedPurchaseQuantity : num(data.latestUnitCost);
+    const latestUnitCost = purchasePrice > 0 && purchaseQuantity > 0 ? purchasePrice / purchaseQuantity : fallbackUnitCost;
 
     await sql.transaction((txn) => [
       txn`
         insert into ingredients (id, name, category, base_unit, current_stock, reorder_level, latest_unit_cost, supplier_id, expiry_tracking_enabled, notes)
-        values (${ingredientId}, ${required(data.name, "Ingredient name")}, ${required(data.category, "Category")}, ${baseUnit}, ${stockAfterPurchase}, ${num(data.reorderLevel)}, ${latestUnitCost}, ${supplierId}, ${bool(data.expiryTrackingEnabled)}, ${data.notes || null})
+        values (${ingredientId}, ${name}, ${category}, ${baseUnit}, ${stockAfterPurchase}, ${reorderLevel}, ${latestUnitCost}, ${supplierId}, ${bool(data.expiryTrackingEnabled)}, ${data.notes || null})
         on conflict (id) do update set name = excluded.name, category = excluded.category, base_unit = excluded.base_unit,
           current_stock = excluded.current_stock, reorder_level = excluded.reorder_level, latest_unit_cost = excluded.latest_unit_cost,
           supplier_id = excluded.supplier_id, expiry_tracking_enabled = excluded.expiry_tracking_enabled, notes = excluded.notes, updated_at = now()
@@ -165,10 +284,22 @@ export async function handleAction(sql, body) {
   if (action === "inventory.adjust") {
     const quantity = num(body.quantityChange);
     const ingredientId = required(body.ingredientId, "Ingredient");
+    const movementType = String(body.movementType || "adjustment");
+    if (!movementTypes.has(movementType)) {
+      throw Object.assign(new Error("Invalid movement type."), { statusCode: 400 });
+    }
+    if (quantity === 0) {
+      throw Object.assign(new Error("Adjustment quantity cannot be zero."), { statusCode: 400 });
+    }
+    const ingredientRows = await sql`select current_stock::float as current_stock from ingredients where id = ${ingredientId}`;
+    if (!ingredientRows.length) throw Object.assign(new Error("Ingredient not found."), { statusCode: 404 });
+    if (Number(ingredientRows[0].current_stock) + quantity < 0) {
+      throw Object.assign(new Error("Adjustment would make stock negative."), { statusCode: 400 });
+    }
     await sql.transaction((txn) => [
       txn`
         insert into inventory_movements (id, ingredient_id, movement_type, quantity_change, unit, note, created_by)
-        values (${id("mov")}, ${ingredientId}, ${body.movementType || "adjustment"}, ${quantity}, ${required(body.unit, "Unit")}, ${body.note || "Manual stock adjustment"}, 'system')
+        values (${id("mov")}, ${ingredientId}, ${movementType}, ${quantity}, ${required(body.unit, "Unit")}, ${body.note || "Manual stock adjustment"}, 'system')
       `,
       txn`update ingredients set current_stock = current_stock + ${quantity}, updated_at = now() where id = ${ingredientId}`
     ]);
@@ -179,10 +310,10 @@ export async function handleAction(sql, body) {
     const data = body.supplier ?? {};
     const supplierId = data.id || id("sup");
     await sql`
-      insert into suppliers (id, name, contact_name, phone, email, address, notes)
-      values (${supplierId}, ${required(data.name, "Supplier name")}, ${data.contactName || null}, ${data.phone || null}, ${data.email || null}, ${data.address || null}, ${data.notes || null})
+      insert into suppliers (id, name, contact_name, phone, email, address, default_currency, notes)
+      values (${supplierId}, ${required(data.name, "Supplier name")}, ${data.contactName || null}, ${data.phone || null}, ${data.email || null}, ${data.address || null}, ${data.defaultCurrency || "NGN"}, ${data.notes || null})
       on conflict (id) do update set name = excluded.name, contact_name = excluded.contact_name, phone = excluded.phone,
-        email = excluded.email, address = excluded.address, notes = excluded.notes, updated_at = now()
+        email = excluded.email, address = excluded.address, default_currency = excluded.default_currency, notes = excluded.notes, updated_at = now()
     `;
     return { ok: true, id: supplierId };
   }
@@ -253,6 +384,7 @@ export async function handleAction(sql, body) {
 
   if (action === "order.reserve") return reserveOrder(sql, required(body.orderId, "Order"));
   if (action === "order.releaseReservation") return releaseReservation(sql, required(body.orderId, "Order"));
+  if (action === "order.produce") return produceOrder(sql, required(body.orderId, "Order"));
 
   if (action === "order.delete") {
     await sql`alter table orders add column if not exists archived boolean not null default false`;
@@ -270,6 +402,18 @@ export async function handleAction(sql, body) {
     const orderId = required(body.orderId, "Order");
     const status = required(body.status, "Status");
     const productionStatus = body.productionStatus || (status === "In Production" ? "In Progress" : status === "Delivered" || status === "Produced" ? "Completed" : undefined);
+    if (status === "In Production") {
+      const reservation = await reserveOrder(sql, orderId);
+      if (reservation.shortage) {
+        throw Object.assign(new Error("Cannot start production until ingredient shortages are resolved."), { statusCode: 409 });
+      }
+    }
+    if (status === "Delivered") {
+      const rows = await sql`select status from orders where id = ${orderId}`;
+      if (rows[0]?.status !== "Produced") {
+        throw Object.assign(new Error("Mark the order as produced before delivery."), { statusCode: 409 });
+      }
+    }
     await sql`
       update orders
       set status = ${status}, production_status = coalesce(${productionStatus || null}, production_status), updated_at = now()
@@ -289,7 +433,7 @@ export async function handleAction(sql, body) {
       return [
         txn`
           insert into purchase_logs (id, supplier_id, ingredient_id, purchase_quantity, purchase_unit, purchase_price, converted_quantity_in_base_unit, cost_per_base_unit, notes)
-          values (${purchaseId}, null, ${item.ingredientId}, ${quantity}, ${item.unit}, ${cost}, ${quantity}, ${quantity > 0 ? cost / quantity : 0}, 'Marked purchased from shopping list')
+          values (${purchaseId}, null, ${item.ingredientId}, ${quantity}, ${item.unit}, ${cost}, ${quantity}, ${quantity > 0 && cost > 0 ? cost / quantity : num(item.unitCost)}, 'Marked purchased from shopping list')
         `,
         txn`
           insert into inventory_movements (id, ingredient_id, movement_type, quantity_change, unit, related_purchase_id, note, created_by)
@@ -297,7 +441,9 @@ export async function handleAction(sql, body) {
         `,
         txn`
           update ingredients
-          set current_stock = current_stock + ${quantity}, latest_unit_cost = ${quantity > 0 ? cost / quantity : 0}, updated_at = now()
+          set current_stock = current_stock + ${quantity},
+            latest_unit_cost = case when ${quantity} > 0 and ${cost} > 0 then ${cost / quantity} else latest_unit_cost end,
+            updated_at = now()
           where id = ${item.ingredientId}
         `
       ];

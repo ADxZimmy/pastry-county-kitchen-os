@@ -11,6 +11,7 @@ export interface Supplier {
   phone: string;
   email: string;
   address: string;
+  defaultCurrency: string;
   notes: string;
 }
 

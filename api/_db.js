@@ -17,6 +17,7 @@ export const first = (rows) => rows[0];
 export async function loadKitchenSnapshot() {
   const sql = getSql();
   await sql`alter table orders add column if not exists archived boolean not null default false`;
+  await sql`alter table suppliers add column if not exists default_currency text not null default 'NGN'`;
   const [
     supplierRows,
     ingredientRows,
@@ -29,7 +30,7 @@ export async function loadKitchenSnapshot() {
     conversionRows,
     settingRows
   ] = await Promise.all([
-    sql`select id, name, contact_name as "contactName", phone, email, address, notes from suppliers order by name`,
+    sql`select id, name, contact_name as "contactName", phone, email, address, default_currency as "defaultCurrency", notes from suppliers order by name`,
     sql`
       select id, name, category, base_unit as "baseUnit", current_stock::float as "currentStock",
         reorder_level::float as "reorderLevel", latest_unit_cost::float as "latestUnitCost",
