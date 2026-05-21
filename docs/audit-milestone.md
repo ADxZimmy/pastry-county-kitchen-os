@@ -1,6 +1,6 @@
 # Pastry County Kitchen OS Audit Milestone
 
-This milestone tracks every finding from `App Audit Request.pdf` and the work needed to move the audit from "Not Ready" to complete coverage.
+This milestone tracks every finding from `App Audit Request.pdf` and `App Audit Request (1).pdf` and the work needed to move the audit from "Not Ready" to complete coverage.
 
 Status legend:
 
@@ -21,14 +21,15 @@ Status legend:
 | Done | AI conversion prompts | AI conversion responses were static and used browser prompts. | Suggestions select ingredient-specific rules, editable values are in-app, and rules save through the API. |
 | Done | Supplier prompt flow | Add Supplier used `prompt()` and could leave the SPA. | Supplier add/edit uses an in-app form with contact, address, currency, and notes. |
 | Done | Search state | Search terms persisted when switching modules. | Navigation clears the shared search query. |
+| Done | Edit form cancellation | Updated audit found Cancel on Edit Ingredient could open `chrome://newtab` and leave the SPA. | Form cancellation now routes explicitly to the relevant app page instead of using browser history. |
 
 ## Milestone 2 - MVP Reliability
 
 | Status | Area | Audit Finding | Completion Criteria |
 | --- | --- | --- | --- |
-| Done | Shopping list | Shortage calculations need broader real-order coverage and editable purchase cost. | Shopping list aggregates active demand, low-stock top-ups, editable quantities/prices, supplier assignment, and purchase notes. |
+| Done | Shopping list | Shortage calculations need broader real-order coverage, editable purchase cost, and non-zero estimates where costs are missing. | Shopping list normalizes order requirements to base units, aggregates active demand and low-stock top-ups, supports editable quantities/prices, supplier assignment, purchase notes, expiry dates, and fallback estimates for missing costs. |
 | Done | Order reservation | Reservation is all-or-nothing. Audit requested partial reservation. | Operators can reserve available stock, see remaining shortages, and reserve the remainder after stock is purchased. |
-| Done | Production module | Production page still needs deeper task workflow, though grouping is now available. | Orders are grouped by recipe/date, batch quantities are calculated, and grouped batches can be reviewed, started, and completed with inventory guardrails. |
+| Done | Production module | Production page still needs deeper task workflow, and updated audit reported shortage orders could still be progressed. | Orders are grouped by recipe/date, batch quantities are calculated, and grouped batches can be reviewed, started, and completed with inventory guardrails; stale shortage orders are blocked from delivery server-side. |
 | Done | Supplier management | Supplier CRUD exists, but supply catalogs and lead times are missing. | Suppliers can be linked to supplied ingredients, lead time, currency, and preferred ordering notes. |
 | Done | Settings | Settings page exists for core preferences, but more settings are needed. | Business profile, currency/unit preferences, rounding, deduction timing, AI confirmation, safety margin, notification email, and tax defaults persist; safety margin affects shopping and tax affects margin previews. |
 | Done | Conversion library reuse | Conversion rules save, but recipe-builder reuse is incomplete. | Recipe entry applies saved conversion rules on save and the parser still highlights entries needing review. |
@@ -65,14 +66,16 @@ Status legend:
 - [x] Browser smoke checked production batches, supplier catalog fields, settings fields, and costing tax display.
 - [x] Browser smoke checked recovery archive loading and restore controls.
 - [x] API smoke checked archive listing and audit-log writes.
+- [x] Updated audit PDF reviewed and mapped to fixes for Cancel navigation, shortage delivery guardrails, and shopping aggregation/cost estimates.
+- [x] Browser smoke checked login, form cancellation, and rebuilt shopping-list cost rows after updated audit fixes.
 - [x] Mobile/responsive controls verified through the responsive table/card implementation and browser smoke.
 - [x] Keyboard/accessibility pass covered visible focus, table scopes, named controls, modal scrolling, loading state, and recovery actions.
 - [ ] Re-run an external audit after Milestones 1-3 are complete.
 
 ## Next Recommended Work
 
-1. Re-run the external audit now that Milestones 1-3 are complete.
-2. Finish auth/roles and session hardening.
+1. Re-run the external audit after this updated audit patch is live.
+2. Finish role-based action permissions and session hardening.
 3. Add exports, notifications, multi-currency handling, and analytics from Milestone 4.
 4. Expand audit reporting into searchable/filterable compliance views.
 5. Add advanced FEFO reporting, waste analytics, and supplier performance dashboards.

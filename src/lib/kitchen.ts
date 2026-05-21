@@ -172,8 +172,27 @@ export function calculateOrderCost(orderId: string) {
   }, 0);
 }
 
+function normalizeRequirementToBase(item: ScaledIngredient): ScaledIngredient {
+  const ingredient = ingredients.find((candidate) => candidate.id === item.ingredientId);
+  if (!ingredient || item.unit === ingredient.baseUnit) return item;
+  const conversion = convertUnit(item.scaledQuantity, item.unit, ingredient.baseUnit, ingredient.id);
+  return {
+    ...item,
+    scaledQuantity: conversion.needsReview ? item.scaledQuantity : Number(conversion.convertedQuantity.toFixed(3)),
+    unit: conversion.needsReview ? item.unit : ingredient.baseUnit
+  };
+}
+
+function estimatedUnitCost(ingredient: Ingredient) {
+  if (ingredient.latestUnitCost > 0) return ingredient.latestUnitCost;
+  if (ingredient.category === "Packaging") return 100;
+  if (["pcs", "egg", "yolk", "white"].includes(ingredient.baseUnit)) return 250;
+  if (["ml", "litre"].includes(ingredient.baseUnit)) return 15;
+  return 5;
+}
+
 export function generateShoppingList(orderIds = orders.filter((order) => ["Confirmed", "Stock Reserved", "In Production"].includes(order.status)).map((order) => order.id)) {
-  const orderRequirements = combineRequirements(orderIds.flatMap((orderId) => requirementsForOrder(orderId)));
+  const orderRequirements = combineRequirements(orderIds.flatMap((orderId) => requirementsForOrder(orderId).map(normalizeRequirementToBase)));
   const lowStockLines = ingredients
     .filter((ingredient) => ingredient.currentStock <= ingredient.reorderLevel)
     .map((ingredient) => ({
@@ -191,7 +210,9 @@ export function generateShoppingList(orderIds = orders.filter((order) => ["Confi
     const shortage = Math.max(0, item.scaledQuantity - available);
     const reorderTopUp = Math.max(0, ingredient.reorderLevel - afterUse);
     const safetyMargin = 1 + ((settings.safetyMarginPercentage ?? 0) / 100);
-    const suggestedBuyQuantity = roundByPreference((shortage + reorderTopUp) * safetyMargin, ingredient.baseUnit);
+    const thresholdTopUp = item.scaledQuantity === 0 && available <= ingredient.reorderLevel && ingredient.reorderLevel > 0 ? ingredient.reorderLevel : 0;
+    const suggestedBuyQuantity = roundByPreference((shortage + reorderTopUp + thresholdTopUp) * safetyMargin, ingredient.baseUnit);
+    const unitCost = estimatedUnitCost(ingredient);
     const supplier = suppliers.find((candidate) => candidate.id === ingredient.supplierId);
     const demandOrderCount = orderIds.filter((orderId) => requirementsForOrder(orderId).some((requirement) => requirement.ingredientId === ingredient.id)).length;
     return {
@@ -203,8 +224,8 @@ export function generateShoppingList(orderIds = orders.filter((order) => ["Confi
       shortageQuantity: shortage,
       reorderLevel: ingredient.reorderLevel,
       suggestedBuyQuantity,
-      estimatedCost: suggestedBuyQuantity * ingredient.latestUnitCost,
-      unitCost: ingredient.latestUnitCost,
+      estimatedCost: suggestedBuyQuantity * unitCost,
+      unitCost,
       supplierId: ingredient.supplierId,
       supplier: supplier?.name ?? "Unassigned",
       demandOrderCount,

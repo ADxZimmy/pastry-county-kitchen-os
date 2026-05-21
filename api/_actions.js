@@ -636,9 +636,12 @@ export async function handleAction(sql, body) {
     }
     if (status === "Produced") return produceOrder(sql, orderId);
     if (status === "Delivered") {
-      const rows = await sql`select status from orders where id = ${orderId}`;
+      const rows = await sql`select status, stock_status from orders where id = ${orderId}`;
       if (rows[0]?.status !== "Produced") {
         throw Object.assign(new Error("Mark the order as produced before delivery."), { statusCode: 409 });
+      }
+      if (rows[0]?.stock_status === "Shortage") {
+        throw Object.assign(new Error("Resolve ingredient shortages before delivery."), { statusCode: 409 });
       }
     }
     await sql`

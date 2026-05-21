@@ -818,7 +818,7 @@ function StockAdjustmentModal({ ingredient, mode, onClose, notify, reloadData }:
 function IngredientForm({ ingredientId, setPage, notify, reloadData }: { ingredientId: string; setPage: (page: Page) => void; notify: (message: string) => void; reloadData: () => Promise<void> }) {
   const ingredient = ingredients.find((item) => item.id === ingredientId);
   return (
-    <FormShell title={ingredient ? "Edit Ingredient" : "Add Ingredient"} action="Save Ingredient" onDone={async (form) => {
+    <FormShell title={ingredient ? "Edit Ingredient" : "Add Ingredient"} action="Save Ingredient" cancelTo="inventory" setPage={setPage} onDone={async (form) => {
       const supplierName = formValue(form, "supplierId");
       await apiAction("ingredient.save", {
         ingredient: {
@@ -916,7 +916,7 @@ function RecipeForm({ recipeId, setPage, notify, reloadData }: { recipeId: strin
   const existingItems = recipeItems.filter((item) => item.recipeId === recipeId);
   const [builderRows, setBuilderRows] = useState<number[]>(existingItems.length ? existingItems.map((_, index) => index) : [0]);
   return (
-    <FormShell title={recipe ? "Edit Recipe" : "Add Recipe"} action="Save Recipe" onDone={async (form) => {
+    <FormShell title={recipe ? "Edit Recipe" : "Add Recipe"} action="Save Recipe" cancelTo="recipes" setPage={setPage} onDone={async (form) => {
       const items = builderRows.map((_, index) => ({
         ingredientId: formValue(form, `ingredientId-${index}`),
         quantity: formNumber(form, `quantity-${index}`),
@@ -1032,7 +1032,7 @@ function CreateOrder({ orderId, setPage, notify, reloadData }: { orderId: string
   const margin = calculateMargin(netPrice, cost);
   const previewItem = orderItems.find((item) => item.orderId === previewOrderId);
   return (
-    <FormShell title={order ? "Edit Order" : "Create Order"} action="Confirm and Reserve Stock" onDone={async (form) => {
+    <FormShell title={order ? "Edit Order" : "Create Order"} action="Confirm and Reserve Stock" cancelTo="orders" setPage={setPage} onDone={async (form) => {
       const items = orderRows.map((_, index) => ({
         productId: formValue(form, `productId-${index}`),
         recipeId: formValue(form, `recipeId-${index}`),
@@ -1569,11 +1569,11 @@ function EmptyState({ title, message }: { title: string; message: string }) {
   );
 }
 
-function FormShell({ title, action, onDone, children }: { title: string; action: string; onDone: (form: HTMLFormElement) => void | Promise<void>; children: React.ReactNode }) {
+function FormShell({ title, action, onDone, children, cancelTo, setPage }: { title: string; action: string; onDone: (form: HTMLFormElement) => void | Promise<void>; children: React.ReactNode; cancelTo: Page; setPage: (page: Page) => void }) {
   const [saving, setSaving] = useState(false);
   return (
     <form className="form-shell" onSubmit={async (event) => { event.preventDefault(); setSaving(true); try { await onDone(event.currentTarget); } catch (error) { alert(error instanceof Error ? error.message : "Unable to save."); } finally { setSaving(false); } }}>
-      <div className="section-head"><h2>{title}</h2><div className="button-row"><Button variant="secondary" onClick={() => window.history.back()}>Cancel</Button><Button type="submit">{saving ? "Saving..." : action}</Button></div></div>
+      <div className="section-head"><h2>{title}</h2><div className="button-row"><Button variant="secondary" onClick={() => setPage(cancelTo)}>Cancel</Button><Button type="submit">{saving ? "Saving..." : action}</Button></div></div>
       {children}
       <div className="sticky-actions"><Button type="submit">{saving ? "Saving..." : action}</Button></div>
     </form>
