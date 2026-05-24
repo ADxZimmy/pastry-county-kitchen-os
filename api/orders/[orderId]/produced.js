@@ -1,5 +1,6 @@
 import { getSql, sendError } from "../../_db.js";
 import { produceOrder } from "../../_actions.js";
+import { actorFromRequest } from "../../_auth.js";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
@@ -11,7 +12,7 @@ export default async function handler(req, res) {
   try {
     const sql = getSql();
     const { orderId } = req.query;
-    res.status(200).json(await produceOrder(sql, orderId));
+    res.status(200).json(await produceOrder(sql, orderId, actorFromRequest(req)));
   } catch (error) {
     sendError(res, error);
   }

@@ -23,6 +23,39 @@ function normalizeUnit(unit, fallback = "g") {
 }
 
 const movementTypes = new Set(["purchase", "production_use", "reservation", "reservation_release", "adjustment", "waste", "return", "correction"]);
+const actionRoles = {
+  "archive.list": ["Owner/Admin", "Inventory Manager"],
+  "archive.restore": ["Owner/Admin"],
+  "ingredient.save": ["Owner/Admin", "Inventory Manager"],
+  "ingredient.delete": ["Owner/Admin"],
+  "ingredient.restore": ["Owner/Admin", "Inventory Manager"],
+  "inventory.adjust": ["Owner/Admin", "Inventory Manager"],
+  "supplier.save": ["Owner/Admin", "Inventory Manager"],
+  "supplier.delete": ["Owner/Admin"],
+  "recipe.save": ["Owner/Admin", "Baker"],
+  "recipe.delete": ["Owner/Admin"],
+  "order.save": ["Owner/Admin", "Baker", "Inventory Manager"],
+  "order.reserve": ["Owner/Admin", "Baker", "Inventory Manager"],
+  "order.releaseReservation": ["Owner/Admin", "Inventory Manager"],
+  "order.produce": ["Owner/Admin", "Baker"],
+  "order.delete": ["Owner/Admin"],
+  "order.status": ["Owner/Admin", "Baker", "Inventory Manager"],
+  "production.batchStatus": ["Owner/Admin", "Baker"],
+  "shopping.purchaseSuggested": ["Owner/Admin", "Inventory Manager"],
+  "conversion.save": ["Owner/Admin", "Baker"],
+  "conversion.verify": ["Owner/Admin", "Baker"],
+  "conversion.delete": ["Owner/Admin"],
+  "settings.save": ["Owner/Admin"]
+};
+
+function requirePermission(action, actor) {
+  if (action === "schema.ensure") return;
+  if (!actor) throw Object.assign(new Error("Sign in again to continue."), { statusCode: 401 });
+  const allowedRoles = actionRoles[action] ?? ["Owner/Admin"];
+  if (!allowedRoles.includes(actor.role)) {
+    throw Object.assign(new Error(`${actor.role} cannot perform ${action}.`), { statusCode: 403 });
+  }
+}
 
 function nonNegative(value, label) {
   if (value < 0) {
@@ -347,7 +380,8 @@ async function shortagesForProduction(sql, orderId, requirements) {
   })).then((rows) => rows.filter((row) => row.shortageQuantity > 0));
 }
 
-export async function produceOrder(sql, orderId) {
+export async function produceOrder(sql, orderId, actor) {
+  requirePermission("order.produce", actor);
   const orderRows = await sql`select status from orders where id = ${orderId}`;
   if (!orderRows.length) throw Object.assign(new Error("Order not found."), { statusCode: 404 });
   const status = orderRows[0].status;
@@ -389,8 +423,9 @@ export async function produceOrder(sql, orderId) {
   return { produced: true };
 }
 
-export async function handleAction(sql, body) {
+export async function handleAction(sql, body, actor) {
   const action = required(body.action, "Action");
+  requirePermission(action, actor);
   await ensureOperationalTables(sql);
 
   if (action === "schema.ensure") {
@@ -636,7 +671,7 @@ export async function handleAction(sql, body) {
 
   if (action === "order.reserve") return reserveOrder(sql, required(body.orderId, "Order"));
   if (action === "order.releaseReservation") return releaseReservation(sql, required(body.orderId, "Order"));
-  if (action === "order.produce") return produceOrder(sql, required(body.orderId, "Order"));
+  if (action === "order.produce") return produceOrder(sql, required(body.orderId, "Order"), actor);
 
   if (action === "order.delete") {
     await sql`alter table orders add column if not exists archived boolean not null default false`;
@@ -663,7 +698,7 @@ export async function handleAction(sql, body) {
         throw Object.assign(new Error("Cannot start production until ingredient shortages are resolved."), { statusCode: 409 });
       }
     }
-    if (status === "Produced") return produceOrder(sql, orderId);
+    if (status === "Produced") return produceOrder(sql, orderId, actor);
     if (status === "Delivered") {
       const rows = await sql`select status, stock_status from orders where id = ${orderId}`;
       if (rows[0]?.status !== "Produced") {
@@ -700,7 +735,7 @@ export async function handleAction(sql, body) {
           set status = 'In Production', production_status = 'In Progress', updated_at = now()
           where id = ${orderId} and status not in ('Produced', 'Delivered', 'Cancelled')
         `;
-        results.push(await produceOrder(sql, orderId));
+        results.push(await produceOrder(sql, orderId, actor));
       }
       return { ok: true, count: results.length, results };
     }

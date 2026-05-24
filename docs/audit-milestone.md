@@ -52,8 +52,8 @@ Status legend:
 
 | Status | Area | Audit Finding | Completion Criteria |
 | --- | --- | --- | --- |
-| Done | Authentication | Login exists, but route protection/roles are not complete. | Login uses the real auth API, signed-in users persist locally, private app pages require a session, and the active role is visible with logout. |
-| Done | Notifications | Low stock/order reminders are missing. | Dashboard shows active low-stock, due-order, shortage, and expiry notifications with a shareable digest. |
+| Done | Authentication | Login exists, but route protection/roles are not complete. | Login uses signed API sessions, signed-in users persist locally, private app pages require a session, role-aware controls are disabled in the UI, and mutating API actions enforce role permissions server-side. |
+| Done | Notifications | Low stock/order reminders are missing and latest audit requested actionable/dismissible alerts. | Dashboard shows active low-stock, due-order, shortage, and expiry notifications with Open/Dismiss actions plus a shareable digest. |
 | Done | Exports | Recipe/order/shopping exports are incomplete. | CSV exports are available for inventory, recipes, and orders; shopping list export/share remains available. |
 | Done | Multi-currency/tax | Only NGN is effectively supported. | Currency persists from Settings and all shared cost/margin displays use the selected currency; tax remains applied in margin previews. |
 | Done | Analytics | Advanced dashboards are missing. | Dashboard analytics now show produced orders, active order cost, stock value, waste events, most-used ingredient, and open shortages. |
@@ -70,6 +70,8 @@ Status legend:
 - [x] Updated audit PDF reviewed and mapped to fixes for Cancel navigation, shortage delivery guardrails, and shopping aggregation/cost estimates.
 - [x] Browser smoke checked login, form cancellation, and rebuilt shopping-list cost rows after updated audit fixes.
 - [x] Third audit PDF reviewed and mapped to fixes for base-unit order requirements, production/shopping feedback, stock-adjustment validation, back navigation, and latest-purchase cost fallback.
+- [x] Role/session hardening added with signed login tokens, authorization headers, server-side action permissions, and role-aware disabled UI controls.
+- [x] Dashboard notifications are now actionable and dismissible.
 - [x] Mobile/responsive controls verified through the responsive table/card implementation and browser smoke.
 - [x] Keyboard/accessibility pass covered visible focus, table scopes, named controls, modal scrolling, loading state, and recovery actions.
 - [ ] Re-run an external audit after the third audit patch is live.
@@ -77,7 +79,7 @@ Status legend:
 ## Next Recommended Work
 
 1. Re-run the external audit after this third audit patch is live.
-2. Finish role-based action permissions and session hardening.
-3. Make dashboard notifications actionable and dismissible, then add email delivery for critical low-stock alerts.
+2. Add email delivery for critical low-stock alerts using the configured notification address.
+3. Add deeper user management for creating/editing staff accounts and rotating sessions.
 4. Expand audit reporting into searchable/filterable compliance views.
 5. Add PDF exports, advanced FEFO reporting, waste analytics, and supplier performance dashboards.

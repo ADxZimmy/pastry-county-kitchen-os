@@ -1,4 +1,5 @@
 import bcrypt from "bcryptjs";
+import { createSessionToken } from "../_auth.js";
 import { first, getSql, sendError } from "../_db.js";
 
 export default async function handler(req, res) {
@@ -21,7 +22,7 @@ export default async function handler(req, res) {
       res.status(401).json({ error: "Invalid email or password" });
       return;
     }
-    res.status(200).json({ id: user.id, email: user.email, fullName: user.full_name, role: user.role });
+    res.status(200).json({ id: user.id, email: user.email, fullName: user.full_name, role: user.role, token: createSessionToken(user) });
   } catch (error) {
     sendError(res, error);
   }

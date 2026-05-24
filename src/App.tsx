@@ -131,7 +131,36 @@ type AppUser = {
   email: string;
   fullName: string;
   role: "Owner/Admin" | "Baker" | "Inventory Manager" | "Viewer";
+  token?: string;
 };
+
+const permissionRoles = {
+  manageSettings: ["Owner/Admin"],
+  restoreArchive: ["Owner/Admin"],
+  deleteRecords: ["Owner/Admin"],
+  manageInventory: ["Owner/Admin", "Inventory Manager"],
+  manageRecipes: ["Owner/Admin", "Baker"],
+  manageOrders: ["Owner/Admin", "Baker", "Inventory Manager"],
+  runProduction: ["Owner/Admin", "Baker"],
+  purchaseStock: ["Owner/Admin", "Inventory Manager"],
+  manageConversions: ["Owner/Admin", "Baker"],
+  manageSuppliers: ["Owner/Admin", "Inventory Manager"]
+} as const;
+
+type Permission = keyof typeof permissionRoles;
+
+function canUser(user: AppUser | undefined, permission: Permission) {
+  return Boolean(user && (permissionRoles[permission] as readonly string[]).includes(user.role));
+}
+
+function currentSessionToken() {
+  try {
+    const session = JSON.parse(window.localStorage.getItem("pastry-county-session") ?? "{}") as AppSession;
+    return session.user?.token;
+  } catch {
+    return undefined;
+  }
+}
 
 function readSession(): AppSession {
   if (typeof window === "undefined") return {};
@@ -224,9 +253,10 @@ function netSellingPrice(grossPrice: number) {
 }
 
 async function apiAction(action: string, payload: Record<string, unknown> = {}) {
+  const token = currentSessionToken();
   const response = await fetch(`${apiBaseUrl}/api/actions`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
     body: JSON.stringify({ action, ...payload })
   });
   const result = await response.json().catch(() => ({}));
@@ -236,7 +266,11 @@ async function apiAction(action: string, payload: Record<string, unknown> = {}) 
 
 async function markOrderProduced(orderId: string, notify: Notify) {
   try {
-    const response = await fetch(`${apiBaseUrl}/api/orders/${orderId}/produced`, { method: "POST" });
+    const token = currentSessionToken();
+    const response = await fetch(`${apiBaseUrl}/api/orders/${orderId}/produced`, {
+      method: "POST",
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined
+    });
     const result = await response.json().catch(() => ({}));
     if (!response.ok) {
       throw new Error(result.error || "Unable to mark order as produced.");
@@ -270,7 +304,17 @@ function exportCsv(filename: string, headers: string[], rows: React.ReactNode[][
   notify?.(`${filename} exported.`);
 }
 
-function notificationDigest() {
+type AppNotification = {
+  id: string;
+  title: string;
+  detail: string;
+  tone: "warning" | "danger";
+  page: Page;
+  ingredientId?: string;
+  orderId?: string;
+};
+
+function notificationDigest(): AppNotification[] {
   const today = new Date().toISOString().slice(0, 10);
   const lowStock = ingredients.filter((item) => item.currentStock <= item.reorderLevel);
   const dueOrders = orders.filter((order) => order.dueDate <= today && !["Delivered", "Cancelled"].includes(order.status));
@@ -281,10 +325,10 @@ function notificationDigest() {
     return days >= 0 && days <= 7;
   });
   return [
-    ...lowStock.map((item) => ({ id: `stock-${item.id}`, title: `${item.name} is low`, detail: `${item.currentStock}${item.baseUnit} left, reorder at ${item.reorderLevel}${item.baseUnit}`, tone: "danger" as const })),
-    ...dueOrders.map((order) => ({ id: `due-${order.id}`, title: `${order.customerName} order is due`, detail: `${order.status} · due ${order.dueDate}`, tone: "warning" as const })),
-    ...blockedOrders.map((order) => ({ id: `blocked-${order.id}`, title: `${order.customerName} is blocked by shortage`, detail: "Restock before production or delivery.", tone: "danger" as const })),
-    ...expiringLots.map((batch) => ({ id: `expiry-${batch.id}`, title: "Ingredient lot expiring soon", detail: `${ingredients.find((item) => item.id === batch.ingredientId)?.name ?? batch.ingredientId} · ${batch.expiryDate?.slice(0, 10)}`, tone: "warning" as const }))
+    ...lowStock.map((item): AppNotification => ({ id: `stock-${item.id}`, title: `${item.name} is low`, detail: `${item.currentStock}${item.baseUnit} left, reorder at ${item.reorderLevel}${item.baseUnit}`, tone: "danger", page: "ingredient-detail", ingredientId: item.id })),
+    ...dueOrders.map((order): AppNotification => ({ id: `due-${order.id}`, title: `${order.customerName} order is due`, detail: `${order.status} · due ${order.dueDate}`, tone: "warning", page: "order-detail", orderId: order.id })),
+    ...blockedOrders.map((order): AppNotification => ({ id: `blocked-${order.id}`, title: `${order.customerName} is blocked by shortage`, detail: "Restock before production or delivery.", tone: "danger", page: "order-detail", orderId: order.id })),
+    ...expiringLots.map((batch): AppNotification => ({ id: `expiry-${batch.id}`, title: "Ingredient lot expiring soon", detail: `${ingredients.find((item) => item.id === batch.ingredientId)?.name ?? batch.ingredientId} · ${batch.expiryDate?.slice(0, 10)}`, tone: "warning", page: "ingredient-detail", ingredientId: batch.ingredientId }))
   ].slice(0, 8);
 }
 
@@ -394,7 +438,7 @@ function App() {
   };
 
   const content = useMemo(() => {
-    const props = { setPage: navigate, setSelectedRecipeId, setSelectedIngredientId, setSelectedOrderId, selectedRecipeId, selectedIngredientId, selectedOrderId, query, setQuery, notify, askConfirm, reloadData: () => loadKitchenData() };
+    const props = { user, setPage: navigate, setSelectedRecipeId, setSelectedIngredientId, setSelectedOrderId, selectedRecipeId, selectedIngredientId, selectedOrderId, query, setQuery, notify, askConfirm, reloadData: () => loadKitchenData() };
     switch (page) {
       case "welcome":
         return <Welcome setPage={navigate} />;
@@ -405,7 +449,7 @@ function App() {
       case "recipes":
         return <Recipes {...props} />;
       case "recipe-detail":
-        return <RecipeDetail recipeId={selectedRecipeId} setPage={navigate} notify={notify} askConfirm={askConfirm} reloadData={() => loadKitchenData()} />;
+        return <RecipeDetail recipeId={selectedRecipeId} user={user} setPage={navigate} notify={notify} askConfirm={askConfirm} reloadData={() => loadKitchenData()} />;
       case "recipe-form":
         return <RecipeForm recipeId={selectedRecipeId} setPage={navigate} notify={notify} reloadData={() => loadKitchenData()} />;
       case "scaling":
@@ -413,7 +457,7 @@ function App() {
       case "inventory":
         return <Inventory {...props} />;
       case "ingredient-detail":
-        return <IngredientDetail ingredientId={selectedIngredientId} setPage={navigate} notify={notify} askConfirm={askConfirm} reloadData={() => loadKitchenData()} />;
+        return <IngredientDetail ingredientId={selectedIngredientId} user={user} setPage={navigate} notify={notify} askConfirm={askConfirm} reloadData={() => loadKitchenData()} />;
       case "ingredient-form":
         return <IngredientForm ingredientId={selectedIngredientId} setPage={navigate} notify={notify} reloadData={() => loadKitchenData()} />;
       case "orders":
@@ -421,21 +465,21 @@ function App() {
       case "order-create":
         return <CreateOrder orderId={selectedOrderId} setPage={navigate} notify={notify} reloadData={() => loadKitchenData()} />;
       case "order-detail":
-        return <OrderDetail orderId={selectedOrderId} setPage={navigate} notify={notify} askConfirm={askConfirm} reloadData={() => loadKitchenData()} />;
+        return <OrderDetail orderId={selectedOrderId} user={user} setPage={navigate} notify={notify} askConfirm={askConfirm} reloadData={() => loadKitchenData()} />;
       case "production":
-        return <Production setPage={navigate} setSelectedOrderId={setSelectedOrderId} notify={notify} reloadData={() => loadKitchenData()} />;
+        return <Production user={user} setPage={navigate} setSelectedOrderId={setSelectedOrderId} notify={notify} reloadData={() => loadKitchenData()} />;
       case "shopping":
-        return <ShoppingList notify={notify} reloadData={() => loadKitchenData()} />;
+        return <ShoppingList user={user} notify={notify} reloadData={() => loadKitchenData()} />;
       case "costing":
         return <Costing />;
       case "ai":
         return <AiAssistant setPage={navigate} notify={notify} reloadData={() => loadKitchenData()} />;
       case "conversions":
-        return <ConversionLibrary notify={notify} askConfirm={askConfirm} reloadData={() => loadKitchenData()} />;
+        return <ConversionLibrary user={user} notify={notify} askConfirm={askConfirm} reloadData={() => loadKitchenData()} />;
       case "suppliers":
-        return <Suppliers notify={notify} askConfirm={askConfirm} reloadData={() => loadKitchenData()} />;
+        return <Suppliers user={user} notify={notify} askConfirm={askConfirm} reloadData={() => loadKitchenData()} />;
       case "settings":
-        return <SettingsPage setPage={navigate} notify={notify} reloadData={() => loadKitchenData()} />;
+        return <SettingsPage user={user} setPage={navigate} notify={notify} reloadData={() => loadKitchenData()} />;
     }
   }, [page, selectedIngredientId, selectedOrderId, selectedRecipeId, query, notify, askConfirm, loadKitchenData, dataVersion, user]);
 
@@ -651,10 +695,29 @@ function ConfirmDialog({ request, onClose }: { request: ConfirmRequest; onClose:
   );
 }
 
-function Dashboard({ setPage, setSelectedIngredientId }: any) {
+function Dashboard({ setPage, setSelectedIngredientId, setSelectedOrderId }: any) {
   const shopping = generateShoppingList();
   const today = new Date().toISOString().slice(0, 10);
-  const notifications = notificationDigest();
+  const [dismissedNotifications, setDismissedNotifications] = useState<string[]>(() => {
+    try {
+      return JSON.parse(window.localStorage.getItem("pastry-county-dismissed-notifications") ?? "[]") as string[];
+    } catch {
+      return [];
+    }
+  });
+  const notifications = notificationDigest().filter((item) => !dismissedNotifications.includes(item.id));
+  const dismissNotification = (id: string) => {
+    setDismissedNotifications((current) => {
+      const next = [...new Set([...current, id])].slice(-50);
+      window.localStorage.setItem("pastry-county-dismissed-notifications", JSON.stringify(next));
+      return next;
+    });
+  };
+  const openNotification = (item: ReturnType<typeof notificationDigest>[number]) => {
+    if (item.ingredientId) setSelectedIngredientId(item.ingredientId);
+    if (item.orderId) setSelectedOrderId(item.orderId);
+    setPage(item.page);
+  };
   const producedOrders = orders.filter((order) => ["Produced", "Delivered"].includes(order.status));
   const activeOrderCost = orders.filter((order) => !["Cancelled"].includes(order.status)).reduce((sum, order) => sum + calculateOrderCost(order.id), 0);
   const stockValue = ingredients.reduce((sum, item) => sum + (item.currentStock * item.latestUnitCost), 0);
@@ -723,7 +786,11 @@ function Dashboard({ setPage, setSelectedIngredientId }: any) {
             {notifications.map((item) => (
               <div className="row-card" key={item.id}>
                 <span><strong>{item.title}</strong><small>{item.detail}</small></span>
-                <Badge tone={item.tone}>{item.tone === "danger" ? "Action" : "Watch"}</Badge>
+                <div className="button-row">
+                  <Button variant="secondary" onClick={() => openNotification(item)}>Open</Button>
+                  <Button variant="ghost" onClick={() => dismissNotification(item.id)}>Dismiss</Button>
+                  <Badge tone={item.tone}>{item.tone === "danger" ? "Action" : "Watch"}</Badge>
+                </div>
               </div>
             ))}
           </div>
@@ -764,7 +831,7 @@ function Dashboard({ setPage, setSelectedIngredientId }: any) {
   );
 }
 
-function Inventory({ setPage, setSelectedIngredientId, query, setQuery }: any) {
+function Inventory({ user, setPage, setSelectedIngredientId, query, setQuery }: any) {
   const [filter, setFilter] = useState("All");
   const categories = ["All", "Dry Goods", "Dairy", "Chocolate", "Fruits", "Packaging", "Low Stock"];
   const list = ingredients.filter((item) => {
@@ -773,7 +840,7 @@ function Inventory({ setPage, setSelectedIngredientId, query, setQuery }: any) {
   });
   return (
     <>
-      <Toolbar query={query} setQuery={setQuery} placeholder="Search ingredients" action={<div className="button-row"><Button variant="secondary" onClick={() => exportCsv("pastry-county-inventory.csv", ["Ingredient", "Category", "Current Stock", "Reorder Level", "Unit", "Latest Unit Cost", "Supplier"], list.map((item) => [item.name, item.category, item.currentStock, item.reorderLevel, item.baseUnit, item.latestUnitCost, suppliers.find((supplier) => supplier.id === item.supplierId)?.name ?? "Unassigned"]))}>Export CSV</Button><Button onClick={() => { setSelectedIngredientId(""); setPage("ingredient-form"); }}><Plus size={18} /> Add Ingredient</Button></div>} />
+      <Toolbar query={query} setQuery={setQuery} placeholder="Search ingredients" action={<div className="button-row"><Button variant="secondary" onClick={() => exportCsv("pastry-county-inventory.csv", ["Ingredient", "Category", "Current Stock", "Reorder Level", "Unit", "Latest Unit Cost", "Supplier"], list.map((item) => [item.name, item.category, item.currentStock, item.reorderLevel, item.baseUnit, item.latestUnitCost, suppliers.find((supplier) => supplier.id === item.supplierId)?.name ?? "Unassigned"]))}>Export CSV</Button><Button onClick={() => { setSelectedIngredientId(""); setPage("ingredient-form"); }} disabled={!canUser(user, "manageInventory")}><Plus size={18} /> Add Ingredient</Button></div>} />
       <Chips items={categories} active={filter} setActive={setFilter} />
       <ResponsiveTable
         headers={["Ingredient", "Category", "Current Stock", "Reorder", "Latest Cost", "Status"]}
@@ -787,7 +854,7 @@ function Inventory({ setPage, setSelectedIngredientId, query, setQuery }: any) {
   );
 }
 
-function IngredientDetail({ ingredientId, setPage, notify, askConfirm, reloadData }: { ingredientId: string; setPage: (page: Page) => void; notify: (message: string) => void; askConfirm: AskConfirm; reloadData: () => Promise<void> }) {
+function IngredientDetail({ ingredientId, user, setPage, notify, askConfirm, reloadData }: { ingredientId: string; user?: AppUser; setPage: (page: Page) => void; notify: (message: string) => void; askConfirm: AskConfirm; reloadData: () => Promise<void> }) {
   const ingredient = ingredients.find((item) => item.id === ingredientId)!;
   const [stockForm, setStockForm] = useState<"purchase" | "adjustment" | null>(null);
   if (!ingredient) return <EmptyState title="Ingredient not found" message="Select an ingredient from inventory." />;
@@ -804,11 +871,11 @@ function IngredientDetail({ ingredientId, setPage, notify, askConfirm, reloadDat
           <p>{ingredient.currentStock}{ingredient.baseUnit} in stock · reorder at {ingredient.reorderLevel}{ingredient.baseUnit}</p>
         </div>
         <div className="button-row">
-          <Button onClick={() => setStockForm("purchase")}><PackagePlus size={18} /> Add Stock</Button>
-          <Button variant="secondary" onClick={() => setStockForm("adjustment")}>Adjust Stock</Button>
+          <Button onClick={() => setStockForm("purchase")} disabled={!canUser(user, "manageInventory")}><PackagePlus size={18} /> Add Stock</Button>
+          <Button variant="secondary" onClick={() => setStockForm("adjustment")} disabled={!canUser(user, "manageInventory")}>Adjust Stock</Button>
           <Button variant="secondary" onClick={() => notify(`${ingredient.name} usage history is shown in the movement timeline below.`)}>View Usage</Button>
-          <Button variant="ghost" onClick={() => setPage("ingredient-form")}>Edit {ingredient.name}</Button>
-          <Button variant="danger" onClick={() => askConfirm({ title: `Archive ${ingredient.name}?`, message: "It will disappear from active inventory, while historical recipe and order records remain intact.", confirmLabel: "Archive Ingredient", tone: "danger", onConfirm: async () => { await apiAction("ingredient.delete", { ingredientId }); notify(`${ingredient.name} archived from active inventory.`); await reloadData(); setPage("inventory"); } })}>Archive</Button>
+          <Button variant="ghost" onClick={() => setPage("ingredient-form")} disabled={!canUser(user, "manageInventory")}>Edit {ingredient.name}</Button>
+          <Button variant="danger" onClick={() => askConfirm({ title: `Archive ${ingredient.name}?`, message: "It will disappear from active inventory, while historical recipe and order records remain intact.", confirmLabel: "Archive Ingredient", tone: "danger", onConfirm: async () => { await apiAction("ingredient.delete", { ingredientId }); notify(`${ingredient.name} archived from active inventory.`); await reloadData(); setPage("inventory"); } })} disabled={!canUser(user, "deleteRecords")}>Archive</Button>
         </div>
       </article>
       <div className="split">
@@ -992,7 +1059,7 @@ function Recipes({ setPage, setSelectedRecipeId, query, setQuery }: any) {
   );
 }
 
-function RecipeDetail({ recipeId, setPage, notify, askConfirm, reloadData }: { recipeId: string; setPage: (page: Page) => void; notify: (message: string) => void; askConfirm: AskConfirm; reloadData: () => Promise<void> }) {
+function RecipeDetail({ recipeId, user, setPage, notify, askConfirm, reloadData }: { recipeId: string; user?: AppUser; setPage: (page: Page) => void; notify: (message: string) => void; askConfirm: AskConfirm; reloadData: () => Promise<void> }) {
   const recipe = recipes.find((item) => item.id === recipeId);
   if (!recipe) return <EmptyState title="Recipe not found" message="Select a recipe from the database-backed recipe library." />;
   const cost = calculateRecipeCost(recipeId, recipe.baseYieldQuantity);
@@ -1000,7 +1067,7 @@ function RecipeDetail({ recipeId, setPage, notify, askConfirm, reloadData }: { r
     <div className="detail-layout">
       <article className="detail-hero">
         <div><p className="eyebrow">{recipe.category}</p><h2>{recipe.name}</h2><p>Base yield {recipe.baseYieldQuantity} {recipe.yieldUnit} · {formatNaira(cost.totalRecipeCost)} batch cost</p></div>
-        <div className="button-row"><Button onClick={() => setPage("scaling")}><Scale size={18} /> Scale Recipe</Button><Button variant="secondary" onClick={() => setPage("recipe-form")}>Edit Recipe</Button><Button variant="secondary" onClick={() => setPage("order-create")}>Create Order</Button><Button variant="ghost" onClick={async () => { await apiAction("recipe.save", { recipe: { name: `${recipe.name} Copy`, category: recipe.category, baseYieldQuantity: recipe.baseYieldQuantity, yieldUnit: recipe.yieldUnit, notes: recipe.notes, instructions: recipe.instructions.join("\n"), items: recipeItems.filter((item) => item.recipeId === recipe.id) } }); notify("Recipe duplicated in Neon."); await reloadData(); setPage("recipes"); }}>Duplicate</Button><Button variant="danger" onClick={() => askConfirm({ title: `Archive ${recipe.name}?`, message: "It will disappear from active recipes. Linked order history stays intact.", confirmLabel: "Archive Recipe", tone: "danger", onConfirm: async () => { await apiAction("recipe.delete", { recipeId }); notify(`${recipe.name} archived from active recipes.`); await reloadData(); setPage("recipes"); } })}>Archive</Button></div>
+        <div className="button-row"><Button onClick={() => setPage("scaling")}><Scale size={18} /> Scale Recipe</Button><Button variant="secondary" onClick={() => setPage("recipe-form")} disabled={!canUser(user, "manageRecipes")}>Edit Recipe</Button><Button variant="secondary" onClick={() => setPage("order-create")} disabled={!canUser(user, "manageOrders")}>Create Order</Button><Button variant="ghost" onClick={async () => { await apiAction("recipe.save", { recipe: { name: `${recipe.name} Copy`, category: recipe.category, baseYieldQuantity: recipe.baseYieldQuantity, yieldUnit: recipe.yieldUnit, notes: recipe.notes, instructions: recipe.instructions.join("\n"), items: recipeItems.filter((item) => item.recipeId === recipe.id) } }); notify("Recipe duplicated in Neon."); await reloadData(); setPage("recipes"); }} disabled={!canUser(user, "manageRecipes")}>Duplicate</Button><Button variant="danger" onClick={() => askConfirm({ title: `Archive ${recipe.name}?`, message: "It will disappear from active recipes. Linked order history stays intact.", confirmLabel: "Archive Recipe", tone: "danger", onConfirm: async () => { await apiAction("recipe.delete", { recipeId }); notify(`${recipe.name} archived from active recipes.`); await reloadData(); setPage("recipes"); } })} disabled={!canUser(user, "deleteRecords")}>Archive</Button></div>
       </article>
       <div className="split">
         <Section title="Ingredients"><div className="compact-list">{recipeItems.filter((item) => item.recipeId === recipeId).map((item) => <div className="row-card" key={item.id}><strong>{ingredients.find((ingredient) => ingredient.id === item.ingredientId)?.name}</strong><span>{item.quantity}{item.unit}</span></div>)}</div></Section>
@@ -1094,13 +1161,13 @@ function RecipeScaling({ recipeId, setPage, notify }: { recipeId: string; setPag
   );
 }
 
-function Orders({ setPage, setSelectedOrderId, query, setQuery }: any) {
+function Orders({ user, setPage, setSelectedOrderId, query, setQuery }: any) {
   const [filter, setFilter] = useState("All");
   const statuses = ["All", "New", "Confirmed", "In Production", "Produced", "Delivered", "Cancelled"];
   const list = orders.filter((order) => (filter === "All" || order.status === filter || (filter === "New" && order.status === "Draft")) && order.customerName.toLowerCase().includes(query.toLowerCase()));
   return (
     <>
-      <Toolbar query={query} setQuery={setQuery} placeholder="Search orders" action={<div className="button-row"><Button variant="secondary" onClick={() => exportCsv("pastry-county-orders.csv", ["Customer", "Phone", "Due Date", "Delivery", "Status", "Payment", "Production", "Stock", "Estimated Cost"], list.map((order) => [order.customerName, order.customerPhone, order.dueDate, order.deliveryMethod, order.status, order.paymentStatus, order.productionStatus, order.stockStatus, calculateOrderCost(order.id)]))}>Export CSV</Button><Button onClick={() => { setSelectedOrderId(""); setPage("order-create"); }}><Plus size={18} /> Add Order</Button></div>} />
+      <Toolbar query={query} setQuery={setQuery} placeholder="Search orders" action={<div className="button-row"><Button variant="secondary" onClick={() => exportCsv("pastry-county-orders.csv", ["Customer", "Phone", "Due Date", "Delivery", "Status", "Payment", "Production", "Stock", "Estimated Cost"], list.map((order) => [order.customerName, order.customerPhone, order.dueDate, order.deliveryMethod, order.status, order.paymentStatus, order.productionStatus, order.stockStatus, calculateOrderCost(order.id)]))}>Export CSV</Button><Button onClick={() => { setSelectedOrderId(""); setPage("order-create"); }} disabled={!canUser(user, "manageOrders")}><Plus size={18} /> Add Order</Button></div>} />
       <Chips items={statuses} active={filter} setActive={setFilter} />
       <div className="card-grid">
         {list.map((order) => <OrderCard key={order.id} order={order} onClick={() => { setSelectedOrderId(order.id); setPage("order-detail"); }} />)}
@@ -1180,7 +1247,7 @@ function CreateOrder({ orderId, setPage, notify, reloadData }: { orderId: string
   );
 }
 
-function OrderDetail({ orderId, setPage, notify, askConfirm, reloadData }: { orderId: string; setPage: (page: Page) => void; notify: (message: string) => void; askConfirm: AskConfirm; reloadData: () => Promise<void> }) {
+function OrderDetail({ orderId, user, setPage, notify, askConfirm, reloadData }: { orderId: string; user?: AppUser; setPage: (page: Page) => void; notify: (message: string) => void; askConfirm: AskConfirm; reloadData: () => Promise<void> }) {
   const order = orders.find((item) => item.id === orderId);
   if (!order) return <EmptyState title="Order not found" message="Select an order from the live order list." />;
   const requirements = requirementsForOrder(orderId);
@@ -1201,13 +1268,13 @@ function OrderDetail({ orderId, setPage, notify, askConfirm, reloadData }: { ord
           <p>{order.customerPhone} · {order.deliveryMethod} · due {order.dueDate}</p>
         </div>
         <div className="button-row">
-          <Button variant="secondary" onClick={() => setPage("order-create")} disabled={isFinal}>Edit Order</Button>
-          <Button onClick={async () => { try { const result = await apiAction("order.reserve", { orderId }); notify(result.partial ? `Partially reserved ${result.reservedLines.length} ingredient${result.reservedLines.length === 1 ? "" : "s"}; shortages remain.` : result.shortage ? "No additional stock could be reserved; shortages remain." : result.alreadyReserved ? "Stock is already fully reserved for this order." : "Stock reserved in Neon."); await reloadData(); } catch (error) { notify(error instanceof Error ? error.message : "Unable to reserve stock."); } }} disabled={!canReserve}>Reserve Stock</Button>
-          <Button variant="secondary" onClick={async () => { try { await apiAction("order.status", { orderId, status: "In Production", productionStatus: "In Progress" }); notify("Order marked as in production."); await reloadData(); } catch (error) { notify(error instanceof Error ? error.message : "Unable to start production."); } }} disabled={!canStartProduction}>Mark In Production</Button>
-          <Button variant="secondary" onClick={async () => { await markOrderProduced(orderId, notify); await reloadData(); }} disabled={!canProduce}>Mark Produced</Button>
+          <Button variant="secondary" onClick={() => setPage("order-create")} disabled={isFinal || !canUser(user, "manageOrders")}>Edit Order</Button>
+          <Button onClick={async () => { try { const result = await apiAction("order.reserve", { orderId }); notify(result.partial ? `Partially reserved ${result.reservedLines.length} ingredient${result.reservedLines.length === 1 ? "" : "s"}; shortages remain.` : result.shortage ? "No additional stock could be reserved; shortages remain." : result.alreadyReserved ? "Stock is already fully reserved for this order." : "Stock reserved in Neon."); await reloadData(); } catch (error) { notify(error instanceof Error ? error.message : "Unable to reserve stock."); } }} disabled={!canReserve || !canUser(user, "manageOrders")}>Reserve Stock</Button>
+          <Button variant="secondary" onClick={async () => { try { await apiAction("order.status", { orderId, status: "In Production", productionStatus: "In Progress" }); notify("Order marked as in production."); await reloadData(); } catch (error) { notify(error instanceof Error ? error.message : "Unable to start production."); } }} disabled={!canStartProduction || !canUser(user, "runProduction")}>Mark In Production</Button>
+          <Button variant="secondary" onClick={async () => { await markOrderProduced(orderId, notify); await reloadData(); }} disabled={!canProduce || !canUser(user, "runProduction")}>Mark Produced</Button>
           <Button variant="ghost" onClick={async () => { try { await apiAction("order.status", { orderId, status: "Delivered", productionStatus: "Completed" }); notify("Order marked as delivered."); await reloadData(); } catch (error) { notify(error instanceof Error ? error.message : "Unable to deliver order."); } }} disabled={!canDeliver}>Delivered</Button>
           <Button variant="secondary" onClick={async () => { await apiAction("order.status", { orderId, status: "Cancelled" }); notify("Order cancelled and reservations released."); await reloadData(); }} disabled={order.status === "Cancelled" || order.status === "Delivered"}>Cancel Order</Button>
-          <Button variant="danger" onClick={() => askConfirm({ title: `Delete ${order.customerName}'s order?`, message: "This removes the order from active operations and releases any reservation. Ledger history is preserved.", confirmLabel: "Delete Order", tone: "danger", onConfirm: async () => { await apiAction("order.delete", { orderId }); notify("Order deleted from active list and reservation released."); await reloadData(); setPage("orders"); } })}>Delete Order</Button>
+          <Button variant="danger" onClick={() => askConfirm({ title: `Delete ${order.customerName}'s order?`, message: "This removes the order from active operations and releases any reservation. Ledger history is preserved.", confirmLabel: "Delete Order", tone: "danger", onConfirm: async () => { await apiAction("order.delete", { orderId }); notify("Order deleted from active list and reservation released."); await reloadData(); setPage("orders"); } })} disabled={!canUser(user, "deleteRecords")}>Delete Order</Button>
         </div>
       </article>
       {hasShortage && <article className="warning-card"><AlertTriangle size={22} /> Resolve ingredient shortages before reserving stock, starting production, or marking this order produced.</article>}
@@ -1219,7 +1286,7 @@ function OrderDetail({ orderId, setPage, notify, askConfirm, reloadData }: { ord
   );
 }
 
-function Production({ setPage, setSelectedOrderId, notify, reloadData }: any) {
+function Production({ user, setPage, setSelectedOrderId, notify, reloadData }: any) {
   const activeOrders = orders.filter((order) => !["Delivered", "Cancelled"].includes(order.status));
   const batches = Object.values(orderItems.reduce<Record<string, { key: string; recipeId: string; dueDate: string; orderIds: string[]; totalYield: number }>>((acc, item) => {
     const order = activeOrders.find((candidate) => candidate.id === item.orderId);
@@ -1250,8 +1317,8 @@ function Production({ setPage, setSelectedOrderId, notify, reloadData }: any) {
                 <small>{batch.orderIds.length} order{batch.orderIds.length === 1 ? "" : "s"} · {batchRequirements.slice(0, 3).map((item) => `${item.ingredientName} ${item.scaledQuantity}${item.unit}`).join(", ")}</small>
                 <div className="button-row">
                   <Button variant="secondary" onClick={() => notify(`${recipe?.name ?? "Batch"} requirements grouped for ${batch.orderIds.length} order${batch.orderIds.length === 1 ? "" : "s"}.`)}>Review Batch</Button>
-                  <Button variant="secondary" onClick={async () => { try { await apiAction("production.batchStatus", { orderIds: batch.orderIds, status: "In Production", productionStatus: "In Progress" }); notify(`${recipe?.name ?? "Batch"} batch started.`); await reloadData(); } catch (error) { notify(error instanceof Error ? error.message : "Unable to start batch."); } }} disabled={hasShortage}>Start Batch</Button>
-                  <Button onClick={async () => { try { await apiAction("production.batchStatus", { orderIds: batch.orderIds, status: "Produced", productionStatus: "Completed" }); notify(`${recipe?.name ?? "Batch"} batch completed and stock deducted.`); await reloadData(); } catch (error) { notify(error instanceof Error ? error.message : "Unable to complete batch."); } }} disabled={hasShortage}>Complete Batch</Button>
+                  <Button variant="secondary" onClick={async () => { try { await apiAction("production.batchStatus", { orderIds: batch.orderIds, status: "In Production", productionStatus: "In Progress" }); notify(`${recipe?.name ?? "Batch"} batch started.`); await reloadData(); } catch (error) { notify(error instanceof Error ? error.message : "Unable to start batch."); } }} disabled={hasShortage || !canUser(user, "runProduction")}>Start Batch</Button>
+                  <Button onClick={async () => { try { await apiAction("production.batchStatus", { orderIds: batch.orderIds, status: "Produced", productionStatus: "Completed" }); notify(`${recipe?.name ?? "Batch"} batch completed and stock deducted.`); await reloadData(); } catch (error) { notify(error instanceof Error ? error.message : "Unable to complete batch."); } }} disabled={hasShortage || !canUser(user, "runProduction")}>Complete Batch</Button>
                 </div>
               </article>
             );
@@ -1271,7 +1338,7 @@ function Production({ setPage, setSelectedOrderId, notify, reloadData }: any) {
                   <h3>{orderItems.filter((item) => item.orderId === order.id).map((item) => products.find((product) => product.id === item.productId)?.name).join(", ")}</h3>
                   <p>{order.customerName} · due {order.dueDate}</p>
                   <small>Required: {requirementsForOrder(order.id).slice(0, 3).map((item) => `${item.ingredientName} ${item.scaledQuantity}${item.unit}`).join(", ")}</small>
-                  <div className="button-row"><Button variant="secondary" onClick={async (event) => { event.stopPropagation(); try { await apiAction("order.status", { orderId: order.id, status: "In Production", productionStatus: "In Progress" }); notify("Production started for this order."); await reloadData(); } catch (error) { notify(error instanceof Error ? error.message : "Unable to start production."); } }} disabled={!canStartProduction}>Start Production</Button><Button variant="secondary" onClick={(event) => { event.stopPropagation(); setSelectedOrderId(order.id); setPage("order-detail"); }}>View Scaled Recipe</Button><Button onClick={async (event) => { event.stopPropagation(); await markOrderProduced(order.id, notify); await reloadData(); }} disabled={!canDeductInventory}>Deduct Inventory</Button></div>
+                  <div className="button-row"><Button variant="secondary" onClick={async (event) => { event.stopPropagation(); try { await apiAction("order.status", { orderId: order.id, status: "In Production", productionStatus: "In Progress" }); notify("Production started for this order."); await reloadData(); } catch (error) { notify(error instanceof Error ? error.message : "Unable to start production."); } }} disabled={!canStartProduction || !canUser(user, "runProduction")}>Start Production</Button><Button variant="secondary" onClick={(event) => { event.stopPropagation(); setSelectedOrderId(order.id); setPage("order-detail"); }}>View Scaled Recipe</Button><Button onClick={async (event) => { event.stopPropagation(); await markOrderProduced(order.id, notify); await reloadData(); }} disabled={!canDeductInventory || !canUser(user, "runProduction")}>Deduct Inventory</Button></div>
                 </article>
               );
             })}
@@ -1282,7 +1349,7 @@ function Production({ setPage, setSelectedOrderId, notify, reloadData }: any) {
   );
 }
 
-function ShoppingList({ notify, reloadData }: { notify: (message: string) => void; reloadData: () => Promise<void> }) {
+function ShoppingList({ user, notify, reloadData }: { user?: AppUser; notify: (message: string) => void; reloadData: () => Promise<void> }) {
   const list = generateShoppingList();
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [purchaseDrafts, setPurchaseDrafts] = useState<Record<string, { quantity: number; unitCost: number; note: string; expiryDate: string }>>({});
@@ -1355,7 +1422,7 @@ function ShoppingList({ notify, reloadData }: { notify: (message: string) => voi
           };
         })} />
       </Section>
-      <div className="sticky-actions"><Button onClick={async () => { try { await apiAction("shopping.purchaseSuggested", { items: selectedItems }); notify(`${selectedItems.length} purchase${selectedItems.length === 1 ? "" : "s"} logged and inventory updated.`); await reloadData(); } catch (error) { notify(error instanceof Error ? error.message : "Unable to log shopping purchases."); } }} disabled={!selectedItems.length}>Mark Selected Purchased</Button><Button variant="secondary" onClick={() => setSelectedIds(list.map((item) => item.ingredientId))}>Select All</Button><Button variant="secondary" onClick={exportShoppingList}>Export/Share List</Button></div>
+      <div className="sticky-actions"><Button onClick={async () => { try { await apiAction("shopping.purchaseSuggested", { items: selectedItems }); notify(`${selectedItems.length} purchase${selectedItems.length === 1 ? "" : "s"} logged and inventory updated.`); await reloadData(); } catch (error) { notify(error instanceof Error ? error.message : "Unable to log shopping purchases."); } }} disabled={!selectedItems.length || !canUser(user, "purchaseStock")}>Mark Selected Purchased</Button><Button variant="secondary" onClick={() => setSelectedIds(list.map((item) => item.ingredientId))}>Select All</Button><Button variant="secondary" onClick={exportShoppingList}>Export/Share List</Button></div>
     </div>
   );
 }
@@ -1436,13 +1503,14 @@ function AiAssistant({ setPage, notify, reloadData }: { setPage: (page: Page) =>
   );
 }
 
-function ConversionLibrary({ notify, askConfirm, reloadData }: { notify: (message: string) => void; askConfirm: AskConfirm; reloadData: () => Promise<void> }) {
+function ConversionLibrary({ user, notify, askConfirm, reloadData }: { user?: AppUser; notify: (message: string) => void; askConfirm: AskConfirm; reloadData: () => Promise<void> }) {
   const [editingRule, setEditingRule] = useState<Partial<ConversionRule> | null>(null);
+  const canManage = canUser(user, "manageConversions");
   return (
     <div className="page-grid">
       {editingRule && <ConversionRuleForm rule={editingRule} onCancel={() => setEditingRule(null)} notify={notify} reloadData={reloadData} />}
-      <Section title="Approved Conversion Rules" action={<Button onClick={() => setEditingRule({ ingredientId: ingredients[0]?.id, fromUnit: "cup", toUnit: ingredients[0]?.baseUnit ?? "g", conversionFactor: 1, confidenceLevel: "Medium", source: "manual entry", verified: false })}><Plus size={18} /> Add Conversion Rule</Button>}>
-        <ResponsiveTable headers={["Ingredient", "From", "To", "Value", "Confidence", "Source", "Verified", "Actions"]} rows={conversionRules.map((rule) => ({ key: rule.id, cells: [ingredients.find((item) => item.id === rule.ingredientId)?.name, rule.fromUnit, rule.toUnit, `1 ${rule.fromUnit} = ${rule.conversionFactor}${rule.toUnit}`, rule.confidenceLevel, rule.source, rule.verified ? <Badge tone="success">Verified</Badge> : <Badge tone="warning">Review</Badge>, <div className="button-row"><Button variant="secondary" onClick={() => setEditingRule(rule)}>Edit</Button><Button variant="secondary" onClick={async () => { await apiAction("conversion.verify", { ruleId: rule.id }); notify(`Verified ${rule.fromUnit} to ${rule.toUnit} conversion rule.`); await reloadData(); }}>Mark Verified</Button><Button variant="danger" onClick={() => askConfirm({ title: "Delete conversion rule?", message: `This removes the ${rule.fromUnit} to ${rule.toUnit} conversion rule from the approved library.`, confirmLabel: "Delete Rule", tone: "danger", onConfirm: async () => { await apiAction("conversion.delete", { ruleId: rule.id }); notify("Conversion rule deleted."); await reloadData(); } })}>Delete</Button></div>] }))} />
+      <Section title="Approved Conversion Rules" action={<Button onClick={() => setEditingRule({ ingredientId: ingredients[0]?.id, fromUnit: "cup", toUnit: ingredients[0]?.baseUnit ?? "g", conversionFactor: 1, confidenceLevel: "Medium", source: "manual entry", verified: false })} disabled={!canManage}><Plus size={18} /> Add Conversion Rule</Button>}>
+        <ResponsiveTable headers={["Ingredient", "From", "To", "Value", "Confidence", "Source", "Verified", "Actions"]} rows={conversionRules.map((rule) => ({ key: rule.id, cells: [ingredients.find((item) => item.id === rule.ingredientId)?.name, rule.fromUnit, rule.toUnit, `1 ${rule.fromUnit} = ${rule.conversionFactor}${rule.toUnit}`, rule.confidenceLevel, rule.source, rule.verified ? <Badge tone="success">Verified</Badge> : <Badge tone="warning">Review</Badge>, <div className="button-row"><Button variant="secondary" onClick={() => setEditingRule(rule)} disabled={!canManage}>Edit</Button><Button variant="secondary" onClick={async () => { await apiAction("conversion.verify", { ruleId: rule.id }); notify(`Verified ${rule.fromUnit} to ${rule.toUnit} conversion rule.`); await reloadData(); }} disabled={!canManage}>Mark Verified</Button><Button variant="danger" onClick={() => askConfirm({ title: "Delete conversion rule?", message: `This removes the ${rule.fromUnit} to ${rule.toUnit} conversion rule from the approved library.`, confirmLabel: "Delete Rule", tone: "danger", onConfirm: async () => { await apiAction("conversion.delete", { ruleId: rule.id }); notify("Conversion rule deleted."); await reloadData(); } })} disabled={!canUser(user, "deleteRecords")}>Delete</Button></div>] }))} />
       </Section>
     </div>
   );
@@ -1484,14 +1552,15 @@ function ConversionRuleForm({ rule, onCancel, notify, reloadData }: { rule: Part
   );
 }
 
-function Suppliers({ notify, askConfirm, reloadData }: { notify: (message: string) => void; askConfirm: AskConfirm; reloadData: () => Promise<void> }) {
+function Suppliers({ user, notify, askConfirm, reloadData }: { user?: AppUser; notify: (message: string) => void; askConfirm: AskConfirm; reloadData: () => Promise<void> }) {
   const [editingSupplier, setEditingSupplier] = useState<Partial<Supplier> | null>(null);
+  const canManage = canUser(user, "manageSuppliers");
   return (
     <div className="page-grid">
       {editingSupplier && <SupplierForm supplier={editingSupplier} notify={notify} reloadData={reloadData} onCancel={() => setEditingSupplier(null)} />}
-      <Section title="Suppliers" action={<Button onClick={() => setEditingSupplier({ defaultCurrency: "NGN" })}><Plus size={18} /> Add Supplier</Button>}>
+      <Section title="Suppliers" action={<Button onClick={() => setEditingSupplier({ defaultCurrency: "NGN" })} disabled={!canManage}><Plus size={18} /> Add Supplier</Button>}>
         <div className="card-grid">
-          {suppliers.map((supplier) => <article className="item-card" key={supplier.id}><Truck size={22} /><h3>{supplier.name}</h3><p>{supplier.contactName || "No contact"} · {supplier.phone || "No phone"}</p><small>{(supplier.suppliedIngredientIds?.length ? supplier.suppliedIngredientIds : ingredients.filter((item) => item.supplierId === supplier.id).map((item) => item.id)).map((id) => ingredients.find((item) => item.id === id)?.name).filter(Boolean).slice(0, 6).join(", ") || "No linked ingredients"}</small><small>Lead time: {supplier.leadTimeDays ?? 2} day{supplier.leadTimeDays === 1 ? "" : "s"} · Currency: {supplier.defaultCurrency ?? "NGN"}</small><p>{supplier.notes}</p><div className="button-row"><Button variant="secondary" onClick={() => setEditingSupplier(supplier)}>Edit</Button><Button variant="danger" onClick={() => askConfirm({ title: `Delete supplier ${supplier.name}?`, message: "Ingredients from this supplier will remain in inventory, but their supplier will become unassigned.", confirmLabel: "Delete Supplier", tone: "danger", onConfirm: async () => { await apiAction("supplier.delete", { supplierId: supplier.id }); notify("Supplier deleted and ingredients unassigned."); await reloadData(); } })}>Delete</Button></div></article>)}
+          {suppliers.map((supplier) => <article className="item-card" key={supplier.id}><Truck size={22} /><h3>{supplier.name}</h3><p>{supplier.contactName || "No contact"} · {supplier.phone || "No phone"}</p><small>{(supplier.suppliedIngredientIds?.length ? supplier.suppliedIngredientIds : ingredients.filter((item) => item.supplierId === supplier.id).map((item) => item.id)).map((id) => ingredients.find((item) => item.id === id)?.name).filter(Boolean).slice(0, 6).join(", ") || "No linked ingredients"}</small><small>Lead time: {supplier.leadTimeDays ?? 2} day{supplier.leadTimeDays === 1 ? "" : "s"} · Currency: {supplier.defaultCurrency ?? "NGN"}</small><p>{supplier.notes}</p><div className="button-row"><Button variant="secondary" onClick={() => setEditingSupplier(supplier)} disabled={!canManage}>Edit</Button><Button variant="danger" onClick={() => askConfirm({ title: `Delete supplier ${supplier.name}?`, message: "Ingredients from this supplier will remain in inventory, but their supplier will become unassigned.", confirmLabel: "Delete Supplier", tone: "danger", onConfirm: async () => { await apiAction("supplier.delete", { supplierId: supplier.id }); notify("Supplier deleted and ingredients unassigned."); await reloadData(); } })} disabled={!canUser(user, "deleteRecords")}>Delete</Button></div></article>)}
         </div>
       </Section>
     </div>
@@ -1537,16 +1606,27 @@ function SupplierForm({ supplier, notify, reloadData, onCancel }: { supplier: Pa
   );
 }
 
-function SettingsPage({ setPage, notify, reloadData }: { setPage: (page: Page) => void; notify: (message: string) => void; reloadData: () => Promise<void> }) {
+function SettingsPage({ user, setPage, notify, reloadData }: { user?: AppUser; setPage: (page: Page) => void; notify: (message: string) => void; reloadData: () => Promise<void> }) {
   const [archiveData, setArchiveData] = useState<Record<string, { id: string; name: string }[]> | null>(null);
+  const canManageSettings = canUser(user, "manageSettings");
+  const canRestoreArchive = canUser(user, "restoreArchive");
   const loadArchive = async () => {
-    const result = await apiAction("archive.list");
-    setArchiveData(result as Record<string, { id: string; name: string }[]>);
+    if (!canUser(user, "manageInventory")) return;
+    try {
+      const result = await apiAction("archive.list");
+      setArchiveData(result as Record<string, { id: string; name: string }[]>);
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Archive recovery could not be loaded.");
+    }
   };
   useEffect(() => {
     loadArchive().catch(() => notify("Archive recovery could not be loaded."));
   }, []);
   const restoreArchive = async (entityType: string, entityId: string) => {
+    if (!canRestoreArchive) {
+      notify("Only Owner/Admin can restore archived records.");
+      return;
+    }
     await apiAction("archive.restore", { entityType, entityId });
     notify("Archived item restored.");
     await loadArchive();
@@ -1559,6 +1639,10 @@ function SettingsPage({ setPage, notify, reloadData }: { setPage: (page: Page) =
       </div>
       <form onSubmit={async (event) => {
         event.preventDefault();
+        if (!canManageSettings) {
+          notify("Only Owner/Admin can save settings.");
+          return;
+        }
         const form = event.currentTarget;
         await apiAction("settings.save", {
           settings: {
@@ -1577,7 +1661,7 @@ function SettingsPage({ setPage, notify, reloadData }: { setPage: (page: Page) =
         notify("Settings saved to Neon.");
         await reloadData();
       }}>
-      <Section title="Business profile & defaults" action={<Button type="submit">Save Settings</Button>}>
+      <Section title="Business profile & defaults" action={<Button type="submit" disabled={!canManageSettings}>Save Settings</Button>}>
         <div className="form-grid">
           <Field label="Business name"><input name="businessName" defaultValue={settings.businessName} /></Field>
           <Field label="Default currency"><select name="currency" defaultValue={settings.currency ?? "NGN"}><option value="NGN">Nigerian Naira</option><option value="USD">US Dollar</option><option value="GBP">British Pound</option><option value="EUR">Euro</option></select></Field>
@@ -1589,11 +1673,11 @@ function SettingsPage({ setPage, notify, reloadData }: { setPage: (page: Page) =
           <Field label="Purchase safety margin %"><input name="safetyMarginPercentage" type="number" min="0" step="0.1" defaultValue={settings.safetyMarginPercentage ?? 10} /></Field>
           <Field label="Default tax %"><input name="defaultTaxPercentage" type="number" min="0" step="0.1" defaultValue={settings.defaultTaxPercentage ?? 0} /></Field>
           <Field label="Low-stock notification email"><input name="lowStockNotificationEmail" type="email" defaultValue={settings.lowStockNotificationEmail ?? ""} placeholder="ops@example.com" /></Field>
-          <Field label="User roles"><select defaultValue="Owner/Admin"><option>Owner/Admin</option><option>Baker</option><option>Inventory Manager</option><option>Viewer</option></select></Field>
+          <Field label="Active role"><select value={user?.role ?? "Viewer"} disabled><option>Owner/Admin</option><option>Baker</option><option>Inventory Manager</option><option>Viewer</option></select></Field>
         </div>
       </Section>
       </form>
-      <Section title="Recovery & Audit" action={<Button variant="secondary" onClick={loadArchive}>Refresh Archive</Button>}>
+      <Section title="Recovery & Audit" action={<Button variant="secondary" onClick={loadArchive} disabled={!canUser(user, "manageInventory")}>Refresh Archive</Button>}>
         <div className="split">
           {[
             ["ingredient", "Archived Ingredients", "archivedIngredients"],
@@ -1608,7 +1692,7 @@ function SettingsPage({ setPage, notify, reloadData }: { setPage: (page: Page) =
               {(archiveData?.[key] ?? []).map((item) => (
                 <div key={item.id}>
                   <span>{item.name}</span>
-                  <Button variant="secondary" onClick={() => restoreArchive(entityType, item.id)}>Restore</Button>
+                  <Button variant="secondary" onClick={() => restoreArchive(entityType, item.id)} disabled={!canRestoreArchive}>Restore</Button>
                 </div>
               ))}
             </article>

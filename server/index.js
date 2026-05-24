@@ -6,6 +6,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadKitchenSnapshot } from "../api/_db.js";
 import { handleAction, produceOrder } from "../api/_actions.js";
+import { actorFromRequest, createSessionToken } from "../api/_auth.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, "..");
@@ -49,7 +50,7 @@ app.post("/api/auth/login", requireDatabase, async (req, res, next) => {
       res.status(401).json({ error: "Invalid email or password" });
       return;
     }
-    res.json({ id: user.id, email: user.email, fullName: user.full_name, role: user.role });
+    res.json({ id: user.id, email: user.email, fullName: user.full_name, role: user.role, token: createSessionToken(user) });
   } catch (error) {
     next(error);
   }
@@ -65,7 +66,7 @@ app.get("/api/bootstrap", requireDatabase, async (_req, res, next) => {
 
 app.post("/api/actions", requireDatabase, async (req, res, next) => {
   try {
-    res.json(await handleAction(sql, req.body ?? {}));
+    res.json(await handleAction(sql, req.body ?? {}, actorFromRequest(req)));
   } catch (error) {
     next(error);
   }
@@ -73,6 +74,11 @@ app.post("/api/actions", requireDatabase, async (req, res, next) => {
 
 app.post("/api/inventory-movements", requireDatabase, async (req, res, next) => {
   try {
+    const actor = actorFromRequest(req);
+    if (!actor || !["Owner/Admin", "Inventory Manager"].includes(actor.role)) {
+      res.status(actor ? 403 : 401).json({ error: actor ? `${actor.role} cannot adjust inventory.` : "Sign in again to continue." });
+      return;
+    }
     const { ingredientId, movementType, quantityChange, unit, note, createdBy = "system" } = req.body;
     const ingredientRows = await sql`select current_stock::float as current_stock from ingredients where id = ${ingredientId}`;
     if (!ingredientRows.length) {
@@ -104,7 +110,7 @@ app.post("/api/inventory-movements", requireDatabase, async (req, res, next) => 
 app.post("/api/orders/:orderId/produced", requireDatabase, async (req, res, next) => {
   try {
     const { orderId } = req.params;
-    res.json(await produceOrder(sql, orderId));
+    res.json(await produceOrder(sql, orderId, actorFromRequest(req)));
   } catch (error) {
     next(error);
   }
