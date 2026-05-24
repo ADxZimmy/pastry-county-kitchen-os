@@ -1,6 +1,6 @@
 # Pastry County Kitchen OS Audit Milestone
 
-This milestone tracks every finding from `App Audit Request.pdf` and `App Audit Request (1).pdf` and the work needed to move the audit from "Not Ready" to complete coverage.
+This milestone tracks every finding from `App Audit Request.pdf`, `App Audit Request (1).pdf`, and `App Audit Request (2).pdf` and the work needed to move the audit from "Not Ready" to complete coverage.
 
 Status legend:
 
@@ -14,10 +14,10 @@ Status legend:
 | --- | --- | --- | --- |
 | Done | Recipe scaling | Gram values rounded incorrectly, e.g. 187.5g dark chocolate became 190g. | Scaling keeps one decimal for weights/volumes and rounds count units up only where sensible. Tests cover 0.75x brownie scaling. |
 | Done | Dynamic costing | Costing used static values unrelated to the selected recipe. | Costing recalculates when the recipe/yield/selling price changes and uses live ingredient costs. |
-| Done | Inventory validation | Negative stock was accepted and edits could reset cost to zero. | UI/API reject negative stock, keep latest cost on edit, and require valid numeric fields. |
+| Done | Inventory validation | Negative stock was accepted, edits could reset cost to zero, and the stock-adjustment modal could fail silently when removals exceeded available stock. | UI/API reject negative stock, keep latest cost on edit, require valid numeric fields, and show inline adjustment errors with disabled invalid submits. |
 | Done | Stock adjustment | Ingredient detail used fixed quick actions (+100g/-1g) without reason or history. | Stock changes use a quantity/reason modal and write inventory movement records. |
-| Done | Order production guardrails | Orders could be produced despite shortages and inventory could be deducted incorrectly. | Production completion checks stock, blocks invalid statuses, and deducts inventory once. |
-| Done | Shopping list purchase | Marking purchased cleared items without inventory updates. | Selected purchases update inventory, log purchases, and keep unselected items. |
+| Done | Order production guardrails | Orders could be produced despite shortages and inventory could be deducted incorrectly; the May 2026 follow-up found reservation/production inconsistent when units differed. | Production completion checks stock in base units, blocks invalid statuses, and deducts inventory once. |
+| Done | Shopping list purchase | Marking purchased cleared items without inventory updates or visible failure. | Selected purchases update inventory, log purchases, keep unselected items, and surface API errors instead of silently failing. |
 | Done | AI conversion prompts | AI conversion responses were static and used browser prompts. | Suggestions select ingredient-specific rules, editable values are in-app, and rules save through the API. |
 | Done | Supplier prompt flow | Add Supplier used `prompt()` and could leave the SPA. | Supplier add/edit uses an in-app form with contact, address, currency, and notes. |
 | Done | Search state | Search terms persisted when switching modules. | Navigation clears the shared search query. |
@@ -29,7 +29,7 @@ Status legend:
 | --- | --- | --- | --- |
 | Done | Shopping list | Shortage calculations need broader real-order coverage, editable purchase cost, and non-zero estimates where costs are missing. | Shopping list normalizes order requirements to base units, aggregates active demand and low-stock top-ups, supports editable quantities/prices, supplier assignment, purchase notes, expiry dates, and fallback estimates for missing costs. |
 | Done | Order reservation | Reservation is all-or-nothing. Audit requested partial reservation. | Operators can reserve available stock, see remaining shortages, and reserve the remainder after stock is purchased. |
-| Done | Production module | Production page still needs deeper task workflow, and updated audit reported shortage orders could still be progressed. | Orders are grouped by recipe/date, batch quantities are calculated, and grouped batches can be reviewed, started, and completed with inventory guardrails; stale shortage orders are blocked from delivery server-side. |
+| Done | Production module | Production page still needs deeper task workflow, and updated audits reported shortage orders could still be progressed or production actions appeared cosmetic. | Orders are grouped by recipe/date, batch quantities are calculated, grouped batches start/complete through the API, production consumes stock using FEFO lots, and shortage/error states are blocked with visible feedback. |
 | Done | Supplier management | Supplier CRUD exists, but supply catalogs and lead times are missing. | Suppliers can be linked to supplied ingredients, lead time, currency, and preferred ordering notes. |
 | Done | Settings | Settings page exists for core preferences, but more settings are needed. | Business profile, currency/unit preferences, rounding, deduction timing, AI confirmation, safety margin, notification email, and tax defaults persist; safety margin affects shopping and tax affects margin previews. |
 | Done | Conversion library reuse | Conversion rules save, but recipe-builder reuse is incomplete. | Recipe entry applies saved conversion rules on save and the parser still highlights entries needing review. |
@@ -46,6 +46,7 @@ Status legend:
 | Done | Modal mobile behavior | Some modals/forms may still overflow on small screens. | Modals now constrain height, scroll within the viewport, and keep Save/Cancel reachable on small screens. |
 | Done | Performance | Audit found slow load, large bundle, and missing skeleton states. | Loading states use skeletons, empty/error states are graceful, the production bundle remains about 71KB gzip after Milestone 4 UI additions, and blocking prompt/modal flows were removed. |
 | Done | Desktop density | Desktop views can feel stretched and sparse. | 1440px+ layouts use denser grids and constrained detail/form columns while preserving readable tables. |
+| Done | Back navigation | Latest audit found browser Back could return to the welcome page and lose app context. | Hash routes now push browser history entries and `popstate` restores the matching internal page while preserving the signed-in session. |
 
 ## Milestone 4 - Product Completeness
 
@@ -68,14 +69,15 @@ Status legend:
 - [x] API smoke checked archive listing and audit-log writes.
 - [x] Updated audit PDF reviewed and mapped to fixes for Cancel navigation, shortage delivery guardrails, and shopping aggregation/cost estimates.
 - [x] Browser smoke checked login, form cancellation, and rebuilt shopping-list cost rows after updated audit fixes.
+- [x] Third audit PDF reviewed and mapped to fixes for base-unit order requirements, production/shopping feedback, stock-adjustment validation, back navigation, and latest-purchase cost fallback.
 - [x] Mobile/responsive controls verified through the responsive table/card implementation and browser smoke.
 - [x] Keyboard/accessibility pass covered visible focus, table scopes, named controls, modal scrolling, loading state, and recovery actions.
-- [ ] Re-run an external audit after Milestones 1-3 are complete.
+- [ ] Re-run an external audit after the third audit patch is live.
 
 ## Next Recommended Work
 
-1. Re-run the external audit after this updated audit patch is live.
+1. Re-run the external audit after this third audit patch is live.
 2. Finish role-based action permissions and session hardening.
-3. Add role-based action permissions and server-issued sessions beyond local session persistence.
+3. Make dashboard notifications actionable and dismissible, then add email delivery for critical low-stock alerts.
 4. Expand audit reporting into searchable/filterable compliance views.
 5. Add PDF exports, advanced FEFO reporting, waste analytics, and supplier performance dashboards.

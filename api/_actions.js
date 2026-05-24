@@ -38,15 +38,44 @@ function positive(value, label) {
   return value;
 }
 
+function conversionFactor(fromUnit, toUnit, ruleFactor) {
+  if (fromUnit === toUnit) return 1;
+  const direct = {
+    "kg:g": 1000,
+    "g:kg": 0.001,
+    "litre:ml": 1000,
+    "ml:litre": 0.001,
+    "tablespoon:ml": 15,
+    "teaspoon:ml": 5
+  };
+  return direct[`${fromUnit}:${toUnit}`] ?? Number(ruleFactor ?? 1);
+}
+
 async function requirementsForOrder(sql, orderId) {
-  return sql`
-    select ri.ingredient_id, ri.unit, sum(ri.quantity * oi.requested_yield_quantity / r.base_yield_quantity * oi.quantity_multiplier) as quantity
+  const rows = await sql`
+    select ri.ingredient_id, ri.unit, ingredients.base_unit, conversion_rules.conversion_factor::float as conversion_factor,
+      sum(ri.quantity * (1 + coalesce(ri.waste_percentage, 0) / 100) * oi.requested_yield_quantity / r.base_yield_quantity * oi.quantity_multiplier)::float as quantity
     from order_items oi
     join recipes r on r.id = oi.recipe_id
     join recipe_items ri on ri.recipe_id = r.id
+    join ingredients on ingredients.id = ri.ingredient_id
+    left join conversion_rules on conversion_rules.ingredient_id = ri.ingredient_id
+      and conversion_rules.from_unit = ri.unit
+      and conversion_rules.to_unit = ingredients.base_unit
+      and conversion_rules.active = true
     where oi.order_id = ${orderId}
-    group by ri.ingredient_id, ri.unit
+    group by ri.ingredient_id, ri.unit, ingredients.base_unit, conversion_rules.conversion_factor
   `;
+  const requirements = new Map();
+  rows.forEach((row) => {
+    const unit = row.base_unit || row.unit;
+    const quantity = Number(row.quantity) * conversionFactor(row.unit, unit, row.conversion_factor);
+    const key = `${row.ingredient_id}:${unit}`;
+    const existing = requirements.get(key) ?? { ingredient_id: row.ingredient_id, unit, quantity: 0 };
+    existing.quantity += quantity;
+    requirements.set(key, existing);
+  });
+  return Array.from(requirements.values());
 }
 
 async function stockStatusForRequirements(sql, requirements) {

@@ -68,12 +68,19 @@ export async function loadKitchenSnapshot() {
   ] = await Promise.all([
     sql`select id, name, contact_name as "contactName", phone, email, address, default_currency as "defaultCurrency", lead_time_days as "leadTimeDays", supplied_ingredient_ids as "suppliedIngredientIds", notes, active from suppliers where active = true order by name`,
     sql`
-      select id, name, category, base_unit as "baseUnit", current_stock::float as "currentStock",
-        reorder_level::float as "reorderLevel", latest_unit_cost::float as "latestUnitCost",
+      select ingredients.id, name, category, base_unit as "baseUnit", current_stock::float as "currentStock",
+        reorder_level::float as "reorderLevel", coalesce(nullif(latest_unit_cost, 0), latest_purchase.cost_per_base_unit, 0)::float as "latestUnitCost",
         supplier_id as "supplierId", expiry_tracking_enabled as "expiryTrackingEnabled",
         default_expiry_days as "defaultExpiryDays", notes, reserved_stock::float as "reservedStock",
         expiry_date::text as "expiryDate"
       from ingredients
+      left join lateral (
+        select cost_per_base_unit
+        from purchase_logs
+        where purchase_logs.ingredient_id = ingredients.id and cost_per_base_unit > 0
+        order by purchase_date desc
+        limit 1
+      ) latest_purchase on true
       where active = true
       order by category, name
     `,
