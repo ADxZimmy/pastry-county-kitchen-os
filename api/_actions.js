@@ -785,8 +785,8 @@ export async function handleAction(sql, body) {
     const before = await rowById(sql, "settings", "default");
     await sql`
       insert into settings (id, business_name, currency, default_deduction_stage, allow_negative_inventory, require_ai_conversion_confirmation, gram_rounding_preference, egg_rounding_preference, safety_margin_percentage, default_tax_percentage, low_stock_notification_email)
-      values ('default', ${data.businessName || "Pastry County"}, 'NGN', ${data.defaultDeductionStage || "production_completion"}, ${bool(data.allowNegativeInventory)}, ${bool(data.requireAiConversionConfirmation)}, ${num(data.gramRoundingPreference, 5)}, ${data.eggRoundingPreference || "nearest_whole_egg"}, ${nonNegative(num(data.safetyMarginPercentage, 10), "Safety margin")}, ${nonNegative(num(data.defaultTaxPercentage, 0), "Tax percentage")}, ${data.lowStockNotificationEmail || null})
-      on conflict (id) do update set business_name = excluded.business_name, default_deduction_stage = excluded.default_deduction_stage,
+      values ('default', ${data.businessName || "Pastry County"}, ${data.currency || "NGN"}, ${data.defaultDeductionStage || "production_completion"}, ${bool(data.allowNegativeInventory)}, ${bool(data.requireAiConversionConfirmation)}, ${num(data.gramRoundingPreference, 5)}, ${data.eggRoundingPreference || "nearest_whole_egg"}, ${nonNegative(num(data.safetyMarginPercentage, 10), "Safety margin")}, ${nonNegative(num(data.defaultTaxPercentage, 0), "Tax percentage")}, ${data.lowStockNotificationEmail || null})
+      on conflict (id) do update set business_name = excluded.business_name, currency = excluded.currency, default_deduction_stage = excluded.default_deduction_stage,
         allow_negative_inventory = excluded.allow_negative_inventory, require_ai_conversion_confirmation = excluded.require_ai_conversion_confirmation,
         gram_rounding_preference = excluded.gram_rounding_preference, egg_rounding_preference = excluded.egg_rounding_preference,
         safety_margin_percentage = excluded.safety_margin_percentage, default_tax_percentage = excluded.default_tax_percentage,

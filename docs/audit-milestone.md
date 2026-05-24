@@ -44,7 +44,7 @@ Status legend:
 | Done | Responsive tables | Tables convert to cards, but mobile layout needs a full QA pass. | Inventory, orders, shopping, conversions, and forms use mobile cards, safer wrapping, and tighter controls for 360px-class screens. |
 | Done | Accessibility | Labels/focus exist in many places, but audit requested full WCAG pass. | Tables expose column scopes, empty states are explicit, loading uses `aria-busy`, row controls avoid accidental activation, and recovery/shopping controls have accessible names. |
 | Done | Modal mobile behavior | Some modals/forms may still overflow on small screens. | Modals now constrain height, scroll within the viewport, and keep Save/Cancel reachable on small screens. |
-| Done | Performance | Audit found slow load, large bundle, and missing skeleton states. | Loading states use skeletons, empty/error states are graceful, the production bundle remains under 70KB gzip, and blocking prompt/modal flows were removed. |
+| Done | Performance | Audit found slow load, large bundle, and missing skeleton states. | Loading states use skeletons, empty/error states are graceful, the production bundle remains about 71KB gzip after Milestone 4 UI additions, and blocking prompt/modal flows were removed. |
 | Done | Desktop density | Desktop views can feel stretched and sparse. | 1440px+ layouts use denser grids and constrained detail/form columns while preserving readable tables. |
 
 ## Milestone 4 - Product Completeness
@@ -52,10 +52,10 @@ Status legend:
 | Status | Area | Audit Finding | Completion Criteria |
 | --- | --- | --- | --- |
 | Done | Authentication | Login exists, but route protection/roles are not complete. | Login uses the real auth API, signed-in users persist locally, private app pages require a session, and the active role is visible with logout. |
-| Todo | Notifications | Low stock/order reminders are missing. | Operators receive configurable notifications for low stock, due orders, and production status. |
-| Todo | Exports | Recipe/order/shopping exports are incomplete. | Export PDF/CSV for recipes, shopping lists, inventory, and orders. |
-| Todo | Multi-currency/tax | Only NGN is effectively supported. | Currency and tax settings apply consistently to costs, purchases, and order margins. |
-| Todo | Analytics | Advanced dashboards are missing. | Sales trends, waste analysis, inventory velocity, and supplier performance are available. |
+| Done | Notifications | Low stock/order reminders are missing. | Dashboard shows active low-stock, due-order, shortage, and expiry notifications with a shareable digest. |
+| Done | Exports | Recipe/order/shopping exports are incomplete. | CSV exports are available for inventory, recipes, and orders; shopping list export/share remains available. |
+| Done | Multi-currency/tax | Only NGN is effectively supported. | Currency persists from Settings and all shared cost/margin displays use the selected currency; tax remains applied in margin previews. |
+| Done | Analytics | Advanced dashboards are missing. | Dashboard analytics now show produced orders, active order cost, stock value, waste events, most-used ingredient, and open shortages. |
 
 ## Validation Checklist
 
@@ -76,6 +76,6 @@ Status legend:
 
 1. Re-run the external audit after this updated audit patch is live.
 2. Finish role-based action permissions and session hardening.
-3. Add exports, notifications, multi-currency handling, and analytics from Milestone 4.
+3. Add role-based action permissions and server-issued sessions beyond local session persistence.
 4. Expand audit reporting into searchable/filterable compliance views.
-5. Add advanced FEFO reporting, waste analytics, and supplier performance dashboards.
+5. Add PDF exports, advanced FEFO reporting, waste analytics, and supplier performance dashboards.

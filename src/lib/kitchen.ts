@@ -22,7 +22,7 @@ export interface StockAvailability {
 }
 
 export function formatNaira(value: number) {
-  return new Intl.NumberFormat("en-NG", { style: "currency", currency: "NGN", maximumFractionDigits: 0 }).format(value);
+  return new Intl.NumberFormat("en-NG", { style: "currency", currency: settings.currency ?? "NGN", maximumFractionDigits: 0 }).format(value);
 }
 
 export function roundByPreference(value: number, unit: Unit) {

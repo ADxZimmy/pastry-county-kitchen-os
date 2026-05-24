@@ -259,6 +259,35 @@ function downloadText(filename: string, content: string) {
   URL.revokeObjectURL(url);
 }
 
+function csvValue(value: React.ReactNode) {
+  const text = String(value ?? "").replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim();
+  return `"${text.replace(/"/g, '""')}"`;
+}
+
+function exportCsv(filename: string, headers: string[], rows: React.ReactNode[][], notify?: Notify) {
+  const csv = [headers.map(csvValue).join(","), ...rows.map((row) => row.map(csvValue).join(","))].join("\n");
+  downloadText(filename, csv);
+  notify?.(`${filename} exported.`);
+}
+
+function notificationDigest() {
+  const today = new Date().toISOString().slice(0, 10);
+  const lowStock = ingredients.filter((item) => item.currentStock <= item.reorderLevel);
+  const dueOrders = orders.filter((order) => order.dueDate <= today && !["Delivered", "Cancelled"].includes(order.status));
+  const blockedOrders = orders.filter((order) => order.stockStatus === "Shortage" && !["Delivered", "Cancelled"].includes(order.status));
+  const expiringLots = ingredientBatches.filter((batch) => {
+    if (!batch.expiryDate) return false;
+    const days = (new Date(batch.expiryDate).getTime() - Date.now()) / 86400000;
+    return days >= 0 && days <= 7;
+  });
+  return [
+    ...lowStock.map((item) => ({ id: `stock-${item.id}`, title: `${item.name} is low`, detail: `${item.currentStock}${item.baseUnit} left, reorder at ${item.reorderLevel}${item.baseUnit}`, tone: "danger" as const })),
+    ...dueOrders.map((order) => ({ id: `due-${order.id}`, title: `${order.customerName} order is due`, detail: `${order.status} · due ${order.dueDate}`, tone: "warning" as const })),
+    ...blockedOrders.map((order) => ({ id: `blocked-${order.id}`, title: `${order.customerName} is blocked by shortage`, detail: "Restock before production or delivery.", tone: "danger" as const })),
+    ...expiringLots.map((batch) => ({ id: `expiry-${batch.id}`, title: "Ingredient lot expiring soon", detail: `${ingredients.find((item) => item.id === batch.ingredientId)?.name ?? batch.ingredientId} · ${batch.expiryDate?.slice(0, 10)}`, tone: "warning" as const }))
+  ].slice(0, 8);
+}
+
 async function shareText(text: string, notify: Notify) {
   const shareData = { title: "Pastry County Kitchen OS", text };
   try {
@@ -602,6 +631,18 @@ function ConfirmDialog({ request, onClose }: { request: ConfirmRequest; onClose:
 function Dashboard({ setPage, setSelectedIngredientId }: any) {
   const shopping = generateShoppingList();
   const today = new Date().toISOString().slice(0, 10);
+  const notifications = notificationDigest();
+  const producedOrders = orders.filter((order) => ["Produced", "Delivered"].includes(order.status));
+  const activeOrderCost = orders.filter((order) => !["Cancelled"].includes(order.status)).reduce((sum, order) => sum + calculateOrderCost(order.id), 0);
+  const stockValue = ingredients.reduce((sum, item) => sum + (item.currentStock * item.latestUnitCost), 0);
+  const wasteMovements = inventoryMovements.filter((movement) => movement.movementType === "waste");
+  const mostUsed = inventoryMovements
+    .filter((movement) => movement.movementType === "production_use")
+    .reduce<Record<string, number>>((acc, movement) => {
+      acc[movement.ingredientId] = (acc[movement.ingredientId] ?? 0) + Math.abs(movement.quantityChange);
+      return acc;
+    }, {});
+  const topIngredientId = Object.entries(mostUsed).sort((a, b) => b[1] - a[1])[0]?.[0];
   const productionCards = orders.slice(0, 3).map((order) => {
     const line = orderItems.find((item) => item.orderId === order.id);
     const product = products.find((item) => item.id === line?.productId);
@@ -621,7 +662,7 @@ function Dashboard({ setPage, setSelectedIngredientId }: any) {
     ["Orders Due Today", orders.filter((order) => order.dueDate === today).length, "Confirmed and draft"],
     ["Pending Production", orders.filter((order) => order.productionStatus !== "Completed").length, "Across this week"],
     ["Shopping Estimate", formatNaira(shopping.reduce((sum, item) => sum + item.estimatedCost, 0)), "Suggested restock cost"],
-    ["Recipe Cost Updates", 3, "Ingredient prices changed"]
+    ["Notifications", notifications.length, "Active alerts"]
   ];
   return (
     <div className="page-grid">
@@ -650,6 +691,20 @@ function Dashboard({ setPage, setSelectedIngredientId }: any) {
         </div>
       </Section>
       <div className="split">
+        <Section title="Notifications" action={<Button variant="secondary" onClick={() => {
+          const message = notifications.map((item) => `${item.title}: ${item.detail}`).join("\n") || "No active notifications.";
+          shareText(message, () => undefined);
+        }}>Share Digest</Button>}>
+          <div className="compact-list">
+            {notifications.length === 0 && <p className="empty-note">No active notifications.</p>}
+            {notifications.map((item) => (
+              <div className="row-card" key={item.id}>
+                <span><strong>{item.title}</strong><small>{item.detail}</small></span>
+                <Badge tone={item.tone}>{item.tone === "danger" ? "Action" : "Watch"}</Badge>
+              </div>
+            ))}
+          </div>
+        </Section>
         <Section title="Low Stock Alerts">
           <div className="compact-list">
             {lowStock.map((item) => (
@@ -658,6 +713,18 @@ function Dashboard({ setPage, setSelectedIngredientId }: any) {
                 <Badge tone="danger">Low Stock</Badge>
               </button>
             ))}
+          </div>
+        </Section>
+        <Section title="Analytics">
+          <div className="metric-grid small">
+            <Metric label="Produced Orders" value={producedOrders.length} />
+            <Metric label="Active Order Cost" value={formatNaira(activeOrderCost)} />
+            <Metric label="Stock Value" value={formatNaira(stockValue)} />
+            <Metric label="Waste Events" value={wasteMovements.length} />
+          </div>
+          <div className="compact-list">
+            <div className="row-card"><span>Most used ingredient</span><strong>{ingredients.find((item) => item.id === topIngredientId)?.name ?? "No production use yet"}</strong></div>
+            <div className="row-card"><span>Open shortages</span><strong>{orders.filter((order) => order.stockStatus === "Shortage").length}</strong></div>
           </div>
         </Section>
         <Section title="Smart Suggestions">
@@ -683,7 +750,7 @@ function Inventory({ setPage, setSelectedIngredientId, query, setQuery }: any) {
   });
   return (
     <>
-      <Toolbar query={query} setQuery={setQuery} placeholder="Search ingredients" action={<Button onClick={() => { setSelectedIngredientId(""); setPage("ingredient-form"); }}><Plus size={18} /> Add Ingredient</Button>} />
+      <Toolbar query={query} setQuery={setQuery} placeholder="Search ingredients" action={<div className="button-row"><Button variant="secondary" onClick={() => exportCsv("pastry-county-inventory.csv", ["Ingredient", "Category", "Current Stock", "Reorder Level", "Unit", "Latest Unit Cost", "Supplier"], list.map((item) => [item.name, item.category, item.currentStock, item.reorderLevel, item.baseUnit, item.latestUnitCost, suppliers.find((supplier) => supplier.id === item.supplierId)?.name ?? "Unassigned"]))}>Export CSV</Button><Button onClick={() => { setSelectedIngredientId(""); setPage("ingredient-form"); }}><Plus size={18} /> Add Ingredient</Button></div>} />
       <Chips items={categories} active={filter} setActive={setFilter} />
       <ResponsiveTable
         headers={["Ingredient", "Category", "Current Stock", "Reorder", "Latest Cost", "Status"]}
@@ -869,7 +936,7 @@ function Recipes({ setPage, setSelectedRecipeId, query, setQuery }: any) {
   const list = recipes.filter((recipe) => (filter === "All" || recipe.category === filter) && recipe.name.toLowerCase().includes(query.toLowerCase()));
   return (
     <>
-      <Toolbar query={query} setQuery={setQuery} placeholder="Search recipes" action={<Button onClick={() => { setSelectedRecipeId(""); setPage("recipe-form"); }}><Plus size={18} /> Add Recipe</Button>} />
+      <Toolbar query={query} setQuery={setQuery} placeholder="Search recipes" action={<div className="button-row"><Button variant="secondary" onClick={() => exportCsv("pastry-county-recipes.csv", ["Recipe", "Category", "Base Yield", "Yield Unit", "Batch Cost", "Cost Per Unit"], list.map((recipe) => { const cost = calculateRecipeCost(recipe.id, recipe.baseYieldQuantity); return [recipe.name, recipe.category, recipe.baseYieldQuantity, recipe.yieldUnit, cost.totalRecipeCost, cost.costPerYieldUnit]; }))}>Export CSV</Button><Button onClick={() => { setSelectedRecipeId(""); setPage("recipe-form"); }}><Plus size={18} /> Add Recipe</Button></div>} />
       <Chips items={categories} active={filter} setActive={setFilter} />
       <div className="card-grid">
         {list.map((recipe) => {
@@ -997,7 +1064,7 @@ function Orders({ setPage, setSelectedOrderId, query, setQuery }: any) {
   const list = orders.filter((order) => (filter === "All" || order.status === filter || (filter === "New" && order.status === "Draft")) && order.customerName.toLowerCase().includes(query.toLowerCase()));
   return (
     <>
-      <Toolbar query={query} setQuery={setQuery} placeholder="Search orders" action={<Button onClick={() => { setSelectedOrderId(""); setPage("order-create"); }}><Plus size={18} /> Add Order</Button>} />
+      <Toolbar query={query} setQuery={setQuery} placeholder="Search orders" action={<div className="button-row"><Button variant="secondary" onClick={() => exportCsv("pastry-county-orders.csv", ["Customer", "Phone", "Due Date", "Delivery", "Status", "Payment", "Production", "Stock", "Estimated Cost"], list.map((order) => [order.customerName, order.customerPhone, order.dueDate, order.deliveryMethod, order.status, order.paymentStatus, order.productionStatus, order.stockStatus, calculateOrderCost(order.id)]))}>Export CSV</Button><Button onClick={() => { setSelectedOrderId(""); setPage("order-create"); }}><Plus size={18} /> Add Order</Button></div>} />
       <Chips items={statuses} active={filter} setActive={setFilter} />
       <div className="card-grid">
         {list.map((order) => <OrderCard key={order.id} order={order} onClick={() => { setSelectedOrderId(order.id); setPage("order-detail"); }} />)}
@@ -1425,7 +1492,7 @@ function SupplierForm({ supplier, notify, reloadData, onCancel }: { supplier: Pa
         <Field label="Phone"><input name="phone" type="tel" defaultValue={supplier.phone ?? ""} /></Field>
         <Field label="Email"><input name="email" type="email" defaultValue={supplier.email ?? ""} /></Field>
         <Field label="Address"><input name="address" defaultValue={supplier.address ?? ""} /></Field>
-        <Field label="Default currency"><select name="defaultCurrency" defaultValue={supplier.defaultCurrency ?? "NGN"}><option value="NGN">Nigerian Naira</option></select></Field>
+        <Field label="Default currency"><select name="defaultCurrency" defaultValue={supplier.defaultCurrency ?? settings.currency ?? "NGN"}><option value="NGN">Nigerian Naira</option><option value="USD">US Dollar</option><option value="GBP">British Pound</option><option value="EUR">Euro</option></select></Field>
         <Field label="Lead time days"><input name="leadTimeDays" type="number" min="0" step="1" defaultValue={supplier.leadTimeDays ?? 2} /></Field>
         <Field label="Supplied items" helper="Hold Ctrl or Cmd to select multiple ingredients."><select name="suppliedIngredientIds" multiple defaultValue={supplier.suppliedIngredientIds ?? []}>{ingredients.map((ingredient) => <option key={ingredient.id} value={ingredient.id}>{ingredient.name}</option>)}</select></Field>
         <Field label="Notes"><textarea name="notes" defaultValue={supplier.notes ?? ""} placeholder="Lead time, preferred ordering channel, supplied items" /></Field>
@@ -1460,6 +1527,7 @@ function SettingsPage({ setPage, notify, reloadData }: { setPage: (page: Page) =
         await apiAction("settings.save", {
           settings: {
             businessName: formValue(form, "businessName"),
+            currency: formValue(form, "currency"),
             gramRoundingPreference: formNumber(form, "gramRoundingPreference", 5),
             eggRoundingPreference: formValue(form, "eggRoundingPreference"),
             defaultDeductionStage: formValue(form, "defaultDeductionStage"),
@@ -1476,7 +1544,7 @@ function SettingsPage({ setPage, notify, reloadData }: { setPage: (page: Page) =
       <Section title="Business profile & defaults" action={<Button type="submit">Save Settings</Button>}>
         <div className="form-grid">
           <Field label="Business name"><input name="businessName" defaultValue={settings.businessName} /></Field>
-          <Field label="Default currency"><select defaultValue="NGN"><option>Nigerian Naira</option></select></Field>
+          <Field label="Default currency"><select name="currency" defaultValue={settings.currency ?? "NGN"}><option value="NGN">Nigerian Naira</option><option value="USD">US Dollar</option><option value="GBP">British Pound</option><option value="EUR">Euro</option></select></Field>
           <Field label="Round grams"><select name="gramRoundingPreference" defaultValue={settings.gramRoundingPreference}><option>1</option><option>5</option><option>10</option></select></Field>
           <Field label="Round eggs"><select name="eggRoundingPreference" defaultValue={settings.eggRoundingPreference}><option value="nearest_whole_egg">Nearest whole egg</option><option value="allow_gram_conversion">Allow gram conversion</option></select></Field>
           <Field label="Deduct inventory when"><select name="defaultDeductionStage" defaultValue={settings.defaultDeductionStage}><option value="confirmation">Order is confirmed</option><option value="production_start">Production starts</option><option value="production_completion">Production is completed</option></select></Field>

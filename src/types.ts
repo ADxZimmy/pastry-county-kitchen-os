@@ -141,7 +141,7 @@ export interface ConversionRule {
 
 export interface Settings {
   businessName: string;
-  currency: "NGN";
+  currency: "NGN" | "USD" | "GBP" | "EUR";
   defaultDeductionStage: "confirmation" | "production_start" | "production_completion";
   allowNegativeInventory: boolean;
   requireAiConversionConfirmation: boolean;
