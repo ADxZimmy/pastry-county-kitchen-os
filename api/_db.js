@@ -25,6 +25,19 @@ export async function loadKitchenSnapshot() {
   await sql`alter table settings add column if not exists safety_margin_percentage numeric(6,3) not null default 10`;
   await sql`alter table settings add column if not exists default_tax_percentage numeric(6,3) not null default 0`;
   await sql`alter table settings add column if not exists low_stock_notification_email text`;
+  await sql`alter table app_users add column if not exists active boolean not null default true`;
+  await sql`
+    create table if not exists notification_events (
+      id text primary key,
+      type text not null,
+      recipient text,
+      subject text not null,
+      body text not null,
+      status text not null default 'logged',
+      created_by text,
+      created_at timestamptz not null default now()
+    )
+  `;
   await sql`
     create table if not exists ingredient_batches (
       id text primary key,
@@ -54,6 +67,7 @@ export async function loadKitchenSnapshot() {
   `;
   const [
     supplierRows,
+    userRows,
     ingredientRows,
     productRows,
     recipeRows,
@@ -67,6 +81,7 @@ export async function loadKitchenSnapshot() {
     settingRows
   ] = await Promise.all([
     sql`select id, name, contact_name as "contactName", phone, email, address, default_currency as "defaultCurrency", lead_time_days as "leadTimeDays", supplied_ingredient_ids as "suppliedIngredientIds", notes, active from suppliers where active = true order by name`,
+    sql`select id, email, full_name as "fullName", role, active, updated_at::date::text as "updatedAt" from app_users order by role, full_name`,
     sql`
       select ingredients.id, name, category, base_unit as "baseUnit", current_stock::float as "currentStock",
         reorder_level::float as "reorderLevel", coalesce(nullif(latest_unit_cost, 0), latest_purchase.cost_per_base_unit, 0)::float as "latestUnitCost",
@@ -166,6 +181,7 @@ export async function loadKitchenSnapshot() {
 
   return {
     suppliers: supplierRows,
+    appUsers: userRows,
     ingredients: ingredientRows,
     products: productRows,
     recipes: recipeRows.map((recipe) => ({

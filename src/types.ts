@@ -18,6 +18,15 @@ export interface Supplier {
   active?: boolean;
 }
 
+export interface AppStaffUser {
+  id: string;
+  email: string;
+  fullName: string;
+  role: "Owner/Admin" | "Baker" | "Inventory Manager" | "Viewer";
+  active?: boolean;
+  updatedAt?: string;
+}
+
 export interface Ingredient {
   id: string;
   name: string;

@@ -56,7 +56,11 @@ Status legend:
 | Done | Notifications | Low stock/order reminders are missing and latest audit requested actionable/dismissible alerts. | Dashboard shows active low-stock, due-order, shortage, and expiry notifications with Open/Dismiss actions plus a shareable digest. |
 | Done | Exports | Recipe/order/shopping exports are incomplete. | CSV exports are available for inventory, recipes, and orders; shopping list export/share remains available. |
 | Done | Multi-currency/tax | Only NGN is effectively supported. | Currency persists from Settings and all shared cost/margin displays use the selected currency; tax remains applied in margin previews. |
-| Done | Analytics | Advanced dashboards are missing. | Dashboard analytics now show produced orders, active order cost, stock value, waste events, most-used ingredient, and open shortages. |
+| Done | Analytics | Advanced dashboards are missing. | Dashboard analytics now show produced orders, active order cost, stock value, waste events, most-used ingredient, open shortages, supplier performance, FEFO lots, and waste report cards. |
+| Done | Staff management | Roles are enforced, but staff account management is missing. | Settings now lists staff users, supports Owner/Admin staff add/edit/disable, and disabled users cannot log in. |
+| Done | Compliance reports | Audit history is visible but not filterable/exportable. | Settings now includes audit filters, CSV export, and printable compliance report exports. |
+| Done | PDF/print exports | Branded PDF exports are missing. | Printable HTML report exports are available for compliance and operations reports and open through the browser print/PDF flow. |
+| Done | Email alert logging | Low-stock notification email is configured but not actionable. | Low-stock alerts can be logged/queued to the configured email address through an authenticated API action. |
 
 ## Validation Checklist
 
@@ -72,6 +76,7 @@ Status legend:
 - [x] Third audit PDF reviewed and mapped to fixes for base-unit order requirements, production/shopping feedback, stock-adjustment validation, back navigation, and latest-purchase cost fallback.
 - [x] Role/session hardening added with signed login tokens, authorization headers, server-side action permissions, and role-aware disabled UI controls.
 - [x] Dashboard notifications are now actionable and dismissible.
+- [x] Staff management, audit filters/exports, printable reports, FEFO/waste/supplier reports, and low-stock alert logging added.
 - [x] Mobile/responsive controls verified through the responsive table/card implementation and browser smoke.
 - [x] Keyboard/accessibility pass covered visible focus, table scopes, named controls, modal scrolling, loading state, and recovery actions.
 - [ ] Re-run an external audit after the third audit patch is live.
@@ -79,7 +84,6 @@ Status legend:
 ## Next Recommended Work
 
 1. Re-run the external audit after this third audit patch is live.
-2. Add email delivery for critical low-stock alerts using the configured notification address.
-3. Add deeper user management for creating/editing staff accounts and rotating sessions.
-4. Expand audit reporting into searchable/filterable compliance views.
-5. Add PDF exports, advanced FEFO reporting, waste analytics, and supplier performance dashboards.
+2. Connect a transactional email provider for real outbound delivery from logged low-stock alerts.
+3. Add full session revocation/rotation if required by the next security audit.
+4. Re-run external audit against the live deployment and close any new findings.

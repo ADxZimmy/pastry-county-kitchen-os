@@ -1,3 +1,5 @@
+import bcrypt from "bcryptjs";
+
 export function id(prefix) {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
@@ -45,7 +47,10 @@ const actionRoles = {
   "conversion.save": ["Owner/Admin", "Baker"],
   "conversion.verify": ["Owner/Admin", "Baker"],
   "conversion.delete": ["Owner/Admin"],
-  "settings.save": ["Owner/Admin"]
+  "settings.save": ["Owner/Admin"],
+  "user.save": ["Owner/Admin"],
+  "user.disable": ["Owner/Admin"],
+  "notification.lowStockEmail": ["Owner/Admin", "Inventory Manager"]
 };
 
 function requirePermission(action, actor) {
@@ -213,6 +218,7 @@ async function ensureOperationalTables(sql) {
   await sql`alter table settings add column if not exists safety_margin_percentage numeric(6,3) not null default 10`;
   await sql`alter table settings add column if not exists default_tax_percentage numeric(6,3) not null default 0`;
   await sql`alter table settings add column if not exists low_stock_notification_email text`;
+  await sql`alter table app_users add column if not exists active boolean not null default true`;
   await sql`
     create table if not exists ingredient_batches (
       id text primary key,
@@ -240,6 +246,18 @@ async function ensureOperationalTables(sql) {
       created_at timestamptz not null default now()
     )
   `;
+  await sql`
+    create table if not exists notification_events (
+      id text primary key,
+      type text not null,
+      recipient text,
+      subject text not null,
+      body text not null,
+      status text not null default 'logged',
+      created_by text,
+      created_at timestamptz not null default now()
+    )
+  `;
 }
 
 async function audit(sql, entityType, entityId, action, beforeData, afterData) {
@@ -256,6 +274,7 @@ async function rowById(sql, table, entityId) {
   if (table === "orders") return (await sql`select * from orders where id = ${entityId}`)[0] ?? null;
   if (table === "conversion_rules") return (await sql`select * from conversion_rules where id = ${entityId}`)[0] ?? null;
   if (table === "settings") return (await sql`select * from settings where id = ${entityId}`)[0] ?? null;
+  if (table === "app_users") return (await sql`select id, email, full_name, role, active, updated_at from app_users where id = ${entityId}`)[0] ?? null;
   return null;
 }
 
@@ -858,6 +877,45 @@ export async function handleAction(sql, body, actor) {
     `;
     await audit(sql, "settings", "default", "update", before, await rowById(sql, "settings", "default"));
     return { ok: true };
+  }
+
+  if (action === "user.save") {
+    const data = body.user ?? {};
+    const userId = data.id || id("user");
+    const before = data.id ? await rowById(sql, "app_users", data.id) : null;
+    const password = String(data.password || "").trim();
+    const passwordHash = password ? bcrypt.hashSync(password, 10) : before?.password_hash;
+    if (!passwordHash) throw Object.assign(new Error("Temporary password is required for new staff users."), { statusCode: 400 });
+    await sql`
+      insert into app_users (id, email, full_name, role, password_hash, active)
+      values (${userId}, ${required(data.email, "Email")}, ${required(data.fullName, "Full name")}, ${required(data.role, "Role")}, ${passwordHash}, ${data.active !== false})
+      on conflict (id) do update set email = excluded.email, full_name = excluded.full_name, role = excluded.role,
+        password_hash = excluded.password_hash, active = excluded.active, updated_at = now()
+    `;
+    await audit(sql, "app_users", userId, data.id ? "update" : "create", before, await rowById(sql, "app_users", userId));
+    return { ok: true, id: userId };
+  }
+
+  if (action === "user.disable") {
+    const userId = required(body.userId, "User");
+    const before = await rowById(sql, "app_users", userId);
+    await sql`update app_users set active = false, updated_at = now() where id = ${userId}`;
+    await audit(sql, "app_users", userId, "disable", before, await rowById(sql, "app_users", userId));
+    return { ok: true };
+  }
+
+  if (action === "notification.lowStockEmail") {
+    const rows = await sql`select low_stock_notification_email from settings order by updated_at desc limit 1`;
+    const recipient = rows[0]?.low_stock_notification_email || null;
+    const items = Array.isArray(body.items) ? body.items.map(String) : [];
+    const subject = `Low stock alert: ${items.length} item${items.length === 1 ? "" : "s"} need attention`;
+    const message = items.join("\n") || "No low-stock items were supplied.";
+    await sql`
+      insert into notification_events (id, type, recipient, subject, body, status, created_by)
+      values (${id("notify")}, 'low_stock_email', ${recipient}, ${subject}, ${message}, ${recipient ? "logged_for_email_delivery" : "missing_recipient"}, ${actor?.email || "system"})
+    `;
+    await audit(sql, "notifications", "low_stock_email", "log", null, { recipient, subject, itemCount: items.length });
+    return { ok: true, recipient, status: recipient ? "logged_for_email_delivery" : "missing_recipient" };
   }
 
   throw Object.assign(new Error(`Unknown action: ${action}`), { statusCode: 400 });

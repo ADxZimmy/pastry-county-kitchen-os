@@ -26,8 +26,8 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { apiBaseUrl, backendMode } from "./lib/backend";
-import { auditLogs, conversionRules, ingredientBatches, ingredients, inventoryMovements, orderItems, orders, products, recipeItems, recipes, settings, suppliers, setKitchenSnapshot } from "./data";
-import type { ConversionRule, Ingredient, Order, Recipe, StockStatus, Supplier, Unit } from "./types";
+import { appUsers, auditLogs, conversionRules, ingredientBatches, ingredients, inventoryMovements, orderItems, orders, products, recipeItems, recipes, settings, suppliers, setKitchenSnapshot } from "./data";
+import type { AppStaffUser, ConversionRule, Ingredient, Order, Recipe, StockStatus, Supplier, Unit } from "./types";
 import {
   calculateMargin,
   calculateOrderCost,
@@ -302,6 +302,12 @@ function exportCsv(filename: string, headers: string[], rows: React.ReactNode[][
   const csv = [headers.map(csvValue).join(","), ...rows.map((row) => row.map(csvValue).join(","))].join("\n");
   downloadText(filename, csv);
   notify?.(`${filename} exported.`);
+}
+
+function exportPrintableReport(filename: string, title: string, rows: [string, React.ReactNode][], notify?: Notify) {
+  const body = rows.map(([label, value]) => `<tr><th>${csvValue(label).slice(1, -1)}</th><td>${csvValue(value).slice(1, -1)}</td></tr>`).join("");
+  downloadText(filename, `<!doctype html><html><head><meta charset="utf-8"><title>${title}</title><style>body{font-family:Inter,Arial,sans-serif;padding:32px;color:#24160d}table{border-collapse:collapse;width:100%}th,td{border:1px solid #dcc8b7;padding:10px;text-align:left}th{background:#fff4df;width:32%}</style></head><body><h1>${title}</h1><table>${body}</table><script>window.print()</script></body></html>`);
+  notify?.(`${filename} printable report exported.`);
 }
 
 type AppNotification = {
@@ -1608,8 +1614,19 @@ function SupplierForm({ supplier, notify, reloadData, onCancel }: { supplier: Pa
 
 function SettingsPage({ user, setPage, notify, reloadData }: { user?: AppUser; setPage: (page: Page) => void; notify: (message: string) => void; reloadData: () => Promise<void> }) {
   const [archiveData, setArchiveData] = useState<Record<string, { id: string; name: string }[]> | null>(null);
+  const [auditFilter, setAuditFilter] = useState("All");
+  const [editingUser, setEditingUser] = useState<Partial<AppStaffUser> | null>(null);
   const canManageSettings = canUser(user, "manageSettings");
   const canRestoreArchive = canUser(user, "restoreArchive");
+  const lowStockRows = ingredients.filter((item) => item.currentStock <= item.reorderLevel);
+  const expiringRows = ingredientBatches.filter((batch) => batch.expiryDate).slice(0, 8);
+  const wasteRows = inventoryMovements.filter((item) => item.movementType === "waste" || item.note?.toLowerCase().includes("spoil") || item.note?.toLowerCase().includes("waste")).slice(0, 8);
+  const auditRows = auditFilter === "All" ? auditLogs : auditLogs.filter((entry) => entry.entityType === auditFilter);
+  const supplierPerformance = suppliers.map((supplier) => {
+    const supplied = ingredients.filter((ingredient) => ingredient.supplierId === supplier.id);
+    const low = supplied.filter((ingredient) => ingredient.currentStock <= ingredient.reorderLevel);
+    return { supplier, suppliedCount: supplied.length, lowCount: low.length, stockValue: supplied.reduce((sum, ingredient) => sum + ingredient.currentStock * ingredient.latestUnitCost, 0) };
+  });
   const loadArchive = async () => {
     if (!canUser(user, "manageInventory")) return;
     try {
@@ -1631,6 +1648,27 @@ function SettingsPage({ user, setPage, notify, reloadData }: { user?: AppUser; s
     notify("Archived item restored.");
     await loadArchive();
     await reloadData();
+  };
+  const saveUser = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    await apiAction("user.save", {
+      user: {
+        id: editingUser?.id,
+        email: formValue(form, "email"),
+        fullName: formValue(form, "fullName"),
+        role: formValue(form, "role"),
+        password: formValue(form, "password"),
+        active: formValue(form, "active") === "Yes"
+      }
+    });
+    notify("Staff user saved.");
+    setEditingUser(null);
+    await reloadData();
+  };
+  const sendLowStockAlert = async () => {
+    const result = await apiAction("notification.lowStockEmail", { items: lowStockRows.map((item) => `${item.name}: ${item.currentStock}${item.baseUnit} left`) });
+    notify(result.recipient ? `Low-stock email queued for ${result.recipient}.` : "Low-stock alert logged; add an email address in Settings to send externally.");
   };
   return (
     <div className="page-grid">
@@ -1677,6 +1715,34 @@ function SettingsPage({ user, setPage, notify, reloadData }: { user?: AppUser; s
         </div>
       </Section>
       </form>
+      <Section title="Staff & Permissions" action={<Button onClick={() => setEditingUser({ role: "Baker", active: true })} disabled={!canManageSettings}>Add Staff</Button>}>
+        {editingUser && <form className="summary-card" onSubmit={saveUser}>
+          <h3>{editingUser.id ? "Edit Staff User" : "Add Staff User"}</h3>
+          <div className="form-grid">
+            <Field label="Full name"><input name="fullName" defaultValue={editingUser.fullName ?? ""} required /></Field>
+            <Field label="Email"><input name="email" type="email" defaultValue={editingUser.email ?? ""} required /></Field>
+            <Field label="Role"><select name="role" defaultValue={editingUser.role ?? "Baker"}><option>Owner/Admin</option><option>Baker</option><option>Inventory Manager</option><option>Viewer</option></select></Field>
+            <Field label="Temporary password"><input name="password" type="password" placeholder={editingUser.id ? "Leave blank to keep password" : "Required for new staff"} /></Field>
+            <Field label="Active"><select name="active" defaultValue={editingUser.active === false ? "No" : "Yes"}><option>Yes</option><option>No</option></select></Field>
+          </div>
+          <div className="button-row"><Button variant="secondary" onClick={() => setEditingUser(null)}>Cancel</Button><Button type="submit">Save Staff</Button></div>
+        </form>}
+        <ResponsiveTable headers={["Name", "Email", "Role", "Status", "Actions"]} rows={appUsers.map((staff) => ({
+          key: staff.id,
+          cells: [staff.fullName, staff.email, staff.role, staff.active === false ? <Badge tone="warning">Disabled</Badge> : <Badge tone="success">Active</Badge>, <div className="button-row"><Button variant="secondary" onClick={() => setEditingUser(staff)} disabled={!canManageSettings}>Edit</Button><Button variant="danger" onClick={async () => { await apiAction("user.disable", { userId: staff.id }); notify("Staff user disabled."); await reloadData(); }} disabled={!canManageSettings || staff.id === user?.id}>Disable</Button></div>]
+        }))} />
+      </Section>
+      <Section title="Audit Reports" action={<div className="button-row"><Button variant="secondary" onClick={() => exportCsv("pastry-county-audit-report.csv", ["Entity", "Record", "Action", "Actor", "Date"], auditRows.map((entry) => [entry.entityType, entry.entityId, entry.action, entry.actor, new Date(entry.createdAt).toLocaleString()]), notify)}>Export CSV</Button><Button variant="secondary" onClick={() => exportPrintableReport("pastry-county-compliance-report.html", "Pastry County Compliance Report", [["Audit rows", auditRows.length], ["Low-stock items", lowStockRows.length], ["Waste events", wasteRows.length], ["Open shortages", orders.filter((order) => order.stockStatus === "Shortage").length]], notify)}>PDF/Print</Button></div>}>
+        <Chips items={["All", ...Array.from(new Set(auditLogs.map((entry) => entry.entityType))).slice(0, 8)]} active={auditFilter} setActive={setAuditFilter} />
+        <ResponsiveTable headers={["Entity", "Record", "Action", "Actor", "Date"]} rows={auditRows.slice(0, 25).map((entry) => ({ key: entry.id, cells: [entry.entityType, entry.entityId, entry.action, entry.actor, new Date(entry.createdAt).toLocaleString()] }))} />
+      </Section>
+      <Section title="FEFO, Waste & Supplier Reports" action={<div className="button-row"><Button variant="secondary" onClick={sendLowStockAlert}>Send Low-Stock Alert</Button><Button variant="secondary" onClick={() => exportPrintableReport("pastry-county-operations-report.html", "Pastry County Operations Report", [["Expiring lots", expiringRows.length], ["Waste events", wasteRows.length], ["Suppliers", suppliers.length], ["Stock value", formatNaira(ingredients.reduce((sum, item) => sum + item.currentStock * item.latestUnitCost, 0))]], notify)}>PDF/Print</Button></div>}>
+        <div className="split">
+          <SummaryCard title="Next FEFO Lots" items={expiringRows.map((batch) => [ingredients.find((item) => item.id === batch.ingredientId)?.name ?? batch.ingredientId, `${batch.quantityRemaining}${batch.unit} · expires ${batch.expiryDate?.slice(0, 10)}`])} />
+          <SummaryCard title="Waste Analytics" items={wasteRows.length ? wasteRows.map((movement) => [ingredients.find((item) => item.id === movement.ingredientId)?.name ?? movement.ingredientId, `${Math.abs(movement.quantityChange)}${movement.unit} · ${movement.note ?? "Waste"}`]) : [["Waste events", "No waste events recorded"]]} />
+        </div>
+        <ResponsiveTable headers={["Supplier", "Items", "Low Stock", "Lead Time", "Stock Value"]} rows={supplierPerformance.map((item) => ({ key: item.supplier.id, cells: [item.supplier.name, item.suppliedCount, item.lowCount, `${item.supplier.leadTimeDays ?? 2} days`, formatNaira(item.stockValue)] }))} />
+      </Section>
       <Section title="Recovery & Audit" action={<Button variant="secondary" onClick={loadArchive} disabled={!canUser(user, "manageInventory")}>Refresh Archive</Button>}>
         <div className="split">
           {[

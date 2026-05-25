@@ -1,7 +1,8 @@
-import type { AuditLog, ConversionRule, Ingredient, IngredientBatch, InventoryMovement, Order, OrderItem, Product, Recipe, RecipeItem, Settings, Supplier } from "./types";
+import type { AppStaffUser, AuditLog, ConversionRule, Ingredient, IngredientBatch, InventoryMovement, Order, OrderItem, Product, Recipe, RecipeItem, Settings, Supplier } from "./types";
 
 export interface KitchenSnapshot {
   suppliers: Supplier[];
+  appUsers?: AppStaffUser[];
   ingredients: Ingredient[];
   products: Product[];
   recipes: Recipe[];
@@ -16,6 +17,7 @@ export interface KitchenSnapshot {
 }
 
 export const suppliers: Supplier[] = [];
+export const appUsers: AppStaffUser[] = [];
 export const ingredients: Ingredient[] = [];
 export const products: Product[] = [];
 export const recipes: Recipe[] = [];
@@ -43,6 +45,7 @@ function replaceArray<T>(target: T[], next: T[]) {
 
 export function setKitchenSnapshot(snapshot: KitchenSnapshot) {
   replaceArray(suppliers, snapshot.suppliers);
+  replaceArray(appUsers, snapshot.appUsers ?? []);
   replaceArray(ingredients, snapshot.ingredients);
   replaceArray(products, snapshot.products);
   replaceArray(recipes, snapshot.recipes);

@@ -4,6 +4,7 @@ create table if not exists app_users (
   full_name text not null,
   role text not null check (role in ('Owner/Admin','Baker','Inventory Manager','Viewer')),
   password_hash text not null,
+  active boolean not null default true,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -175,6 +176,17 @@ create table if not exists audit_logs (
   before_data jsonb,
   after_data jsonb,
   actor text not null default 'system',
+  created_at timestamptz not null default now()
+);
+
+create table if not exists notification_events (
+  id text primary key,
+  type text not null,
+  recipient text,
+  subject text not null,
+  body text not null,
+  status text not null default 'logged',
+  created_by text,
   created_at timestamptz not null default now()
 );
 

@@ -40,10 +40,11 @@ app.get("/api/health", (_req, res) => {
 app.post("/api/auth/login", requireDatabase, async (req, res, next) => {
   try {
     const { email, password } = req.body;
+    await sql`alter table app_users add column if not exists active boolean not null default true`;
     const user = first(await sql`
       select id, email, full_name, role, password_hash
       from app_users
-      where lower(email) = lower(${email})
+      where lower(email) = lower(${email}) and coalesce(active, true) = true
       limit 1
     `);
     if (!user || !bcrypt.compareSync(password, user.password_hash)) {
