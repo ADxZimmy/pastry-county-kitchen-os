@@ -64,6 +64,11 @@ type Page =
   | "suppliers"
   | "settings";
 
+type OrderDraft = {
+  recipeId: string;
+  requestedYieldQuantity: number;
+};
+
 const desktopNav = [
   ["dashboard", LayoutDashboard, "Dashboard"],
   ["recipes", Cookie, "Recipes"],
@@ -211,7 +216,7 @@ function Field({ label, children, helper }: { label: string; children: React.Rea
 function stockTone(status: StockStatus | string) {
   if (status.includes("Enough") || status === "In Stock" || status === "Ready" || status === "Completed") return "success";
   if (status.includes("Short") || status === "Out of Stock" || status === "Cancelled") return "danger";
-  if (status.includes("Low") || status.includes("Check") || status.includes("Partial")) return "warning";
+  if (status.includes("Low") || status.includes("Check") || status.includes("Partial") || status === "In Progress") return "warning";
   return "neutral";
 }
 
@@ -361,6 +366,7 @@ function App() {
   const [selectedRecipeId, setSelectedRecipeId] = useState(() => savedSession.selectedRecipeId ?? "");
   const [selectedIngredientId, setSelectedIngredientId] = useState(() => savedSession.selectedIngredientId ?? "");
   const [selectedOrderId, setSelectedOrderId] = useState(() => savedSession.selectedOrderId ?? "");
+  const [orderDraft, setOrderDraft] = useState<OrderDraft | null>(null);
   const [query, setQuery] = useState("");
   const [dataStatus, setDataStatus] = useState<"loading" | "ready" | "error">("loading");
   const [dataError, setDataError] = useState("");
@@ -387,7 +393,7 @@ function App() {
           setKitchenSnapshot(snapshot);
           setSelectedRecipeId((current) => snapshot.recipes.some((item: Recipe) => item.id === current) ? current : snapshot.recipes[0]?.id ?? "");
           setSelectedIngredientId((current) => snapshot.ingredients.some((item: Ingredient) => item.id === current) ? current : snapshot.ingredients[0]?.id ?? "");
-          setSelectedOrderId((current) => snapshot.orders.some((item: Order) => item.id === current) ? current : snapshot.orders[0]?.id ?? "");
+          setSelectedOrderId((current) => current && snapshot.orders.some((item: Order) => item.id === current) ? current : "");
           setDataStatus("ready");
           setDataVersion((version) => version + 1);
         }
@@ -444,7 +450,7 @@ function App() {
   };
 
   const content = useMemo(() => {
-    const props = { user, setPage: navigate, setSelectedRecipeId, setSelectedIngredientId, setSelectedOrderId, selectedRecipeId, selectedIngredientId, selectedOrderId, query, setQuery, notify, askConfirm, reloadData: () => loadKitchenData() };
+    const props = { user, setPage: navigate, setSelectedRecipeId, setSelectedIngredientId, setSelectedOrderId, setOrderDraft, selectedRecipeId, selectedIngredientId, selectedOrderId, query, setQuery, notify, askConfirm, reloadData: () => loadKitchenData() };
     switch (page) {
       case "welcome":
         return <Welcome setPage={navigate} />;
@@ -459,7 +465,7 @@ function App() {
       case "recipe-form":
         return <RecipeForm recipeId={selectedRecipeId} setPage={navigate} notify={notify} reloadData={() => loadKitchenData()} />;
       case "scaling":
-        return <RecipeScaling recipeId={selectedRecipeId} setPage={navigate} notify={notify} />;
+        return <RecipeScaling recipeId={selectedRecipeId} setPage={navigate} setSelectedOrderId={setSelectedOrderId} setOrderDraft={setOrderDraft} notify={notify} />;
       case "inventory":
         return <Inventory {...props} />;
       case "ingredient-detail":
@@ -469,7 +475,7 @@ function App() {
       case "orders":
         return <Orders {...props} />;
       case "order-create":
-        return <CreateOrder orderId={selectedOrderId} setPage={navigate} notify={notify} reloadData={() => loadKitchenData()} />;
+        return <CreateOrder orderId={selectedOrderId} orderDraft={orderDraft} setOrderDraft={setOrderDraft} setPage={navigate} notify={notify} reloadData={() => loadKitchenData()} />;
       case "order-detail":
         return <OrderDetail orderId={selectedOrderId} user={user} setPage={navigate} notify={notify} askConfirm={askConfirm} reloadData={() => loadKitchenData()} />;
       case "production":
@@ -1127,11 +1133,19 @@ function RecipeForm({ recipeId, setPage, notify, reloadData }: { recipeId: strin
         <div className="compact-list">
           {builderRows.map((row, index) => {
             const item = existingItems[index];
-            return <div className="builder-row" key={row}><select name={`ingredientId-${index}`} defaultValue={item?.ingredientId ?? ""} required><option value="" disabled>Select ingredient</option>{ingredients.map((ingredient) => <option key={ingredient.id} value={ingredient.id}>{ingredient.name}</option>)}</select><input name={`quantity-${index}`} type="number" step="0.001" defaultValue={item?.quantity ?? ""} placeholder="Quantity" /><select name={`unit-${index}`} defaultValue={item?.unit ?? "g"}><option>g</option><option>ml</option><option>pcs</option><option>cup</option><option>tablespoon</option><option>teaspoon</option><option>pack</option><option>roll</option></select><input name={`wastePercentage-${index}`} type="number" step="0.001" defaultValue={item?.wastePercentage ?? 0} placeholder="Waste %" /><Button variant="ghost" onClick={() => setBuilderRows((rows) => rows.length === 1 ? rows : rows.filter((_, rowIndex) => rowIndex !== index))}>Remove</Button></div>;
+            return (
+              <div className="builder-row" key={row}>
+                <label className="builder-field"><span>Ingredient</span><select name={`ingredientId-${index}`} defaultValue={item?.ingredientId ?? ""} required><option value="" disabled>Select ingredient</option>{ingredients.map((ingredient) => <option key={ingredient.id} value={ingredient.id}>{ingredient.name}</option>)}</select></label>
+                <label className="builder-field"><span>Quantity</span><input name={`quantity-${index}`} type="number" step="0.001" defaultValue={item?.quantity ?? ""} placeholder="0" /></label>
+                <label className="builder-field"><span>Unit</span><select name={`unit-${index}`} defaultValue={item?.unit ?? "g"}><option>g</option><option>ml</option><option>pcs</option><option>cup</option><option>tablespoon</option><option>teaspoon</option><option>pack</option><option>roll</option></select></label>
+                <label className="builder-field"><span>Waste %</span><input name={`wastePercentage-${index}`} type="number" min="0" step="0.001" defaultValue={item?.wastePercentage ?? 0} placeholder="0" /></label>
+                <Button variant="ghost" onClick={() => setBuilderRows((rows) => rows.length === 1 ? rows : rows.filter((_, rowIndex) => rowIndex !== index))}>Remove</Button>
+              </div>
+            );
           })}
         </div>
       </Section>
-      <Section title="Conversion helper"><div className="compact-list">{builderRows.map((row, index) => {
+      <Section title="Conversion helper"><p className="section-note">Saved ingredient-specific conversions are applied automatically when you save a recipe. Rows without a verified rule keep their entered unit so they can be reviewed.</p><div className="compact-list">{builderRows.map((row, index) => {
         const item = existingItems[index];
         const ingredient = ingredients.find((candidate) => candidate.id === item?.ingredientId);
         const rule = item && ingredient ? conversionRules.find((candidate) => candidate.ingredientId === ingredient.id && candidate.fromUnit === item.unit && candidate.toUnit === ingredient.baseUnit) : undefined;
@@ -1142,7 +1156,7 @@ function RecipeForm({ recipeId, setPage, notify, reloadData }: { recipeId: strin
   );
 }
 
-function RecipeScaling({ recipeId, setPage, notify }: { recipeId: string; setPage: (page: Page) => void; notify: (message: string) => void }) {
+function RecipeScaling({ recipeId, setPage, setSelectedOrderId, setOrderDraft, notify }: { recipeId: string; setPage: (page: Page) => void; setSelectedOrderId: (id: string) => void; setOrderDraft: (draft: OrderDraft | null) => void; notify: (message: string) => void }) {
   const [desired, setDesired] = useState(12);
   const recipe = recipes.find((item) => item.id === recipeId);
   if (!recipe) return <EmptyState title="No recipe selected" message="Add or select a recipe before scaling." />;
@@ -1162,18 +1176,18 @@ function RecipeScaling({ recipeId, setPage, notify }: { recipeId: string; setPag
       <div className="metric-grid small"><Metric label="Estimated cost" value={formatNaira(cost.totalRecipeCost)} /><Metric label="Cost per piece" value={formatNaira(cost.costPerYieldUnit)} /><Metric label="Stock availability" value={availability.some((item) => item.status === "shortage") ? "Shortage" : "Ready"} /></div>
       <Section title="Scaled Ingredients"><div className="compact-list">{scaled.map((item) => <div className="row-card" key={item.ingredientId}><span>{item.ingredientName}<small>Original {item.originalQuantity}{item.unit}</small></span><strong>{item.scaledQuantity}{item.unit}</strong></div>)}</div></Section>
       {availability.some((item) => item.status === "shortage") && <article className="warning-card"><AlertTriangle size={22} /> Some ingredients are short. Update stock before production is completed.</article>}
-      <div className="sticky-actions"><Button onClick={() => { notify("Scaled recipe added to production planning view."); setPage("production"); }}>Save as production plan</Button><Button variant="secondary" onClick={() => setPage("order-create")}>Create order</Button><Button variant="secondary" onClick={() => window.print()}>Print recipe</Button><Button variant="ghost" onClick={() => shareText(`${recipe.name} scaled to ${desired} ${recipe.yieldUnit}`, notify)}>Share recipe</Button></div>
+      <div className="sticky-actions"><Button onClick={() => { notify("Scaled recipe added to production planning view."); setPage("production"); }}>Save as production plan</Button><Button variant="secondary" onClick={() => { setSelectedOrderId(""); setOrderDraft({ recipeId, requestedYieldQuantity: desired }); setPage("order-create"); }}>Create order</Button><Button variant="secondary" onClick={() => window.print()}>Print recipe</Button><Button variant="ghost" onClick={() => shareText(`${recipe.name} scaled to ${desired} ${recipe.yieldUnit}`, notify)}>Share recipe</Button></div>
     </div>
   );
 }
 
-function Orders({ user, setPage, setSelectedOrderId, query, setQuery }: any) {
+function Orders({ user, setPage, setSelectedOrderId, setOrderDraft, query, setQuery }: any) {
   const [filter, setFilter] = useState("All");
   const statuses = ["All", "New", "Confirmed", "In Production", "Produced", "Delivered", "Cancelled"];
   const list = orders.filter((order) => (filter === "All" || order.status === filter || (filter === "New" && order.status === "Draft")) && order.customerName.toLowerCase().includes(query.toLowerCase()));
   return (
     <>
-      <Toolbar query={query} setQuery={setQuery} placeholder="Search orders" action={<div className="button-row"><Button variant="secondary" onClick={() => exportCsv("pastry-county-orders.csv", ["Customer", "Phone", "Due Date", "Delivery", "Status", "Payment", "Production", "Stock", "Estimated Cost"], list.map((order) => [order.customerName, order.customerPhone, order.dueDate, order.deliveryMethod, order.status, order.paymentStatus, order.productionStatus, order.stockStatus, calculateOrderCost(order.id)]))}>Export CSV</Button><Button onClick={() => { setSelectedOrderId(""); setPage("order-create"); }} disabled={!canUser(user, "manageOrders")}><Plus size={18} /> Add Order</Button></div>} />
+      <Toolbar query={query} setQuery={setQuery} placeholder="Search orders" action={<div className="button-row"><Button variant="secondary" onClick={() => exportCsv("pastry-county-orders.csv", ["Customer", "Phone", "Due Date", "Delivery", "Status", "Payment", "Production", "Stock", "Estimated Cost"], list.map((order) => [order.customerName, order.customerPhone, order.dueDate, order.deliveryMethod, order.status, order.paymentStatus, order.productionStatus, order.stockStatus, calculateOrderCost(order.id)]))}>Export CSV</Button><Button onClick={() => { setSelectedOrderId(""); setOrderDraft(null); setPage("order-create"); }} disabled={!canUser(user, "manageOrders")}><Plus size={18} /> Add Order</Button></div>} />
       <Chips items={statuses} active={filter} setActive={setFilter} />
       <div className="card-grid">
         {list.map((order) => <OrderCard key={order.id} order={order} onClick={() => { setSelectedOrderId(order.id); setPage("order-detail"); }} />)}
@@ -1195,18 +1209,21 @@ function OrderCard({ order, onClick }: { order: Order; onClick: () => void }) {
   );
 }
 
-function CreateOrder({ orderId, setPage, notify, reloadData }: { orderId: string; setPage: (page: Page) => void; notify: (message: string) => void; reloadData: () => Promise<void> }) {
+function CreateOrder({ orderId, orderDraft, setOrderDraft, setPage, notify, reloadData }: { orderId: string; orderDraft: OrderDraft | null; setOrderDraft: (draft: OrderDraft | null) => void; setPage: (page: Page) => void; notify: (message: string) => void; reloadData: () => Promise<void> }) {
   const order = orders.find((item) => item.id === orderId);
   const existingItems = orderItems.filter((item) => item.orderId === orderId);
+  const draftRecipe = !order && orderDraft ? recipes.find((item) => item.id === orderDraft.recipeId) : undefined;
+  const draftItem = draftRecipe ? { productId: draftRecipe.productId, recipeId: draftRecipe.id, requestedYieldQuantity: orderDraft?.requestedYieldQuantity ?? draftRecipe.baseYieldQuantity, yieldUnit: draftRecipe.yieldUnit, quantityMultiplier: 1 } : undefined;
   const [orderRows, setOrderRows] = useState<number[]>(existingItems.length ? existingItems.map((_, index) => index) : [0]);
-  const previewOrderId = orderId || orders[0]?.id;
-  const requirements = previewOrderId ? requirementsForOrder(previewOrderId) : [];
+  const requirements = order ? requirementsForOrder(order.id) : draftItem ? scaleRecipe(draftItem.recipeId, draftItem.requestedYieldQuantity * draftItem.quantityMultiplier) : [];
   const availability = checkStockAvailability(requirements);
-  const cost = previewOrderId ? calculateOrderCost(previewOrderId) : 0;
+  const cost = order ? calculateOrderCost(order.id) : requirements.reduce((sum, item) => {
+    const ingredient = ingredients.find((candidate) => candidate.id === item.ingredientId);
+    return sum + item.scaledQuantity * (ingredient?.latestUnitCost ?? 0);
+  }, 0);
   const sampleSellingPrice = 18000;
   const netPrice = netSellingPrice(sampleSellingPrice);
   const margin = calculateMargin(netPrice, cost);
-  const previewItem = orderItems.find((item) => item.orderId === previewOrderId);
   return (
     <FormShell title={order ? "Edit Order" : "Create Order"} action="Confirm and Reserve Stock" cancelTo="orders" setPage={setPage} onDone={async (form) => {
       const items = orderRows.map((_, index) => ({
@@ -1231,6 +1248,7 @@ function CreateOrder({ orderId, setPage, notify, reloadData }: { orderId: string
         }
       });
       notify("Order saved to Neon and stock reservation checked.");
+      setOrderDraft(null);
       await reloadData();
       setPage("orders");
     }}>
@@ -1238,8 +1256,16 @@ function CreateOrder({ orderId, setPage, notify, reloadData }: { orderId: string
       <Section title="Order items" action={<Button variant="secondary" onClick={() => setOrderRows((rows) => [...rows, Date.now()])}><Plus size={18} /> Add another product</Button>}>
         <div className="compact-list">
           {orderRows.map((row, index) => {
-            const item = existingItems[index] ?? (index === 0 ? previewItem : undefined);
-            return <div className="builder-row" key={row}><select name={`productId-${index}`} defaultValue={item?.productId ?? ""} required><option value="" disabled>Select product</option>{products.map((product) => <option key={product.id} value={product.id}>{product.name}</option>)}</select><select name={`recipeId-${index}`} defaultValue={item?.recipeId ?? ""} required><option value="" disabled>Select recipe</option>{recipes.map((recipe) => <option key={recipe.id} value={recipe.id}>{recipe.name}</option>)}</select><input name={`requestedYieldQuantity-${index}`} type="number" step="0.001" defaultValue={item?.requestedYieldQuantity ?? ""} placeholder="Yield" /><select name={`yieldUnit-${index}`} defaultValue={item?.yieldUnit ?? "pieces"}><option>pieces</option><option>cookies</option><option>loaves</option></select><input name={`quantityMultiplier-${index}`} type="number" step="0.001" defaultValue={item?.quantityMultiplier ?? 1} /></div>;
+            const item = existingItems[index] ?? (index === 0 ? draftItem : undefined);
+            return (
+              <div className="builder-row" key={row}>
+                <label className="builder-field"><span>Product</span><select name={`productId-${index}`} defaultValue={item?.productId ?? ""} required><option value="" disabled>Select product</option>{products.map((product) => <option key={product.id} value={product.id}>{product.name}</option>)}</select></label>
+                <label className="builder-field"><span>Recipe</span><select name={`recipeId-${index}`} defaultValue={item?.recipeId ?? ""} required><option value="" disabled>Select recipe</option>{recipes.map((recipe) => <option key={recipe.id} value={recipe.id}>{recipe.name}</option>)}</select></label>
+                <label className="builder-field"><span>Yield qty</span><input name={`requestedYieldQuantity-${index}`} type="number" min="0.001" step="0.001" defaultValue={item?.requestedYieldQuantity ?? ""} placeholder="0" /></label>
+                <label className="builder-field"><span>Yield unit</span><select name={`yieldUnit-${index}`} defaultValue={item?.yieldUnit ?? "pieces"}><option>pieces</option><option>cookies</option><option>loaves</option></select></label>
+                <label className="builder-field"><span>Multiplier</span><input aria-label={`Order item ${index + 1} multiplier`} name={`quantityMultiplier-${index}`} type="number" min="0.001" step="0.001" defaultValue={item?.quantityMultiplier ?? 1} /></label>
+              </div>
+            );
           })}
         </div>
       </Section>
@@ -1293,6 +1319,7 @@ function OrderDetail({ orderId, user, setPage, notify, askConfirm, reloadData }:
 }
 
 function Production({ user, setPage, setSelectedOrderId, notify, reloadData }: any) {
+  const [reviewBatchKey, setReviewBatchKey] = useState("");
   const activeOrders = orders.filter((order) => !["Delivered", "Cancelled"].includes(order.status));
   const batches = Object.values(orderItems.reduce<Record<string, { key: string; recipeId: string; dueDate: string; orderIds: string[]; totalYield: number }>>((acc, item) => {
     const order = activeOrders.find((candidate) => candidate.id === item.orderId);
@@ -1305,6 +1332,17 @@ function Production({ user, setPage, setSelectedOrderId, notify, reloadData }: a
   }, {})).sort((a, b) => a.dueDate.localeCompare(b.dueDate) || b.totalYield - a.totalYield);
   const topGroup = batches[0];
   const groupedRecipe = recipes.find((recipe) => recipe.id === topGroup?.recipeId);
+  const reviewBatch = batches.find((batch) => batch.key === reviewBatchKey);
+  const reviewRecipe = recipes.find((recipe) => recipe.id === reviewBatch?.recipeId);
+  const reviewRequirements = reviewRecipe && reviewBatch ? scaleRecipe(reviewRecipe.id, reviewBatch.totalYield) : [];
+  const reviewAvailability = checkStockAvailability(reviewRequirements);
+  const batchStage = (batch: { orderIds: string[] }, hasShortage: boolean) => {
+    const batchOrders = batch.orderIds.map((id) => orders.find((order) => order.id === id)).filter(Boolean) as Order[];
+    if (hasShortage) return "Shortage";
+    if (batchOrders.length && batchOrders.every((order) => ["Produced", "Delivered"].includes(order.status) || order.productionStatus === "Completed")) return "Completed";
+    if (batchOrders.some((order) => order.status === "In Production" || order.productionStatus === "In Progress")) return "In Progress";
+    return "Ready";
+  };
   return (
     <div className="page-grid">
       <article className="ai-card"><ChefHat size={24} /><div><h3>Batch production mode</h3><p>{groupedRecipe ? `Next batch: ${groupedRecipe.name}, ${topGroup?.totalYield} ${groupedRecipe.yieldUnit}, across ${topGroup?.orderIds.length} order${topGroup?.orderIds.length === 1 ? "" : "s"}.` : "Group similar recipes once orders are available."}</p></div><Button variant="secondary" onClick={() => notify(groupedRecipe ? `${groupedRecipe.name} batch is grouped for ${topGroup?.totalYield} ${groupedRecipe.yieldUnit}.` : "No recipes to group yet.")}>Group similar recipes</Button></article>
@@ -1315,16 +1353,20 @@ function Production({ user, setPage, setSelectedOrderId, notify, reloadData }: a
             const batchRequirements = recipe ? scaleRecipe(recipe.id, batch.totalYield) : [];
             const availability = checkStockAvailability(batchRequirements);
             const hasShortage = availability.some((item) => item.shortageQuantity > 0);
+            const stage = batchStage(batch, hasShortage);
+            const canStartBatch = !hasShortage && stage === "Ready" && canUser(user, "runProduction");
+            const canCompleteBatch = !hasShortage && ["Ready", "In Progress"].includes(stage) && canUser(user, "runProduction");
             return (
               <article className="item-card" key={batch.key}>
-                <div className="item-card-head"><ChefHat size={20} /><Badge tone={hasShortage ? "danger" : "success"}>{hasShortage ? "Shortage" : "Ready"}</Badge></div>
+                <div className="item-card-head"><ChefHat size={20} /><Badge tone={stockTone(stage)}>{stage}</Badge></div>
                 <h3>{recipe?.name ?? "Recipe"}</h3>
                 <p>{batch.totalYield} {recipe?.yieldUnit ?? "units"} · due {batch.dueDate}</p>
                 <small>{batch.orderIds.length} order{batch.orderIds.length === 1 ? "" : "s"} · {batchRequirements.slice(0, 3).map((item) => `${item.ingredientName} ${item.scaledQuantity}${item.unit}`).join(", ")}</small>
+                {hasShortage && <small className="field-error">Resolve shortages before starting or completing this batch.</small>}
                 <div className="button-row">
-                  <Button variant="secondary" onClick={() => notify(`${recipe?.name ?? "Batch"} requirements grouped for ${batch.orderIds.length} order${batch.orderIds.length === 1 ? "" : "s"}.`)}>Review Batch</Button>
-                  <Button variant="secondary" onClick={async () => { try { await apiAction("production.batchStatus", { orderIds: batch.orderIds, status: "In Production", productionStatus: "In Progress" }); notify(`${recipe?.name ?? "Batch"} batch started.`); await reloadData(); } catch (error) { notify(error instanceof Error ? error.message : "Unable to start batch."); } }} disabled={hasShortage || !canUser(user, "runProduction")}>Start Batch</Button>
-                  <Button onClick={async () => { try { await apiAction("production.batchStatus", { orderIds: batch.orderIds, status: "Produced", productionStatus: "Completed" }); notify(`${recipe?.name ?? "Batch"} batch completed and stock deducted.`); await reloadData(); } catch (error) { notify(error instanceof Error ? error.message : "Unable to complete batch."); } }} disabled={hasShortage || !canUser(user, "runProduction")}>Complete Batch</Button>
+                  <Button variant="secondary" onClick={() => setReviewBatchKey(batch.key)}>Review Batch</Button>
+                  <Button variant="secondary" onClick={async () => { try { await apiAction("production.batchStatus", { orderIds: batch.orderIds, status: "In Production", productionStatus: "In Progress" }); notify(`${recipe?.name ?? "Batch"} batch started.`); await reloadData(); } catch (error) { notify(error instanceof Error ? error.message : "Unable to start batch."); } }} disabled={!canStartBatch}>Start Batch</Button>
+                  <Button onClick={async () => { try { await apiAction("production.batchStatus", { orderIds: batch.orderIds, status: "Produced", productionStatus: "Completed" }); notify(`${recipe?.name ?? "Batch"} batch completed and stock deducted.`); await reloadData(); } catch (error) { notify(error instanceof Error ? error.message : "Unable to complete batch."); } }} disabled={!canCompleteBatch}>Complete Batch</Button>
                 </div>
               </article>
             );
@@ -1344,13 +1386,30 @@ function Production({ user, setPage, setSelectedOrderId, notify, reloadData }: a
                   <h3>{orderItems.filter((item) => item.orderId === order.id).map((item) => products.find((product) => product.id === item.productId)?.name).join(", ")}</h3>
                   <p>{order.customerName} · due {order.dueDate}</p>
                   <small>Required: {requirementsForOrder(order.id).slice(0, 3).map((item) => `${item.ingredientName} ${item.scaledQuantity}${item.unit}`).join(", ")}</small>
-                  <div className="button-row"><Button variant="secondary" onClick={async (event) => { event.stopPropagation(); try { await apiAction("order.status", { orderId: order.id, status: "In Production", productionStatus: "In Progress" }); notify("Production started for this order."); await reloadData(); } catch (error) { notify(error instanceof Error ? error.message : "Unable to start production."); } }} disabled={!canStartProduction || !canUser(user, "runProduction")}>Start Production</Button><Button variant="secondary" onClick={(event) => { event.stopPropagation(); setSelectedOrderId(order.id); setPage("order-detail"); }}>View Scaled Recipe</Button><Button onClick={async (event) => { event.stopPropagation(); await markOrderProduced(order.id, notify); await reloadData(); }} disabled={!canDeductInventory || !canUser(user, "runProduction")}>Deduct Inventory</Button></div>
+                  <div className="button-row"><Button variant="secondary" onClick={async (event) => { event.stopPropagation(); try { await apiAction("order.status", { orderId: order.id, status: "In Production", productionStatus: "In Progress" }); notify("Production started for this order."); await reloadData(); } catch (error) { notify(error instanceof Error ? error.message : "Unable to start production."); } }} disabled={!canStartProduction || !canUser(user, "runProduction")}>Start Production</Button><Button variant="secondary" onClick={(event) => { event.stopPropagation(); setSelectedOrderId(order.id); setPage("order-detail"); }}>View Scaled Recipe</Button><Button onClick={async (event) => { event.stopPropagation(); try { await markOrderProduced(order.id, notify); await reloadData(); } catch (error) { notify(error instanceof Error ? error.message : "Unable to deduct inventory."); } }} disabled={!canDeductInventory || !canUser(user, "runProduction")}>Deduct Inventory</Button></div>
                 </article>
               );
             })}
           </div>
         </Section>
       ))}
+      {reviewBatch && (
+        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="batch-review-title">
+          <article className="confirm-modal wide">
+            <div className="section-head">
+              <div><p className="eyebrow">Production review</p><h2 id="batch-review-title">{reviewRecipe?.name ?? "Batch"}</h2></div>
+              <Button variant="secondary" onClick={() => setReviewBatchKey("")}>Close</Button>
+            </div>
+            <SummaryCard title="Batch Summary" items={[
+              ["Due date", reviewBatch.dueDate],
+              ["Total yield", `${reviewBatch.totalYield} ${reviewRecipe?.yieldUnit ?? "units"}`],
+              ["Orders", reviewBatch.orderIds.map((id) => orders.find((order) => order.id === id)?.customerName ?? id).join(", ")],
+              ["State", batchStage(reviewBatch, reviewAvailability.some((item) => item.shortageQuantity > 0))]
+            ]} />
+            <ResponsiveTable headers={["Ingredient", "Required", "Available", "Shortage", "Status"]} rows={reviewAvailability.map((item) => ({ key: item.ingredientId, cells: [item.ingredientName, formatQuantity(item.requiredQuantity, reviewRequirements.find((requirement) => requirement.ingredientId === item.ingredientId)?.unit ?? "g"), formatQuantity(item.availableStock, reviewRequirements.find((requirement) => requirement.ingredientId === item.ingredientId)?.unit ?? "g"), item.shortageQuantity > 0 ? formatQuantity(item.shortageQuantity, reviewRequirements.find((requirement) => requirement.ingredientId === item.ingredientId)?.unit ?? "g") : "None", <Badge tone={item.shortageQuantity > 0 ? "danger" : "success"}>{item.shortageQuantity > 0 ? "Shortage" : "Enough Stock"}</Badge>] }))} />
+          </article>
+        </div>
+      )}
     </div>
   );
 }
@@ -1405,6 +1464,8 @@ function ShoppingList({ user, notify, reloadData }: { user?: AppUser; notify: (m
     notify("Shopping list exported.");
   };
   const selectedCost = selectedItems.reduce((sum, item) => sum + item.estimatedCost, 0);
+  const visibleIds = Array.from(new Set(list.map((item) => item.ingredientId)));
+  const allSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedIds.includes(id));
   return (
     <div className="page-grid">
       <div className="metric-grid small"><Metric label="Needed for Orders" value={list.filter((item) => item.requiredQuantity > 0).length} /><Metric label="Below Reorder Level" value={ingredients.filter((item) => item.currentStock <= item.reorderLevel).length} /><Metric label="Selected Cost" value={formatNaira(selectedCost)} /></div>
@@ -1428,7 +1489,7 @@ function ShoppingList({ user, notify, reloadData }: { user?: AppUser; notify: (m
           };
         })} />
       </Section>
-      <div className="sticky-actions"><Button onClick={async () => { try { await apiAction("shopping.purchaseSuggested", { items: selectedItems }); notify(`${selectedItems.length} purchase${selectedItems.length === 1 ? "" : "s"} logged and inventory updated.`); await reloadData(); } catch (error) { notify(error instanceof Error ? error.message : "Unable to log shopping purchases."); } }} disabled={!selectedItems.length || !canUser(user, "purchaseStock")}>Mark Selected Purchased</Button><Button variant="secondary" onClick={() => setSelectedIds(list.map((item) => item.ingredientId))}>Select All</Button><Button variant="secondary" onClick={exportShoppingList}>Export/Share List</Button></div>
+      <div className="sticky-actions"><Button onClick={async () => { try { await apiAction("shopping.purchaseSuggested", { items: selectedItems }); notify(`${selectedItems.length} purchase${selectedItems.length === 1 ? "" : "s"} logged and inventory updated.`); await reloadData(); } catch (error) { notify(error instanceof Error ? error.message : "Unable to log shopping purchases."); } }} disabled={!selectedItems.length || !canUser(user, "purchaseStock")}>Mark Selected Purchased</Button><Button variant="secondary" onClick={() => setSelectedIds(allSelected ? [] : visibleIds)} disabled={!visibleIds.length}>{allSelected ? "Clear All" : "Select All"}</Button><Button variant="secondary" onClick={exportShoppingList}>Export/Share List</Button></div>
     </div>
   );
 }
@@ -1514,7 +1575,11 @@ function ConversionLibrary({ user, notify, askConfirm, reloadData }: { user?: Ap
   const canManage = canUser(user, "manageConversions");
   return (
     <div className="page-grid">
-      {editingRule && <ConversionRuleForm rule={editingRule} onCancel={() => setEditingRule(null)} notify={notify} reloadData={reloadData} />}
+      {editingRule && (
+        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="conversion-form-title">
+          <ConversionRuleForm rule={editingRule} onCancel={() => setEditingRule(null)} notify={notify} reloadData={reloadData} />
+        </div>
+      )}
       <Section title="Approved Conversion Rules" action={<Button onClick={() => setEditingRule({ ingredientId: ingredients[0]?.id, fromUnit: "cup", toUnit: ingredients[0]?.baseUnit ?? "g", conversionFactor: 1, confidenceLevel: "Medium", source: "manual entry", verified: false })} disabled={!canManage}><Plus size={18} /> Add Conversion Rule</Button>}>
         <ResponsiveTable headers={["Ingredient", "From", "To", "Value", "Confidence", "Source", "Verified", "Actions"]} rows={conversionRules.map((rule) => ({ key: rule.id, cells: [ingredients.find((item) => item.id === rule.ingredientId)?.name, rule.fromUnit, rule.toUnit, `1 ${rule.fromUnit} = ${rule.conversionFactor}${rule.toUnit}`, rule.confidenceLevel, rule.source, rule.verified ? <Badge tone="success">Verified</Badge> : <Badge tone="warning">Review</Badge>, <div className="button-row"><Button variant="secondary" onClick={() => setEditingRule(rule)} disabled={!canManage}>Edit</Button><Button variant="secondary" onClick={async () => { await apiAction("conversion.verify", { ruleId: rule.id }); notify(`Verified ${rule.fromUnit} to ${rule.toUnit} conversion rule.`); await reloadData(); }} disabled={!canManage}>Mark Verified</Button><Button variant="danger" onClick={() => askConfirm({ title: "Delete conversion rule?", message: `This removes the ${rule.fromUnit} to ${rule.toUnit} conversion rule from the approved library.`, confirmLabel: "Delete Rule", tone: "danger", onConfirm: async () => { await apiAction("conversion.delete", { ruleId: rule.id }); notify("Conversion rule deleted."); await reloadData(); } })} disabled={!canUser(user, "deleteRecords")}>Delete</Button></div>] }))} />
       </Section>
@@ -1525,7 +1590,7 @@ function ConversionLibrary({ user, notify, askConfirm, reloadData }: { user?: Ap
 function ConversionRuleForm({ rule, onCancel, notify, reloadData }: { rule: Partial<ConversionRule>; onCancel: () => void; notify: (message: string) => void; reloadData: () => Promise<void> }) {
   const unitOptions: Unit[] = ["g", "kg", "ml", "litre", "pcs", "cup", "tablespoon", "teaspoon", "pack", "roll", "egg", "yolk", "white"];
   return (
-    <form className="section" onSubmit={async (event) => {
+    <form className="section conversion-modal" onSubmit={async (event) => {
       event.preventDefault();
       const form = event.currentTarget;
       await apiAction("conversion.save", {
@@ -1537,19 +1602,19 @@ function ConversionRuleForm({ rule, onCancel, notify, reloadData }: { rule: Part
           conversionFactor: formNumber(form, "conversionFactor", 1),
           confidenceLevel: formValue(form, "confidenceLevel"),
           source: formValue(form, "source"),
-          verified: formValue(form, "verified")
+          verified: formValue(form, "verified") === "Yes"
         }
       });
       notify("Conversion rule saved to Neon.");
       await reloadData();
       onCancel();
     }}>
-      <div className="section-head"><h2>{rule.id ? "Edit Conversion Rule" : "Add Conversion Rule"}</h2><div className="button-row"><Button variant="secondary" onClick={onCancel}>Cancel</Button><Button type="submit">Save Rule</Button></div></div>
+      <div className="section-head"><h2 id="conversion-form-title">{rule.id ? "Edit Conversion Rule" : "Add Conversion Rule"}</h2><div className="button-row"><Button variant="secondary" onClick={onCancel}>Cancel</Button><Button type="submit">Save Rule</Button></div></div>
       <div className="form-grid">
         <Field label="Ingredient"><select name="ingredientId" defaultValue={rule.ingredientId} required>{ingredients.map((ingredient) => <option key={ingredient.id} value={ingredient.id}>{ingredient.name}</option>)}</select></Field>
         <Field label="From unit"><select name="fromUnit" defaultValue={rule.fromUnit ?? "cup"}>{unitOptions.map((unit) => <option key={unit}>{unit}</option>)}</select></Field>
         <Field label="To unit"><select name="toUnit" defaultValue={rule.toUnit ?? "g"}>{unitOptions.map((unit) => <option key={unit}>{unit}</option>)}</select></Field>
-        <Field label="Conversion factor"><input name="conversionFactor" type="number" min="0.001" step="0.001" defaultValue={rule.conversionFactor ?? 1} required /></Field>
+        <Field label={`Value for 1 ${rule.fromUnit ?? "from-unit"}`} helper="Example: if 1 cup flour weighs 125g, enter 125 and set To unit to g."><input name="conversionFactor" type="number" min="0.001" step="0.001" defaultValue={rule.conversionFactor ?? 1} required /></Field>
         <Field label="Confidence"><select name="confidenceLevel" defaultValue={rule.confidenceLevel ?? "Medium"}><option>Low</option><option>Medium</option><option>High</option></select></Field>
         <Field label="Source"><select name="source" defaultValue={rule.source ?? "manual entry"}><option>AI estimate</option><option>manual entry</option><option>measured in kitchen</option><option>seed rule</option></select></Field>
         <Field label="Verified"><select name="verified" defaultValue={rule.verified ? "Yes" : "No"}><option>Yes</option><option>No</option></select></Field>
@@ -1560,14 +1625,24 @@ function ConversionRuleForm({ rule, onCancel, notify, reloadData }: { rule: Part
 
 function Suppliers({ user, notify, askConfirm, reloadData }: { user?: AppUser; notify: (message: string) => void; askConfirm: AskConfirm; reloadData: () => Promise<void> }) {
   const [editingSupplier, setEditingSupplier] = useState<Partial<Supplier> | null>(null);
+  const [supplierQuery, setSupplierQuery] = useState("");
   const canManage = canUser(user, "manageSuppliers");
+  const supplierList = suppliers.filter((supplier) => {
+    const suppliedNames = (supplier.suppliedIngredientIds?.length ? supplier.suppliedIngredientIds : ingredients.filter((item) => item.supplierId === supplier.id).map((item) => item.id))
+      .map((id) => ingredients.find((item) => item.id === id)?.name)
+      .filter(Boolean)
+      .join(" ");
+    return [supplier.name, supplier.contactName, supplier.phone, supplier.email, suppliedNames].join(" ").toLowerCase().includes(supplierQuery.toLowerCase());
+  });
   return (
     <div className="page-grid">
       {editingSupplier && <SupplierForm supplier={editingSupplier} notify={notify} reloadData={reloadData} onCancel={() => setEditingSupplier(null)} />}
       <Section title="Suppliers" action={<Button onClick={() => setEditingSupplier({ defaultCurrency: "NGN" })} disabled={!canManage}><Plus size={18} /> Add Supplier</Button>}>
+        <Toolbar query={supplierQuery} setQuery={setSupplierQuery} placeholder="Search suppliers, contacts, or supplied items" />
         <div className="card-grid">
-          {suppliers.map((supplier) => <article className="item-card" key={supplier.id}><Truck size={22} /><h3>{supplier.name}</h3><p>{supplier.contactName || "No contact"} · {supplier.phone || "No phone"}</p><small>{(supplier.suppliedIngredientIds?.length ? supplier.suppliedIngredientIds : ingredients.filter((item) => item.supplierId === supplier.id).map((item) => item.id)).map((id) => ingredients.find((item) => item.id === id)?.name).filter(Boolean).slice(0, 6).join(", ") || "No linked ingredients"}</small><small>Lead time: {supplier.leadTimeDays ?? 2} day{supplier.leadTimeDays === 1 ? "" : "s"} · Currency: {supplier.defaultCurrency ?? "NGN"}</small><p>{supplier.notes}</p><div className="button-row"><Button variant="secondary" onClick={() => setEditingSupplier(supplier)} disabled={!canManage}>Edit</Button><Button variant="danger" onClick={() => askConfirm({ title: `Delete supplier ${supplier.name}?`, message: "Ingredients from this supplier will remain in inventory, but their supplier will become unassigned.", confirmLabel: "Delete Supplier", tone: "danger", onConfirm: async () => { await apiAction("supplier.delete", { supplierId: supplier.id }); notify("Supplier deleted and ingredients unassigned."); await reloadData(); } })} disabled={!canUser(user, "deleteRecords")}>Delete</Button></div></article>)}
+          {supplierList.map((supplier) => <article className="item-card" key={supplier.id}><Truck size={22} /><h3>{supplier.name}</h3><p>{supplier.contactName || "No contact"} · {supplier.phone || "No phone"}</p><small>{(supplier.suppliedIngredientIds?.length ? supplier.suppliedIngredientIds : ingredients.filter((item) => item.supplierId === supplier.id).map((item) => item.id)).map((id) => ingredients.find((item) => item.id === id)?.name).filter(Boolean).slice(0, 6).join(", ") || "No linked ingredients"}</small><small>Lead time: {supplier.leadTimeDays ?? 2} day{supplier.leadTimeDays === 1 ? "" : "s"} · Currency: {supplier.defaultCurrency ?? "NGN"}</small><p>{supplier.notes}</p><div className="button-row"><Button variant="secondary" onClick={() => setEditingSupplier(supplier)} disabled={!canManage}>Edit</Button><Button variant="danger" onClick={() => askConfirm({ title: `Delete supplier ${supplier.name}?`, message: "Ingredients from this supplier will remain in inventory, but their supplier will become unassigned.", confirmLabel: "Delete Supplier", tone: "danger", onConfirm: async () => { await apiAction("supplier.delete", { supplierId: supplier.id }); notify("Supplier deleted and ingredients unassigned."); await reloadData(); } })} disabled={!canUser(user, "deleteRecords")}>Delete</Button></div></article>)}
         </div>
+        {!supplierList.length && <p className="empty-note">No suppliers found. Try a different supplier, contact, phone, or supplied item search.</p>}
       </Section>
     </div>
   );
@@ -1615,13 +1690,14 @@ function SupplierForm({ supplier, notify, reloadData, onCancel }: { supplier: Pa
 function SettingsPage({ user, setPage, notify, reloadData }: { user?: AppUser; setPage: (page: Page) => void; notify: (message: string) => void; reloadData: () => Promise<void> }) {
   const [archiveData, setArchiveData] = useState<Record<string, { id: string; name: string }[]> | null>(null);
   const [auditFilter, setAuditFilter] = useState("All");
+  const [auditSearch, setAuditSearch] = useState("");
   const [editingUser, setEditingUser] = useState<Partial<AppStaffUser> | null>(null);
   const canManageSettings = canUser(user, "manageSettings");
   const canRestoreArchive = canUser(user, "restoreArchive");
   const lowStockRows = ingredients.filter((item) => item.currentStock <= item.reorderLevel);
   const expiringRows = ingredientBatches.filter((batch) => batch.expiryDate).slice(0, 8);
   const wasteRows = inventoryMovements.filter((item) => item.movementType === "waste" || item.note?.toLowerCase().includes("spoil") || item.note?.toLowerCase().includes("waste")).slice(0, 8);
-  const auditRows = auditFilter === "All" ? auditLogs : auditLogs.filter((entry) => entry.entityType === auditFilter);
+  const auditRows = (auditFilter === "All" ? auditLogs : auditLogs.filter((entry) => entry.entityType === auditFilter)).filter((entry) => [entry.entityType, entry.entityId, entry.action, entry.actor, new Date(entry.createdAt).toLocaleString()].join(" ").toLowerCase().includes(auditSearch.toLowerCase()));
   const supplierPerformance = suppliers.map((supplier) => {
     const supplied = ingredients.filter((ingredient) => ingredient.supplierId === supplier.id);
     const low = supplied.filter((ingredient) => ingredient.currentStock <= ingredient.reorderLevel);
@@ -1715,7 +1791,7 @@ function SettingsPage({ user, setPage, notify, reloadData }: { user?: AppUser; s
         </div>
       </Section>
       </form>
-      <Section title="Staff & Permissions" action={<Button onClick={() => setEditingUser({ role: "Baker", active: true })} disabled={!canManageSettings}>Add Staff</Button>}>
+      <Section title="Staff & Permissions" action={<Button onClick={() => setEditingUser((current) => current ? null : { role: "Baker", active: true })} disabled={!canManageSettings}>{editingUser ? "Close Staff Form" : "Add Staff"}</Button>}>
         {editingUser && <form className="summary-card" onSubmit={saveUser}>
           <h3>{editingUser.id ? "Edit Staff User" : "Add Staff User"}</h3>
           <div className="form-grid">
@@ -1733,6 +1809,7 @@ function SettingsPage({ user, setPage, notify, reloadData }: { user?: AppUser; s
         }))} />
       </Section>
       <Section title="Audit Reports" action={<div className="button-row"><Button variant="secondary" onClick={() => exportCsv("pastry-county-audit-report.csv", ["Entity", "Record", "Action", "Actor", "Date"], auditRows.map((entry) => [entry.entityType, entry.entityId, entry.action, entry.actor, new Date(entry.createdAt).toLocaleString()]), notify)}>Export CSV</Button><Button variant="secondary" onClick={() => exportPrintableReport("pastry-county-compliance-report.html", "Pastry County Compliance Report", [["Audit rows", auditRows.length], ["Low-stock items", lowStockRows.length], ["Waste events", wasteRows.length], ["Open shortages", orders.filter((order) => order.stockStatus === "Shortage").length]], notify)}>PDF/Print</Button></div>}>
+        <Toolbar query={auditSearch} setQuery={setAuditSearch} placeholder="Search audit logs" />
         <Chips items={["All", ...Array.from(new Set(auditLogs.map((entry) => entry.entityType))).slice(0, 8)]} active={auditFilter} setActive={setAuditFilter} />
         <ResponsiveTable headers={["Entity", "Record", "Action", "Actor", "Date"]} rows={auditRows.slice(0, 25).map((entry) => ({ key: entry.id, cells: [entry.entityType, entry.entityId, entry.action, entry.actor, new Date(entry.createdAt).toLocaleString()] }))} />
       </Section>

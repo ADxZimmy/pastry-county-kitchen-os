@@ -1,6 +1,6 @@
 # Pastry County Kitchen OS Audit Milestone
 
-This milestone tracks every finding from `App Audit Request.pdf`, `App Audit Request (1).pdf`, and `App Audit Request (2).pdf` and the work needed to move the audit from "Not Ready" to complete coverage.
+This milestone tracks every finding from `App Audit Request.pdf`, `App Audit Request (1).pdf`, `App Audit Request (2).pdf`, `Audit Scope Expansion Request.pdf`, and `Audit Scope Expansion Request UIUX.pdf` and the work needed to move the audit from "Not Ready" to complete coverage.
 
 Status legend:
 
@@ -62,6 +62,20 @@ Status legend:
 | Done | PDF/print exports | Branded PDF exports are missing. | Printable HTML report exports are available for compliance and operations reports and open through the browser print/PDF flow. |
 | Done | Email alert delivery | Low-stock notification email is configured but not actionable. | Low-stock alerts send through Resend with a branded operational template when `RESEND_API_KEY` is configured, otherwise they are logged with a clear missing-key status. |
 
+## Milestone 5 - Scope Expansion Audit Wrap-Up
+
+| Status | Area | Audit Finding | Completion Criteria |
+| --- | --- | --- | --- |
+| Done | Scaled recipe orders | Creating an order from the scaling page defaulted to Classic Brownies instead of the scaled recipe. | Scaling now creates an explicit order draft with the selected recipe and desired yield, clears edit mode, and the new order form no longer borrows the first existing order. |
+| Done | Production review | Review Batch only showed a toast and batch actions did not clearly show lifecycle state. | Grouped batches now show Ready, In Progress, Completed, or Shortage, expose a review modal with ingredient availability, and disable invalid start/complete actions with visible shortage feedback. |
+| Done | Conversion editing | Conversion Library edit did not expose an obvious editable form. | Edit/Add conversion opens a modal form with clearer "Value for 1 unit" labeling and verified values save as booleans. |
+| Done | Recipe/order field clarity | Recipe ingredient rows had an unexplained numeric `0` field and dense order item inputs. | Builder rows now have visible labels for Ingredient/Product, Quantity/Yield, Unit, Waste %, and Multiplier, plus conversion helper text. |
+| Done | Shopping list select all | Select All did not act like a single reliable toggle. | Select All now toggles all visible unique ingredients at once and becomes Clear All when everything is selected. |
+| Done | Staff form behavior | Add Staff cancel/toggle left the form feeling open. | Staff action toggles between Add Staff and Close Staff Form, and Cancel collapses the form. |
+| Done | Supplier search | Supplier management lacked search/filtering. | Suppliers can be searched by supplier, contact, phone, email, or supplied item. |
+| Done | Audit log search | Audit Reports filtered by entity but lacked search within logs. | Audit Reports now include text search across entity, record, action, actor, and date. |
+| Done | UI contrast/responsiveness | UI was too beige/brown, dense tables wrapped awkwardly, and shopping/audit still scrolled on narrower screens. | Added muted teal accents/focus states, stronger muted text contrast, labeled dense rows, and card/table breakpoint improvements for shopping/audit-style screens. |
+
 ## Validation Checklist
 
 - [x] Unit tests passed with `npm test`.
@@ -79,10 +93,11 @@ Status legend:
 - [x] Staff management, audit filters/exports, printable reports, FEFO/waste/supplier reports, branded Resend low-stock alert delivery, and staff session revocation added.
 - [x] Mobile/responsive controls verified through the responsive table/card implementation and browser smoke.
 - [x] Keyboard/accessibility pass covered visible focus, table scopes, named controls, modal scrolling, loading state, and recovery actions.
-- [ ] Re-run an external audit after the third audit patch is live.
+- [x] Scope expansion audit PDFs reviewed and mapped to scaled-order, production, conversion, staff, supplier, audit-search, and UI responsiveness fixes.
+- [ ] Re-run an external audit after the scope expansion patch is live.
 
 ## Next Recommended Work
 
-1. Re-run the external audit after this third audit patch is live.
-2. Add a verified sender domain and `RESEND_API_KEY`/`RESEND_FROM_EMAIL` in Vercel production if not already configured.
-3. Re-run external audit against the live deployment and close any new findings.
+1. Re-run the external audit against the live deployment after this scope expansion patch is live.
+2. Watch the first few Resend deliveries from the verified domain for spam placement and DMARC aggregate reports.
+3. Close any new external audit findings in this milestone file before marking the audit cycle complete.
