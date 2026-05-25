@@ -754,23 +754,19 @@ function Dashboard({ setPage, setSelectedIngredientId, setSelectedOrderId }: any
     };
   });
   const lowStock = ingredients.filter((item) => item.currentStock <= item.reorderLevel).slice(0, 3);
-  const metrics = [
-    ["Total Ingredients", ingredients.length, "Active pantry and packaging items"],
-    ["Low Stock Items", ingredients.filter((item) => item.currentStock <= item.reorderLevel).length, "Need attention"],
-    ["Orders Due Today", orders.filter((order) => order.dueDate === today).length, "Confirmed and draft"],
-    ["Pending Production", orders.filter((order) => order.productionStatus !== "Completed").length, "Across this week"],
-    ["Shopping Estimate", formatNaira(shopping.reduce((sum, item) => sum + item.estimatedCost, 0)), "Suggested restock cost"],
-    ["Notifications", notifications.length, "Active alerts"]
+  const metrics: { label: string; value: React.ReactNode; hint: string }[] = [
+    { label: "Total Ingredients", value: ingredients.length, hint: "Active pantry and packaging items" },
+    { label: "Low Stock Items", value: ingredients.filter((item) => item.currentStock <= item.reorderLevel).length, hint: "Need attention" },
+    { label: "Orders Due Today", value: orders.filter((order) => order.dueDate === today).length, hint: "Confirmed and draft" },
+    { label: "Pending Production", value: orders.filter((order) => order.productionStatus !== "Completed").length, hint: "Across this week" },
+    { label: "Shopping Estimate", value: formatNaira(shopping.reduce((sum, item) => sum + item.estimatedCost, 0)), hint: "Suggested restock cost" },
+    { label: "Notifications", value: notifications.length, hint: "Active alerts" }
   ];
   return (
     <div className="page-grid">
       <div className="metric-grid">
-        {metrics.map(([label, value, hint]) => (
-          <article className="metric-card" key={label}>
-            <span>{label}</span>
-            <strong>{value}</strong>
-            <small>{hint}</small>
-          </article>
+        {metrics.map(({ label, value, hint }) => (
+          <Metric key={label} label={label} value={value} hint={hint} />
         ))}
       </div>
       <Section title="Today's Production" action={<Button variant="secondary" onClick={() => setPage("production")}><ChefHat size={18} /> View Plan</Button>}>
@@ -1885,8 +1881,10 @@ function SummaryCard({ title, items }: { title: string; items: [string, React.Re
   return <article className="summary-card"><h3>{title}</h3>{items.map(([label, value]) => <div key={label}><span>{label}</span><strong>{value}</strong></div>)}</article>;
 }
 
-function Metric({ label, value }: { label: string; value: React.ReactNode }) {
-  return <article className="metric-card"><span>{label}</span><strong>{value}</strong></article>;
+function Metric({ label, value, hint }: { label: string; value: React.ReactNode; hint?: React.ReactNode }) {
+  const textValue = typeof value === "string" || typeof value === "number" ? String(value) : "";
+  const valueClass = textValue.length > 7 ? "metric-value metric-value-long" : "metric-value";
+  return <article className="metric-card"><span>{label}</span><strong className={valueClass}>{value}</strong>{hint && <small>{hint}</small>}</article>;
 }
 
 function EmptyState({ title, message }: { title: string; message: string }) {
