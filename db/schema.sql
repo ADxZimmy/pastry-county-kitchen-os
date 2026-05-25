@@ -5,6 +5,7 @@ create table if not exists app_users (
   role text not null check (role in ('Owner/Admin','Baker','Inventory Manager','Viewer')),
   password_hash text not null,
   active boolean not null default true,
+  session_revoked_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );

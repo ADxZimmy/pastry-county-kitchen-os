@@ -24,6 +24,7 @@ export interface AppStaffUser {
   fullName: string;
   role: "Owner/Admin" | "Baker" | "Inventory Manager" | "Viewer";
   active?: boolean;
+  sessionRevokedAt?: string;
   updatedAt?: string;
 }
 

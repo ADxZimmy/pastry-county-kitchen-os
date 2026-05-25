@@ -51,15 +51,29 @@ const actionRoles = {
   "settings.save": ["Owner/Admin"],
   "user.save": ["Owner/Admin"],
   "user.disable": ["Owner/Admin"],
+  "user.revokeSessions": ["Owner/Admin"],
   "notification.lowStockEmail": ["Owner/Admin", "Inventory Manager"]
 };
 
-function requirePermission(action, actor) {
+async function requirePermission(sql, action, actor) {
   if (action === "schema.ensure") return;
   if (!actor) throw Object.assign(new Error("Sign in again to continue."), { statusCode: 401 });
   const allowedRoles = actionRoles[action] ?? ["Owner/Admin"];
   if (!allowedRoles.includes(actor.role)) {
     throw Object.assign(new Error(`${actor.role} cannot perform ${action}.`), { statusCode: 403 });
+  }
+  const rows = await sql`
+    select active, extract(epoch from session_revoked_at)::bigint as revoked_at
+    from app_users
+    where id = ${actor.sub}
+    limit 1
+  `;
+  if (!rows.length || rows[0].active === false) {
+    throw Object.assign(new Error("This user session is no longer active."), { statusCode: 401 });
+  }
+  const revokedAt = Number(rows[0].revoked_at ?? 0);
+  if (revokedAt && Number(actor.iat ?? 0) <= revokedAt) {
+    throw Object.assign(new Error("This session was revoked. Sign in again."), { statusCode: 401 });
   }
 }
 
@@ -75,13 +89,14 @@ async function sendResendEmail({ to, subject, text }) {
   if (!process.env.RESEND_API_KEY || !to) return { status: to ? "logged_missing_resend_key" : "missing_recipient" };
   const from = process.env.RESEND_FROM_EMAIL || "Pastry County Kitchen OS <onboarding@resend.dev>";
   const resend = new Resend(process.env.RESEND_API_KEY);
-  const htmlLines = String(text).split(/\n+/).map((line) => `<li>${escapeHtml(line)}</li>`).join("");
+  const htmlLines = String(text).split(/\n+/).filter(Boolean).map((line) => `<tr><td style="padding:12px 14px;border-bottom:1px solid #eadccd;">${escapeHtml(line)}</td></tr>`).join("");
+  const appUrl = process.env.PUBLIC_APP_URL || (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : "https://pastry-county-kitchen-os.vercel.app");
   const { data, error } = await resend.emails.send({
     from,
     to,
     subject,
     text,
-    html: `<div style="font-family:Inter,Arial,sans-serif;color:#24160d"><h2>${escapeHtml(subject)}</h2><p>Pastry County Kitchen OS found inventory items that need attention.</p><ul>${htmlLines}</ul><p>Open the Kitchen OS dashboard to review and restock.</p></div>`
+    html: `<!doctype html><html><body style="margin:0;background:#fbf7ef;font-family:Inter,Arial,sans-serif;color:#24160d;"><div style="max-width:640px;margin:0 auto;padding:28px;"><div style="background:#fffaf1;border:1px solid #dcc8b7;border-radius:18px;overflow:hidden;"><div style="background:#2c1a10;color:#fff;padding:22px 26px;"><p style="margin:0 0 6px;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:#f6d8ac;">Pastry County Kitchen OS</p><h1 style="margin:0;font-size:24px;line-height:1.2;">${escapeHtml(subject)}</h1></div><div style="padding:24px 26px;"><p style="margin:0 0 16px;color:#6d5a4b;">The kitchen inventory has items that need restocking attention before production continues.</p><table style="border-collapse:collapse;width:100%;background:#fffdf8;border:1px solid #eadccd;border-radius:12px;overflow:hidden;">${htmlLines}</table><p style="margin:22px 0;"><a href="${appUrl}" style="display:inline-block;background:#c26116;color:white;text-decoration:none;padding:12px 18px;border-radius:999px;font-weight:700;">Open Kitchen OS</a></p><p style="margin:0;color:#6d5a4b;font-size:13px;">Sent to the configured low-stock notification address. If this alert is no longer needed, update the notification email in Settings.</p></div></div><p style="text-align:center;color:#8a7665;font-size:12px;margin:18px 0 0;">Pastry County Kitchen OS · Operational inventory alert</p></div></body></html>`
   });
   if (error) return { status: "send_failed", error: error.message || String(error) };
   return { status: "sent", providerId: data?.id };
@@ -244,6 +259,7 @@ async function ensureOperationalTables(sql) {
   await sql`alter table settings add column if not exists default_tax_percentage numeric(6,3) not null default 0`;
   await sql`alter table settings add column if not exists low_stock_notification_email text`;
   await sql`alter table app_users add column if not exists active boolean not null default true`;
+  await sql`alter table app_users add column if not exists session_revoked_at timestamptz`;
   await sql`
     create table if not exists ingredient_batches (
       id text primary key,
@@ -299,7 +315,7 @@ async function rowById(sql, table, entityId) {
   if (table === "orders") return (await sql`select * from orders where id = ${entityId}`)[0] ?? null;
   if (table === "conversion_rules") return (await sql`select * from conversion_rules where id = ${entityId}`)[0] ?? null;
   if (table === "settings") return (await sql`select * from settings where id = ${entityId}`)[0] ?? null;
-  if (table === "app_users") return (await sql`select id, email, full_name, role, active, updated_at from app_users where id = ${entityId}`)[0] ?? null;
+  if (table === "app_users") return (await sql`select id, email, full_name, role, active, session_revoked_at, updated_at from app_users where id = ${entityId}`)[0] ?? null;
   return null;
 }
 
@@ -425,7 +441,8 @@ async function shortagesForProduction(sql, orderId, requirements) {
 }
 
 export async function produceOrder(sql, orderId, actor) {
-  requirePermission("order.produce", actor);
+  await ensureOperationalTables(sql);
+  await requirePermission(sql, "order.produce", actor);
   const orderRows = await sql`select status from orders where id = ${orderId}`;
   if (!orderRows.length) throw Object.assign(new Error("Order not found."), { statusCode: 404 });
   const status = orderRows[0].status;
@@ -469,8 +486,8 @@ export async function produceOrder(sql, orderId, actor) {
 
 export async function handleAction(sql, body, actor) {
   const action = required(body.action, "Action");
-  requirePermission(action, actor);
   await ensureOperationalTables(sql);
+  await requirePermission(sql, action, actor);
 
   if (action === "schema.ensure") {
     return { ok: true };
@@ -924,8 +941,16 @@ export async function handleAction(sql, body, actor) {
   if (action === "user.disable") {
     const userId = required(body.userId, "User");
     const before = await rowById(sql, "app_users", userId);
-    await sql`update app_users set active = false, updated_at = now() where id = ${userId}`;
+    await sql`update app_users set active = false, session_revoked_at = now(), updated_at = now() where id = ${userId}`;
     await audit(sql, "app_users", userId, "disable", before, await rowById(sql, "app_users", userId));
+    return { ok: true };
+  }
+
+  if (action === "user.revokeSessions") {
+    const userId = required(body.userId, "User");
+    const before = await rowById(sql, "app_users", userId);
+    await sql`update app_users set session_revoked_at = now(), updated_at = now() where id = ${userId}`;
+    await audit(sql, "app_users", userId, "revoke_sessions", before, await rowById(sql, "app_users", userId));
     return { ok: true };
   }
 

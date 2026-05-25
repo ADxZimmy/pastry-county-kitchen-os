@@ -15,11 +15,13 @@ function sign(payload) {
 }
 
 export function createSessionToken(user) {
+  const issuedAt = Math.floor(Date.now() / 1000);
   const payload = encode({
     sub: user.id,
     email: user.email,
     role: roles.has(user.role) ? user.role : "Viewer",
-    exp: Math.floor(Date.now() / 1000) + 60 * 60 * 12
+    iat: issuedAt,
+    exp: issuedAt + 60 * 60 * 12
   });
   return `${payload}.${sign(payload)}`;
 }
@@ -44,4 +46,3 @@ export function actorFromRequest(req) {
   const token = String(header).replace(/^Bearer\s+/i, "");
   return verifySessionToken(token);
 }
-

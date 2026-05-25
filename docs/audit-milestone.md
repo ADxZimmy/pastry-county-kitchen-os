@@ -60,7 +60,7 @@ Status legend:
 | Done | Staff management | Roles are enforced, but staff account management is missing. | Settings now lists staff users, supports Owner/Admin staff add/edit/disable, and disabled users cannot log in. |
 | Done | Compliance reports | Audit history is visible but not filterable/exportable. | Settings now includes audit filters, CSV export, and printable compliance report exports. |
 | Done | PDF/print exports | Branded PDF exports are missing. | Printable HTML report exports are available for compliance and operations reports and open through the browser print/PDF flow. |
-| Done | Email alert delivery | Low-stock notification email is configured but not actionable. | Low-stock alerts send through Resend when `RESEND_API_KEY` is configured, otherwise they are logged with a clear missing-key status. |
+| Done | Email alert delivery | Low-stock notification email is configured but not actionable. | Low-stock alerts send through Resend with a branded operational template when `RESEND_API_KEY` is configured, otherwise they are logged with a clear missing-key status. |
 
 ## Validation Checklist
 
@@ -76,7 +76,7 @@ Status legend:
 - [x] Third audit PDF reviewed and mapped to fixes for base-unit order requirements, production/shopping feedback, stock-adjustment validation, back navigation, and latest-purchase cost fallback.
 - [x] Role/session hardening added with signed login tokens, authorization headers, server-side action permissions, and role-aware disabled UI controls.
 - [x] Dashboard notifications are now actionable and dismissible.
-- [x] Staff management, audit filters/exports, printable reports, FEFO/waste/supplier reports, and Resend-backed low-stock alert delivery added.
+- [x] Staff management, audit filters/exports, printable reports, FEFO/waste/supplier reports, branded Resend low-stock alert delivery, and staff session revocation added.
 - [x] Mobile/responsive controls verified through the responsive table/card implementation and browser smoke.
 - [x] Keyboard/accessibility pass covered visible focus, table scopes, named controls, modal scrolling, loading state, and recovery actions.
 - [ ] Re-run an external audit after the third audit patch is live.
@@ -85,5 +85,4 @@ Status legend:
 
 1. Re-run the external audit after this third audit patch is live.
 2. Add a verified sender domain and `RESEND_API_KEY`/`RESEND_FROM_EMAIL` in Vercel production if not already configured.
-3. Add full session revocation/rotation if required by the next security audit.
-4. Re-run external audit against the live deployment and close any new findings.
+3. Re-run external audit against the live deployment and close any new findings.
