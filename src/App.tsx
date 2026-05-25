@@ -1668,7 +1668,7 @@ function SettingsPage({ user, setPage, notify, reloadData }: { user?: AppUser; s
   };
   const sendLowStockAlert = async () => {
     const result = await apiAction("notification.lowStockEmail", { items: lowStockRows.map((item) => `${item.name}: ${item.currentStock}${item.baseUnit} left`) });
-    notify(result.recipient ? `Low-stock email queued for ${result.recipient}.` : "Low-stock alert logged; add an email address in Settings to send externally.");
+    notify(result.status === "sent" ? `Low-stock email sent to ${result.recipient}.` : result.recipient ? `Low-stock alert logged for ${result.recipient}; configure Resend to send externally.` : "Low-stock alert logged; add an email address in Settings to send externally.");
   };
   return (
     <div className="page-grid">

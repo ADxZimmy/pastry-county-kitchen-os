@@ -1,4 +1,5 @@
 import bcrypt from "bcryptjs";
+import { Resend } from "resend";
 
 export function id(prefix) {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -60,6 +61,30 @@ function requirePermission(action, actor) {
   if (!allowedRoles.includes(actor.role)) {
     throw Object.assign(new Error(`${actor.role} cannot perform ${action}.`), { statusCode: 403 });
   }
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+async function sendResendEmail({ to, subject, text }) {
+  if (!process.env.RESEND_API_KEY || !to) return { status: to ? "logged_missing_resend_key" : "missing_recipient" };
+  const from = process.env.RESEND_FROM_EMAIL || "Pastry County Kitchen OS <onboarding@resend.dev>";
+  const resend = new Resend(process.env.RESEND_API_KEY);
+  const htmlLines = String(text).split(/\n+/).map((line) => `<li>${escapeHtml(line)}</li>`).join("");
+  const { data, error } = await resend.emails.send({
+    from,
+    to,
+    subject,
+    text,
+    html: `<div style="font-family:Inter,Arial,sans-serif;color:#24160d"><h2>${escapeHtml(subject)}</h2><p>Pastry County Kitchen OS found inventory items that need attention.</p><ul>${htmlLines}</ul><p>Open the Kitchen OS dashboard to review and restock.</p></div>`
+  });
+  if (error) return { status: "send_failed", error: error.message || String(error) };
+  return { status: "sent", providerId: data?.id };
 }
 
 function nonNegative(value, label) {
@@ -910,12 +935,13 @@ export async function handleAction(sql, body, actor) {
     const items = Array.isArray(body.items) ? body.items.map(String) : [];
     const subject = `Low stock alert: ${items.length} item${items.length === 1 ? "" : "s"} need attention`;
     const message = items.join("\n") || "No low-stock items were supplied.";
+    const delivery = await sendResendEmail({ to: recipient, subject, text: message });
     await sql`
       insert into notification_events (id, type, recipient, subject, body, status, created_by)
-      values (${id("notify")}, 'low_stock_email', ${recipient}, ${subject}, ${message}, ${recipient ? "logged_for_email_delivery" : "missing_recipient"}, ${actor?.email || "system"})
+      values (${id("notify")}, 'low_stock_email', ${recipient}, ${subject}, ${message}, ${delivery.status}, ${actor?.email || "system"})
     `;
-    await audit(sql, "notifications", "low_stock_email", "log", null, { recipient, subject, itemCount: items.length });
-    return { ok: true, recipient, status: recipient ? "logged_for_email_delivery" : "missing_recipient" };
+    await audit(sql, "notifications", "low_stock_email", "log", null, { recipient, subject, itemCount: items.length, status: delivery.status, providerId: delivery.providerId, error: delivery.error });
+    return { ok: true, recipient, status: delivery.status, providerId: delivery.providerId, error: delivery.error };
   }
 
   throw Object.assign(new Error(`Unknown action: ${action}`), { statusCode: 400 });
