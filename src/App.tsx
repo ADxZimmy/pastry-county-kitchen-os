@@ -255,6 +255,10 @@ function isBelowReorder(item: Pick<Ingredient, "currentStock" | "reorderLevel">)
   return item.reorderLevel > 0 && item.currentStock <= item.reorderLevel;
 }
 
+function shortageText(items: { ingredientName: string; shortageQuantity: number; unit?: Unit }[]) {
+  return items.map((item) => `${item.ingredientName} short ${formatQuantity(item.shortageQuantity, item.unit ?? "g")}`).join(", ");
+}
+
 function stockMovementLabel(type: string) {
   return type.replace(/_/g, " ");
 }
@@ -1164,12 +1168,16 @@ function RecipeForm({ recipeId, setPage, notify, reloadData }: { recipeId: strin
         quantity: formNumber(form, `quantity-${index}`),
         unit: formValue(form, `unit-${index}`),
         wastePercentage: formNumber(form, `wastePercentage-${index}`)
-      })).map((item) => {
+      })).filter((item) => item.ingredientId && item.quantity > 0).map((item) => {
         const ingredient = ingredients.find((candidate) => candidate.id === item.ingredientId);
         if (!ingredient || item.unit === ingredient.baseUnit) return item;
         const conversion = convertUnit(item.quantity, item.unit as Unit, ingredient.baseUnit, ingredient.id);
         return conversion.needsReview ? item : { ...item, quantity: Number(conversion.convertedQuantity.toFixed(3)), unit: ingredient.baseUnit };
       });
+      if (!items.length) {
+        notify("Add at least one ingredient with a quantity greater than zero before saving this recipe.");
+        return;
+      }
       await apiAction("recipe.save", {
         recipe: {
           id: recipe?.id,
@@ -1424,7 +1432,8 @@ function Production({ user, setPage, setSelectedOrderId, notify, reloadData }: a
             const recipe = recipes.find((item) => item.id === batch.recipeId);
             const batchRequirements = recipe ? scaleRecipe(recipe.id, batch.totalYield) : [];
             const availability = checkStockAvailability(batchRequirements);
-            const hasShortage = availability.some((item) => item.shortageQuantity > 0);
+            const shortages = availability.filter((item) => item.shortageQuantity > 0).map((item) => ({ ...item, unit: batchRequirements.find((requirement) => requirement.ingredientId === item.ingredientId)?.unit ?? "g" as Unit }));
+            const hasShortage = shortages.length > 0;
             const stage = batchStage(batch, hasShortage);
             const canStartBatch = !hasShortage && stage === "Ready" && canUser(user, "runProduction");
             const canCompleteBatch = !hasShortage && ["Ready", "In Progress"].includes(stage) && canUser(user, "runProduction");
@@ -1434,11 +1443,11 @@ function Production({ user, setPage, setSelectedOrderId, notify, reloadData }: a
                 <h3>{recipe?.name ?? "Recipe"}</h3>
                 <p>{batch.totalYield} {recipe?.yieldUnit ?? "units"} · due {batch.dueDate}</p>
                 <small>{batch.orderIds.length} order{batch.orderIds.length === 1 ? "" : "s"} · {batchRequirements.slice(0, 3).map((item) => `${item.ingredientName} ${item.scaledQuantity}${item.unit}`).join(", ")}</small>
-                {hasShortage && <small className="field-error">Resolve shortages before starting or completing this batch.</small>}
+                {hasShortage && <small className="field-error">Resolve before production: {shortageText(shortages)}.</small>}
                 <div className="button-row">
                   <Button variant="secondary" onClick={() => setReviewBatchKey(batch.key)}>Review Batch</Button>
-                  <Button variant="secondary" onClick={async () => { try { await apiAction("production.batchStatus", { orderIds: batch.orderIds, status: "In Production", productionStatus: "In Progress" }); notify(`${recipe?.name ?? "Batch"} batch started.`); await reloadData(); } catch (error) { notify(error instanceof Error ? error.message : "Unable to start batch."); } }} disabled={!canStartBatch}>Start Batch</Button>
-                  <Button onClick={async () => { try { await apiAction("production.batchStatus", { orderIds: batch.orderIds, status: "Produced", productionStatus: "Completed" }); notify(`${recipe?.name ?? "Batch"} batch completed and stock deducted.`); await reloadData(); } catch (error) { notify(error instanceof Error ? error.message : "Unable to complete batch."); } }} disabled={!canCompleteBatch}>Complete Batch</Button>
+                  <Button variant="secondary" onClick={async () => { try { if (hasShortage) { notify(`Cannot start batch: ${shortageText(shortages)}.`); setPage("shopping"); return; } await apiAction("production.batchStatus", { orderIds: batch.orderIds, status: "In Production", productionStatus: "In Progress" }); notify(`${recipe?.name ?? "Batch"} batch started.`); await reloadData(); } catch (error) { notify(error instanceof Error ? error.message : "Unable to start batch."); } }} disabled={!canStartBatch}>Start Batch</Button>
+                  <Button onClick={async () => { try { if (hasShortage) { notify(`Cannot complete batch: ${shortageText(shortages)}.`); setPage("shopping"); return; } await apiAction("production.batchStatus", { orderIds: batch.orderIds, status: "Produced", productionStatus: "Completed" }); notify(`${recipe?.name ?? "Batch"} batch completed and stock deducted.`); await reloadData(); } catch (error) { notify(error instanceof Error ? error.message : "Unable to complete batch."); } }} disabled={!canCompleteBatch}>Complete Batch</Button>
                 </div>
               </article>
             );
@@ -1449,7 +1458,9 @@ function Production({ user, setPage, setSelectedOrderId, notify, reloadData }: a
         <Section title={bucket} key={bucket}>
           <div className="card-grid">
             {orders.filter((order) => bucket === "This Week" || (bucket === "Today" && order.dueDate === new Date().toISOString().slice(0, 10)) || (bucket === "Tomorrow" && order.dueDate === new Date(Date.now() + 86400000).toISOString().slice(0, 10))).map((order) => {
-              const hasShortage = hasShortageForOrder(order.id);
+              const requirements = requirementsForOrder(order.id);
+              const orderShortages = checkOrderStockAvailability(order.id).filter((item) => item.shortageQuantity > 0).map((item) => ({ ...item, unit: requirements.find((requirement) => requirement.ingredientId === item.ingredientId)?.unit ?? "g" as Unit }));
+              const hasShortage = orderShortages.length > 0;
               const canStartProduction = !hasShortage && ["Confirmed", "Stock Reserved", "In Production"].includes(order.status);
               const canDeductInventory = !hasShortage && ["Stock Reserved", "In Production"].includes(order.status);
               return (
@@ -1457,8 +1468,9 @@ function Production({ user, setPage, setSelectedOrderId, notify, reloadData }: a
                   <div className="item-card-head"><ChefHat size={20} /><Badge tone={stockTone(hasShortage ? "Shortage" : order.stockStatus)}>{hasShortage ? "Shortage" : order.stockStatus}</Badge></div>
                   <h3>{orderItems.filter((item) => item.orderId === order.id).map((item) => products.find((product) => product.id === item.productId)?.name).join(", ")}</h3>
                   <p>{order.customerName} · due {order.dueDate}</p>
-                  <small>Required: {requirementsForOrder(order.id).slice(0, 3).map((item) => `${item.ingredientName} ${item.scaledQuantity}${item.unit}`).join(", ")}</small>
-                  <div className="button-row"><Button variant="secondary" onClick={async (event) => { event.stopPropagation(); try { await apiAction("order.status", { orderId: order.id, status: "In Production", productionStatus: "In Progress" }); notify("Production started for this order."); await reloadData(); } catch (error) { notify(error instanceof Error ? error.message : "Unable to start production."); } }} disabled={!canStartProduction || !canUser(user, "runProduction")}>Start Production</Button><Button variant="secondary" onClick={(event) => { event.stopPropagation(); setScaledOrderId(order.id); }}>View Scaled Recipe</Button><Button onClick={async (event) => { event.stopPropagation(); try { await markOrderProduced(order.id, notify); await reloadData(); } catch (error) { notify(error instanceof Error ? error.message : "Unable to deduct inventory."); } }} disabled={!canDeductInventory || !canUser(user, "runProduction")}>Deduct Inventory</Button></div>
+                  <small>Required: {requirements.slice(0, 3).map((item) => `${item.ingredientName} ${item.scaledQuantity}${item.unit}`).join(", ")}</small>
+                  {hasShortage && <small className="field-error">Resolve before production: {shortageText(orderShortages)}.</small>}
+                  <div className="button-row"><Button variant="secondary" onClick={async (event) => { event.stopPropagation(); try { if (hasShortage) { notify(`Cannot start production: ${shortageText(orderShortages)}.`); setPage("shopping"); return; } await apiAction("order.status", { orderId: order.id, status: "In Production", productionStatus: "In Progress" }); notify("Production started for this order."); await reloadData(); } catch (error) { notify(error instanceof Error ? error.message : "Unable to start production."); } }} disabled={!canStartProduction || !canUser(user, "runProduction")}>Start Production</Button><Button variant="secondary" onClick={(event) => { event.stopPropagation(); setScaledOrderId(order.id); }}>View Scaled Recipe</Button><Button onClick={async (event) => { event.stopPropagation(); try { if (hasShortage) { notify(`Cannot deduct inventory: ${shortageText(orderShortages)}.`); setPage("shopping"); return; } await markOrderProduced(order.id, notify); await reloadData(); } catch (error) { notify(error instanceof Error ? error.message : "Unable to deduct inventory."); } }} disabled={!canDeductInventory || !canUser(user, "runProduction")}>Deduct Inventory</Button></div>
                 </article>
               );
             })}
@@ -1571,6 +1583,7 @@ function ShoppingList({ user, notify, reloadData }: { user?: AppUser; notify: (m
     notify("Shopping list exported.");
   };
   const selectedCost = selectedItems.reduce((sum, item) => sum + item.estimatedCost, 0);
+  const invalidSelected = selectedItems.some((item) => item.purchaseQuantity <= 0 || item.unitCost <= 0);
   const visibleIds = Array.from(new Set(list.map((item) => item.ingredientId)));
   const allSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedIds.includes(id));
   return (
@@ -1597,7 +1610,8 @@ function ShoppingList({ user, notify, reloadData }: { user?: AppUser; notify: (m
           };
         })} />
       </Section>
-      <div className="sticky-actions"><Button onClick={async () => { try { await apiAction("shopping.purchaseSuggested", { items: selectedItems }); notify(`${selectedItems.length} purchase${selectedItems.length === 1 ? "" : "s"} logged and inventory updated.`); await reloadData(); } catch (error) { notify(error instanceof Error ? error.message : "Unable to log shopping purchases."); } }} disabled={!selectedItems.length || !canUser(user, "purchaseStock")}>Mark Selected Purchased</Button><Button variant="secondary" onClick={() => setSelectedIds(allSelected ? [] : visibleIds)} disabled={!visibleIds.length}>{allSelected ? "Clear All" : "Select All"}</Button><Button variant="secondary" onClick={exportShoppingList}>Export/Share List</Button></div>
+      {invalidSelected && <article className="warning-card"><AlertTriangle size={22} /> Selected purchases need quantity and unit cost greater than zero before they can update inventory.</article>}
+      <div className="sticky-actions"><Button onClick={async () => { try { if (invalidSelected) { notify("Fix selected purchase quantities and unit costs before marking purchased."); return; } await apiAction("shopping.purchaseSuggested", { items: selectedItems }); notify(`${selectedItems.length} purchase${selectedItems.length === 1 ? "" : "s"} logged and inventory updated.`); await reloadData(); } catch (error) { notify(error instanceof Error ? error.message : "Unable to log shopping purchases."); } }} disabled={!selectedItems.length || invalidSelected || !canUser(user, "purchaseStock")}>Mark Selected Purchased</Button><Button variant="secondary" onClick={() => setSelectedIds(allSelected ? [] : visibleIds)} disabled={!visibleIds.length}>{allSelected ? "Clear All" : "Select All"}</Button><Button variant="secondary" onClick={exportShoppingList}>Export/Share List</Button></div>
     </div>
   );
 }
@@ -1873,7 +1887,12 @@ function Suppliers({ user, notify, askConfirm, reloadData }: { user?: AppUser; n
       <Section title="Suppliers" action={<Button onClick={() => setEditingSupplier({ defaultCurrency: "NGN" })} disabled={!canManage}><Plus size={18} /> Add Supplier</Button>}>
         <Toolbar query={supplierQuery} setQuery={setSupplierQuery} placeholder="Search suppliers, contacts, or supplied items" />
         <div className="card-grid">
-          {supplierList.map((supplier) => <article className="item-card" key={supplier.id}><Truck size={22} /><h3>{supplier.name}</h3><p>{supplier.contactName || "No contact"} · {supplier.phone || "No phone"}</p><small>{(supplier.suppliedIngredientIds?.length ? supplier.suppliedIngredientIds : ingredients.filter((item) => item.supplierId === supplier.id).map((item) => item.id)).map((id) => ingredients.find((item) => item.id === id)?.name).filter(Boolean).slice(0, 6).join(", ") || "No linked ingredients"}</small><small>Lead time: {supplier.leadTimeDays ?? 2} day{supplier.leadTimeDays === 1 ? "" : "s"} · Currency: {supplier.defaultCurrency ?? "NGN"}</small><p>{supplier.notes}</p><div className="button-row"><Button variant="secondary" onClick={() => setEditingSupplier(supplier)} disabled={!canManage}>Edit</Button><Button variant="danger" onClick={() => askConfirm({ title: `Delete supplier ${supplier.name}?`, message: "Ingredients from this supplier will remain in inventory, but their supplier will become unassigned.", confirmLabel: "Delete Supplier", tone: "danger", onConfirm: async () => { await apiAction("supplier.delete", { supplierId: supplier.id }); notify("Supplier deleted and ingredients unassigned."); await reloadData(); } })} disabled={!canUser(user, "deleteRecords")}>Delete</Button></div></article>)}
+          {supplierList.map((supplier) => {
+            const linkedIngredients = ingredients.filter((item) => item.supplierId === supplier.id);
+            const suppliedIds = supplier.suppliedIngredientIds?.length ? supplier.suppliedIngredientIds : linkedIngredients.map((item) => item.id);
+            const suppliedNames = suppliedIds.map((id) => ingredients.find((item) => item.id === id)?.name).filter(Boolean).slice(0, 6).join(", ");
+            return <article className="item-card" key={supplier.id}><Truck size={22} /><h3>{supplier.name}</h3><p>{supplier.contactName || "No contact"} · {supplier.phone || "No phone"}</p><small>{suppliedNames || "No linked ingredients"}</small><small>Lead time: {supplier.leadTimeDays ?? 2} day{supplier.leadTimeDays === 1 ? "" : "s"} · Currency: {supplier.defaultCurrency ?? "NGN"}</small>{linkedIngredients.length > 0 && <small className="field-error">Reassign {linkedIngredients.length} linked ingredient{linkedIngredients.length === 1 ? "" : "s"} before deleting.</small>}<p>{supplier.notes}</p><div className="button-row"><Button variant="secondary" onClick={() => setEditingSupplier(supplier)} disabled={!canManage}>Edit</Button><Button variant="danger" onClick={() => askConfirm({ title: `Delete supplier ${supplier.name}?`, message: "This archives the supplier only when no active ingredients are linked to it.", confirmLabel: "Delete Supplier", tone: "danger", onConfirm: async () => { try { await apiAction("supplier.delete", { supplierId: supplier.id }); notify("Supplier archived."); await reloadData(); } catch (error) { notify(error instanceof Error ? error.message : "Unable to delete supplier."); } } })} disabled={!canUser(user, "deleteRecords") || linkedIngredients.length > 0}>Delete</Button></div></article>;
+          })}
         </div>
         {!supplierList.length && <p className="empty-note">No suppliers found. Try a different supplier, contact, phone, or supplied item search.</p>}
       </Section>

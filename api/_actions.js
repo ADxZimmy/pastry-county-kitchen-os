@@ -116,6 +116,12 @@ function positive(value, label) {
   return value;
 }
 
+function shortageSummary(shortages) {
+  return shortages
+    .map((item) => `${item.ingredientName || item.ingredientId || item.ingredient_id}: short ${Number(item.shortageQuantity ?? item.shortage_quantity ?? 0).toFixed(1)}${item.unit || ""}`)
+    .join(", ");
+}
+
 function conversionFactor(fromUnit, toUnit, ruleFactor) {
   if (fromUnit === toUnit) return 1;
   const direct = {
@@ -182,7 +188,7 @@ async function reserveOrder(sql, orderId) {
   const reservations = await reservationBalancesForOrder(sql, orderId);
   const plan = await Promise.all(requirements.map(async (item) => {
     const ingredientRows = await sql`
-      select current_stock::float as current_stock, reserved_stock::float as reserved_stock
+      select name, current_stock::float as current_stock, reserved_stock::float as reserved_stock
       from ingredients
       where id = ${item.ingredient_id}
     `;
@@ -432,6 +438,7 @@ async function shortagesForProduction(sql, orderId, requirements) {
     const usableStock = currentStock - Math.max(0, reservedStock - reservedForOrder);
     return {
       ingredientId: item.ingredient_id,
+      ingredientName: ingredient?.name || item.ingredient_id,
       unit: item.unit,
       requiredQuantity,
       availableQuantity: usableStock,
@@ -455,7 +462,7 @@ export async function produceOrder(sql, orderId, actor) {
   const shortages = await shortagesForProduction(sql, orderId, requirements);
   if (shortages.length) {
     await sql`update orders set stock_status = 'Shortage', updated_at = now() where id = ${orderId}`;
-    throw Object.assign(new Error("Cannot mark produced while ingredients are short."), { statusCode: 409, details: shortages });
+    throw Object.assign(new Error(`Cannot mark produced while ingredients are short: ${shortageSummary(shortages)}.`), { statusCode: 409, details: shortages });
   }
 
   const batchDeductions = await Promise.all(requirements.map((requirement) => batchDeductionsForRequirement(sql, requirement)));
@@ -765,7 +772,7 @@ export async function handleAction(sql, body, actor) {
     if (status === "In Production") {
       const reservation = await reserveOrder(sql, orderId);
       if (reservation.shortage) {
-        throw Object.assign(new Error("Cannot start production until ingredient shortages are resolved."), { statusCode: 409 });
+        throw Object.assign(new Error(`Cannot start production until shortages are resolved: ${shortageSummary(reservation.shortages)}.`), { statusCode: 409, details: reservation.shortages });
       }
     }
     if (status === "Produced") return produceOrder(sql, orderId, actor);
@@ -798,7 +805,7 @@ export async function handleAction(sql, body, actor) {
       for (const orderId of orderIds) {
         const reservation = await reserveOrder(sql, orderId);
         if (reservation.shortage) {
-          throw Object.assign(new Error("Cannot complete this batch until ingredient shortages are resolved."), { statusCode: 409 });
+          throw Object.assign(new Error(`Cannot complete this batch until shortages are resolved: ${shortageSummary(reservation.shortages)}.`), { statusCode: 409, details: reservation.shortages });
         }
         await sql`
           update orders
@@ -813,7 +820,7 @@ export async function handleAction(sql, body, actor) {
       for (const orderId of orderIds) {
         const reservation = await reserveOrder(sql, orderId);
         if (reservation.shortage) {
-          throw Object.assign(new Error("Cannot start this batch until ingredient shortages are resolved."), { statusCode: 409 });
+          throw Object.assign(new Error(`Cannot start this batch until shortages are resolved: ${shortageSummary(reservation.shortages)}.`), { statusCode: 409, details: reservation.shortages });
         }
       }
     }
@@ -831,7 +838,7 @@ export async function handleAction(sql, body, actor) {
     const normalizedPurchases = await Promise.all(purchases.map(async (item, index) => {
       const ingredientId = required(item.ingredientId, "Ingredient");
       const quantity = positive(num(item.purchaseQuantity ?? item.suggestedBuyQuantity), "Purchase quantity");
-      const unitCost = nonNegative(num(item.unitCost), "Unit cost");
+      const unitCost = positive(num(item.unitCost), "Unit cost");
       const purchasePrice = item.purchasePrice === undefined ? quantity * unitCost : nonNegative(num(item.purchasePrice), "Purchase price");
       const ingredientRows = await sql`select supplier_id, base_unit from ingredients where id = ${ingredientId}`;
       if (!ingredientRows.length) throw Object.assign(new Error("Ingredient not found."), { statusCode: 404 });
@@ -906,8 +913,11 @@ export async function handleAction(sql, body, actor) {
   if (action === "supplier.delete") {
     const supplierId = required(body.supplierId, "Supplier");
     const before = await rowById(sql, "suppliers", supplierId);
+    const linked = await sql`select name from ingredients where supplier_id = ${supplierId} and active = true order by name limit 5`;
+    if (linked.length) {
+      throw Object.assign(new Error(`Cannot delete supplier while linked to ingredients: ${linked.map((item) => item.name).join(", ")}. Reassign those ingredients first.`), { statusCode: 409 });
+    }
     await sql.transaction((txn) => [
-      txn`update ingredients set supplier_id = null, updated_at = now() where supplier_id = ${supplierId}`,
       txn`update suppliers set active = false, updated_at = now() where id = ${supplierId}`
     ]);
     await audit(sql, "suppliers", supplierId, "archive", before, await rowById(sql, "suppliers", supplierId));

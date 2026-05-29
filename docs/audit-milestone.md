@@ -95,12 +95,12 @@ Latest audit source: `Audit Request Expansion.pdf`, score 71/100 on May 29, 2026
 | Status | Area | Audit Finding | Completion Criteria |
 | --- | --- | --- | --- |
 | Done | Real AI assistant | AI Assistant had suggested prompts and conversion widgets, but no real chat area for operational questions. | AI page has a conversational input, message history, and data-backed answers for shopping, shortages, costing, low stock, and pasted recipe measurements. |
-| Todo | Production hard block | Audit reports Start Batch can proceed with shortages. | Batch and order production actions are disabled and API-blocked when shortages exist; shortage toast names exact ingredients and offers Shopping List route. |
-| Todo | Rounding consistency | Scaling/order/costing display can disagree for decimals and count units. | A shared display/calculation utility is used across scaling, ordering, costing, production, and tests cover 0.5x, 0.75x, and 1.5x brownie scaling. |
-| Todo | Shopping purchase reliability | Mark purchased can appear to succeed without inventory updates. | Purchase action validates positive quantity/cost, keeps rows until API success, shows error toast on failure, and test covers quantity/cost/expiry update. |
-| Todo | Supplier deletion feedback | Linked supplier deletion can fail silently. | Linked suppliers either have Delete disabled with guidance or server/client show a specific linked-ingredient error. |
+| Done | Production hard block | Audit reports Start Batch can proceed with shortages. | Batch and order production actions are disabled and API-blocked when shortages exist; shortage toast names exact ingredients and offers Shopping List route. |
+| Done | Rounding consistency | Scaling/order/costing display can disagree for decimals and count units. | A shared display/calculation utility is used across scaling, ordering, costing, production, and tests cover 0.5x, 0.75x, and 1.5x brownie scaling. |
+| Done | Shopping purchase reliability | Mark purchased can appear to succeed without inventory updates. | Purchase action validates positive quantity/cost, keeps rows until API success, shows error toast on failure, and test covers quantity/cost/expiry update. |
+| Done | Supplier deletion feedback | Linked supplier deletion can fail silently. | Linked suppliers either have Delete disabled with guidance or server/client show a specific linked-ingredient error. |
 | Todo | Mobile forms/modals | 360px mobile forms and modals can overflow or hide Save/Cancel. | Add/edit ingredient, stock adjustment, supplier, conversion, production review, and settings forms fit 360px width with internal scroll and reachable sticky actions. |
-| Todo | Empty recipe validation | Blank recipes can be created without ingredients. | Recipe save requires at least one valid ingredient line and shows inline errors before API submission. |
+| Done | Empty recipe validation | Blank recipes can be created without ingredients. | Recipe save requires at least one valid ingredient line and shows inline errors before API submission. |
 | Todo | Audit details | Audit rows are searchable/paginated but do not expose before/after detail. | Audit rows expand to show before/after JSON or meaningful summaries; export includes detailed values where available. |
 | Todo | Global loading/errors | Route changes/API failures can show blank states or silent failures. | API calls use a common user-visible loading/error path; failed requests surface descriptive toasts and retain user-entered state. |
 | Todo | Mobile navigation | Audit requests bottom navigation and better touch targets. | Mobile has persistent bottom nav for key modules and all table/form actions meet 44px touch target expectations. |
@@ -128,6 +128,7 @@ Latest audit source: `Audit Request Expansion.pdf`, score 71/100 on May 29, 2026
 - [x] Post-audit large-list polish added for conversion rules and audit logs.
 - [x] Latest 71/100 audit reviewed and mapped into Milestone 7 95+ score plan.
 - [x] AI assistant chat smoke checked locally with live shopping-list response.
+- [x] Milestone 7 reliability pass added production shortage details, positive shopping purchase validation, supplier delete guards, empty recipe validation, and rounding/parser tests.
 - [ ] Re-run an external audit after the live audit expansion follow-up is deployed.
 
 ## Next Recommended Work

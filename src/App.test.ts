@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { setKitchenSnapshot } from "./data";
-import { calculateMargin, calculateRecipeCost, checkStockAvailability, convertUnit, generateShoppingList, scaleRecipe } from "./lib/kitchen";
+import { calculateMargin, calculateRecipeCost, checkStockAvailability, convertUnit, generateShoppingList, parseRecipeText, roundScaledQuantity, scaleRecipe } from "./lib/kitchen";
 
 describe("kitchen calculations", () => {
   beforeEach(() => {
@@ -61,6 +61,14 @@ describe("kitchen calculations", () => {
     expect(scaled.find((item) => item.ingredientName === "Eggs")?.scaledQuantity).toBe(3);
   });
 
+  it("uses consistent quantity rounding for audit scaling cases", () => {
+    expect(roundScaledQuantity(187.5, "g")).toBe(187.5);
+    expect(roundScaledQuantity(187.54, "g")).toBe(187.5);
+    expect(roundScaledQuantity(2.25, "pcs")).toBe(3);
+    expect(scaleRecipe("recipe-classic", 8).find((item) => item.ingredientName === "Dark Chocolate")?.scaledQuantity).toBe(125);
+    expect(scaleRecipe("recipe-classic", 24).find((item) => item.ingredientName === "Dark Chocolate")?.scaledQuantity).toBe(375);
+  });
+
   it("detects shortages against available stock", () => {
     const availability = checkStockAvailability(scaleRecipe("recipe-classic", 96));
     expect(availability.some((item) => item.status === "shortage")).toBe(true);
@@ -76,6 +84,12 @@ describe("kitchen calculations", () => {
   it("uses ingredient-specific conversion rules", () => {
     expect(convertUnit(4, "cup", "g", "flour").convertedQuantity).toBe(480);
     expect(convertUnit(3, "yolk", "g", "egg-yolks").convertedQuantity).toBe(54);
+  });
+
+  it("parses plural recipe units and count ingredients", () => {
+    const parsed = parseRecipeText("2 cups flour\n4 eggs");
+    expect(parsed.find((item) => item.ingredientName === "flour")?.convertedQuantity).toBe(240);
+    expect(parsed.find((item) => item.ingredientName === "eggs")?.unit).toBe("egg");
   });
 
   it("generates shopping list suggestions", () => {
