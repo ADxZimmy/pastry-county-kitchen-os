@@ -39,6 +39,7 @@ import {
   generateShoppingList,
   parseRecipeText,
   requirementsForOrder,
+  requirementsForOrderLines,
   scaleRecipe
 } from "./lib/kitchen";
 
@@ -67,6 +68,14 @@ type Page =
 type OrderDraft = {
   recipeId: string;
   requestedYieldQuantity: number;
+};
+
+type OrderLineDraft = {
+  productId: string;
+  recipeId: string;
+  requestedYieldQuantity: number;
+  yieldUnit: string;
+  quantityMultiplier: number;
 };
 
 const desktopNav = [
@@ -225,7 +234,17 @@ function hasShortageForOrder(orderId: string) {
 }
 
 function formatQuantity(value: number, unit: Unit) {
-  return `${Number(value.toFixed(3)).toLocaleString("en-NG")}${unit}`;
+  const countUnits: Unit[] = ["pcs", "pack", "roll", "egg", "yolk", "white"];
+  const normalized = countUnits.includes(unit) ? (value < 0 ? Math.floor(value) : Math.ceil(value)) : Number(value.toFixed(3));
+  return `${normalized.toLocaleString("en-NG")}${unit}`;
+}
+
+function isBelowReorder(item: Pick<Ingredient, "currentStock" | "reorderLevel">) {
+  return item.reorderLevel > 0 && item.currentStock <= item.reorderLevel;
+}
+
+function stockMovementLabel(type: string) {
+  return type.replace(/_/g, " ");
 }
 
 type Notify = (message: string) => void;
@@ -327,7 +346,7 @@ type AppNotification = {
 
 function notificationDigest(): AppNotification[] {
   const today = new Date().toISOString().slice(0, 10);
-  const lowStock = ingredients.filter((item) => item.currentStock <= item.reorderLevel);
+  const lowStock = ingredients.filter(isBelowReorder);
   const dueOrders = orders.filter((order) => order.dueDate <= today && !["Delivered", "Cancelled"].includes(order.status));
   const blockedOrders = orders.filter((order) => order.stockStatus === "Shortage" && !["Delivered", "Cancelled"].includes(order.status));
   const expiringLots = ingredientBatches.filter((batch) => {
@@ -336,7 +355,7 @@ function notificationDigest(): AppNotification[] {
     return days >= 0 && days <= 7;
   });
   return [
-    ...lowStock.map((item): AppNotification => ({ id: `stock-${item.id}`, title: `${item.name} is low`, detail: `${item.currentStock}${item.baseUnit} left, reorder at ${item.reorderLevel}${item.baseUnit}`, tone: "danger", page: "ingredient-detail", ingredientId: item.id })),
+    ...lowStock.map((item): AppNotification => ({ id: `stock-${item.id}`, title: `${item.name} is low`, detail: `${formatQuantity(item.currentStock, item.baseUnit)} left, reorder at ${formatQuantity(item.reorderLevel, item.baseUnit)}`, tone: "danger", page: "ingredient-detail", ingredientId: item.id })),
     ...dueOrders.map((order): AppNotification => ({ id: `due-${order.id}`, title: `${order.customerName} order is due`, detail: `${order.status} · due ${order.dueDate}`, tone: "warning", page: "order-detail", orderId: order.id })),
     ...blockedOrders.map((order): AppNotification => ({ id: `blocked-${order.id}`, title: `${order.customerName} is blocked by shortage`, detail: "Restock before production or delivery.", tone: "danger", page: "order-detail", orderId: order.id })),
     ...expiringLots.map((batch): AppNotification => ({ id: `expiry-${batch.id}`, title: "Ingredient lot expiring soon", detail: `${ingredients.find((item) => item.id === batch.ingredientId)?.name ?? batch.ingredientId} · ${batch.expiryDate?.slice(0, 10)}`, tone: "warning", page: "ingredient-detail", ingredientId: batch.ingredientId }))
@@ -753,10 +772,10 @@ function Dashboard({ setPage, setSelectedIngredientId, setSelectedOrderId }: any
       stockStatus: order.stockStatus
     };
   });
-  const lowStock = ingredients.filter((item) => item.currentStock <= item.reorderLevel).slice(0, 3);
+  const lowStock = ingredients.filter(isBelowReorder).slice(0, 3);
   const metrics: { label: string; value: React.ReactNode; hint: string }[] = [
     { label: "Total Ingredients", value: ingredients.length, hint: "Active pantry and packaging items" },
-    { label: "Low Stock Items", value: ingredients.filter((item) => item.currentStock <= item.reorderLevel).length, hint: "Need attention" },
+    { label: "Low Stock Items", value: ingredients.filter(isBelowReorder).length, hint: "Need attention" },
     { label: "Orders Due Today", value: orders.filter((order) => order.dueDate === today).length, hint: "Confirmed and draft" },
     { label: "Pending Production", value: orders.filter((order) => order.productionStatus !== "Completed").length, hint: "Across this week" },
     { label: "Shopping Estimate", value: formatNaira(shopping.reduce((sum, item) => sum + item.estimatedCost, 0)), hint: "Suggested restock cost" },
@@ -807,7 +826,7 @@ function Dashboard({ setPage, setSelectedIngredientId, setSelectedOrderId }: any
           <div className="compact-list">
             {lowStock.map((item) => (
               <button className="row-card" key={item.id} onClick={() => { setSelectedIngredientId(item.id); setPage("ingredient-detail"); }}>
-                <span><strong>{item.name}</strong><small>{item.currentStock}{item.baseUnit} left, reorder at {item.reorderLevel}{item.baseUnit}</small></span>
+                <span><strong>{item.name}</strong><small>{formatQuantity(item.currentStock, item.baseUnit)} left, reorder at {formatQuantity(item.reorderLevel, item.baseUnit)}</small></span>
                 <Badge tone="danger">Low Stock</Badge>
               </button>
             ))}
@@ -843,7 +862,7 @@ function Inventory({ user, setPage, setSelectedIngredientId, query, setQuery }: 
   const [filter, setFilter] = useState("All");
   const categories = ["All", "Dry Goods", "Dairy", "Chocolate", "Fruits", "Packaging", "Low Stock"];
   const list = ingredients.filter((item) => {
-    const categoryMatch = filter === "All" || item.category === filter || (filter === "Low Stock" && item.currentStock <= item.reorderLevel);
+    const categoryMatch = filter === "All" || item.category === filter || (filter === "Low Stock" && isBelowReorder(item));
     return categoryMatch && item.name.toLowerCase().includes(query.toLowerCase());
   });
   return (
@@ -855,7 +874,7 @@ function Inventory({ user, setPage, setSelectedIngredientId, query, setQuery }: 
         rows={list.map((item) => ({
           key: item.id,
           onClick: () => { setSelectedIngredientId(item.id); setPage("ingredient-detail"); },
-          cells: [item.name, item.category, `${item.currentStock}${item.baseUnit}`, `${item.reorderLevel}${item.baseUnit}`, `${formatNaira(item.latestUnitCost)}/${item.baseUnit}`, <Badge tone={item.currentStock <= item.reorderLevel ? "danger" : "success"}>{item.currentStock <= item.reorderLevel ? "Low Stock" : "In Stock"}</Badge>]
+          cells: [item.name, item.category, formatQuantity(item.currentStock, item.baseUnit), formatQuantity(item.reorderLevel, item.baseUnit), `${formatNaira(item.latestUnitCost)}/${item.baseUnit}`, <Badge tone={isBelowReorder(item) ? "danger" : "success"}>{isBelowReorder(item) ? "Low Stock" : "In Stock"}</Badge>]
         }))}
       />
     </>
@@ -865,30 +884,34 @@ function Inventory({ user, setPage, setSelectedIngredientId, query, setQuery }: 
 function IngredientDetail({ ingredientId, user, setPage, notify, askConfirm, reloadData }: { ingredientId: string; user?: AppUser; setPage: (page: Page) => void; notify: (message: string) => void; askConfirm: AskConfirm; reloadData: () => Promise<void> }) {
   const ingredient = ingredients.find((item) => item.id === ingredientId)!;
   const [stockForm, setStockForm] = useState<"purchase" | "adjustment" | null>(null);
+  const [usageOpen, setUsageOpen] = useState(false);
   if (!ingredient) return <EmptyState title="Ingredient not found" message="Select an ingredient from inventory." />;
   const supplier = suppliers.find((item) => item.id === ingredient.supplierId);
   const movements = inventoryMovements.filter((item) => item.ingredientId === ingredientId);
+  const usageMovements = movements.filter((movement) => ["production_use", "waste", "adjustment", "reservation", "reservation_release"].includes(movement.movementType));
   const batches = ingredientBatches.filter((item) => item.ingredientId === ingredientId);
   const auditTrail = auditLogs.filter((item) => item.entityType === "ingredients" && item.entityId === ingredientId).slice(0, 8);
+  const purchaseMovements = movements.filter((movement) => movement.movementType === "purchase").sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  const trendText = purchaseMovements.length >= 2 ? `${purchaseMovements[purchaseMovements.length - 1].quantityChange > purchaseMovements[0].quantityChange ? "Higher" : "Stable"} purchase volume trend` : "Not enough purchase history";
   return (
     <div className="detail-layout">
       <article className="detail-hero">
         <div>
           <p className="eyebrow">{ingredient.category}</p>
           <h2>{ingredient.name}</h2>
-          <p>{ingredient.currentStock}{ingredient.baseUnit} in stock · reorder at {ingredient.reorderLevel}{ingredient.baseUnit}</p>
+          <p>{formatQuantity(ingredient.currentStock, ingredient.baseUnit)} in stock · reorder at {formatQuantity(ingredient.reorderLevel, ingredient.baseUnit)}</p>
         </div>
         <div className="button-row">
           <Button onClick={() => setStockForm("purchase")} disabled={!canUser(user, "manageInventory")}><PackagePlus size={18} /> Add Stock</Button>
           <Button variant="secondary" onClick={() => setStockForm("adjustment")} disabled={!canUser(user, "manageInventory")}>Adjust Stock</Button>
-          <Button variant="secondary" onClick={() => notify(`${ingredient.name} usage history is shown in the movement timeline below.`)}>View Usage</Button>
+          <Button variant="secondary" onClick={() => setUsageOpen(true)}>View Usage</Button>
           <Button variant="ghost" onClick={() => setPage("ingredient-form")} disabled={!canUser(user, "manageInventory")}>Edit {ingredient.name}</Button>
           <Button variant="danger" onClick={() => askConfirm({ title: `Archive ${ingredient.name}?`, message: "It will disappear from active inventory, while historical recipe and order records remain intact.", confirmLabel: "Archive Ingredient", tone: "danger", onConfirm: async () => { await apiAction("ingredient.delete", { ingredientId }); notify(`${ingredient.name} archived from active inventory.`); await reloadData(); setPage("inventory"); } })} disabled={!canUser(user, "deleteRecords")}>Archive</Button>
         </div>
       </article>
       <div className="split">
-        <SummaryCard title="Stock Summary" items={[["Current stock", `${ingredient.currentStock}${ingredient.baseUnit}`], ["Reserved stock", `${ingredient.reservedStock ?? 0}${ingredient.baseUnit}`], ["Available stock", `${ingredient.currentStock - (ingredient.reservedStock ?? 0)}${ingredient.baseUnit}`], ["Reorder level", `${ingredient.reorderLevel}${ingredient.baseUnit}`]]} />
-        <SummaryCard title="Cost Summary" items={[["Last purchase price", `${formatNaira(ingredient.latestUnitCost)}/${ingredient.baseUnit}`], ["Supplier", supplier?.name ?? "Unassigned"], ["Expiry date", ingredient.expiryDate ?? "Not tracked"], ["Price trend", "18% increase placeholder"]]} />
+        <SummaryCard title="Stock Summary" items={[["Current stock", formatQuantity(ingredient.currentStock, ingredient.baseUnit)], ["Reserved stock", formatQuantity(ingredient.reservedStock ?? 0, ingredient.baseUnit)], ["Available stock", formatQuantity(ingredient.currentStock - (ingredient.reservedStock ?? 0), ingredient.baseUnit)], ["Reorder level", formatQuantity(ingredient.reorderLevel, ingredient.baseUnit)]]} />
+        <SummaryCard title="Cost Summary" items={[["Last purchase price", `${formatNaira(ingredient.latestUnitCost)}/${ingredient.baseUnit}`], ["Supplier", supplier?.name ?? "Unassigned"], ["Expiry date", ingredient.expiryDate ?? "Not tracked"], ["Purchase trend", trendText]]} />
       </div>
       <Section title="Batch Lots & FEFO">
         <ResponsiveTable headers={["Lot", "Remaining", "Expiry", "Received", "Guidance"]} rows={batches.map((batch, index) => ({
@@ -924,13 +947,40 @@ function IngredientDetail({ ingredientId, user, setPage, notify, askConfirm, rel
               <Clock size={18} />
               <div>
                 <strong>{movement.note}</strong>
-                <small>{movement.movementType} · {formatQuantity(movement.quantityChange, movement.unit)} · {new Date(movement.createdAt).toLocaleDateString()}</small>
+                <small>{stockMovementLabel(movement.movementType)} · {formatQuantity(movement.quantityChange, movement.unit)} · {new Date(movement.createdAt).toLocaleDateString()}</small>
               </div>
             </article>
           ))}
         </div>
       </Section>
       {stockForm && <StockAdjustmentModal ingredient={ingredient} mode={stockForm} onClose={() => setStockForm(null)} notify={notify} reloadData={reloadData} />}
+      {usageOpen && <UsageHistoryModal ingredient={ingredient} movements={usageMovements} onClose={() => setUsageOpen(false)} notify={notify} />}
+    </div>
+  );
+}
+
+function UsageHistoryModal({ ingredient, movements, onClose, notify }: { ingredient: Ingredient; movements: typeof inventoryMovements; onClose: () => void; notify: (message: string) => void }) {
+  const [range, setRange] = useState("All");
+  const now = Date.now();
+  const filtered = movements.filter((movement) => {
+    if (range === "All") return true;
+    const days = range === "30 days" ? 30 : 7;
+    return new Date(movement.createdAt).getTime() >= now - days * 86400000;
+  });
+  const used = filtered.filter((movement) => movement.quantityChange < 0).reduce((sum, movement) => sum + Math.abs(movement.quantityChange), 0);
+  const addedBack = filtered.filter((movement) => movement.quantityChange > 0).reduce((sum, movement) => sum + movement.quantityChange, 0);
+  return (
+    <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="usage-history-title">
+      <article className="confirm-modal wide">
+        <div className="section-head">
+          <div><p className="eyebrow">Usage history</p><h2 id="usage-history-title">{ingredient.name}</h2></div>
+          <div className="button-row"><Button variant="secondary" onClick={() => exportCsv(`usage-${ingredient.id}.csv`, ["Date", "Type", "Quantity", "Note"], filtered.map((movement) => [movement.createdAt, movement.movementType, movement.quantityChange, movement.note]), notify)}>Export CSV</Button><Button variant="secondary" onClick={onClose}>Close</Button></div>
+        </div>
+        <Chips items={["All", "30 days", "7 days"]} active={range} setActive={setRange} />
+        <div className="metric-grid small"><Metric label="Used or removed" value={formatQuantity(used, ingredient.baseUnit)} /><Metric label="Added back" value={formatQuantity(addedBack, ingredient.baseUnit)} /><Metric label="Events" value={filtered.length} /></div>
+        <ResponsiveTable headers={["Date", "Type", "Quantity", "Note"]} rows={filtered.map((movement) => ({ key: movement.id, cells: [new Date(movement.createdAt).toLocaleString(), stockMovementLabel(movement.movementType), formatQuantity(movement.quantityChange, movement.unit), movement.note] }))} />
+        {!filtered.length && <p className="empty-note">No usage events in this range.</p>}
+      </article>
     </div>
   );
 }
@@ -962,6 +1012,7 @@ function StockAdjustmentModal({ ingredient, mode, onClose, notify, reloadData }:
             movementType: mode === "purchase" && direction === "add" ? "purchase" : "adjustment",
             quantityChange: signedQuantity,
             unit: ingredient.baseUnit,
+            expiryDate: formValue(form, "expiryDate"),
             note: formValue(form, "note") || `${direction === "add" ? "Added" : "Removed"} ${formatQuantity(quantity, ingredient.baseUnit)}`
           });
           notify(`${ingredient.name} stock updated by ${formatQuantity(signedQuantity, ingredient.baseUnit)}.`);
@@ -981,6 +1032,7 @@ function StockAdjustmentModal({ ingredient, mode, onClose, notify, reloadData }:
             </select>
           </Field>
           <Field label={`Quantity (${ingredient.baseUnit})`}><input name="quantity" type="number" min="0.001" step="0.001" value={quantity || ""} onChange={(event) => { setQuantity(Number(event.target.value)); setError(""); }} required /></Field>
+          {mode === "purchase" && direction === "add" && <Field label="Expiry date" helper="Optional. Creates a FEFO lot for this purchase."><input name="expiryDate" type="date" /></Field>}
           <Field label="Reason"><textarea name="note" required placeholder="Purchase, spoilage, count correction, or production note" /></Field>
         </div>
         {validationError && <p className="field-error" role="alert">{validationError}</p>}
@@ -1210,10 +1262,19 @@ function CreateOrder({ orderId, orderDraft, setOrderDraft, setPage, notify, relo
   const existingItems = orderItems.filter((item) => item.orderId === orderId);
   const draftRecipe = !order && orderDraft ? recipes.find((item) => item.id === orderDraft.recipeId) : undefined;
   const draftItem = draftRecipe ? { productId: draftRecipe.productId, recipeId: draftRecipe.id, requestedYieldQuantity: orderDraft?.requestedYieldQuantity ?? draftRecipe.baseYieldQuantity, yieldUnit: draftRecipe.yieldUnit, quantityMultiplier: 1 } : undefined;
-  const [orderRows, setOrderRows] = useState<number[]>(existingItems.length ? existingItems.map((_, index) => index) : [0]);
-  const requirements = order ? requirementsForOrder(order.id) : draftItem ? scaleRecipe(draftItem.recipeId, draftItem.requestedYieldQuantity * draftItem.quantityMultiplier) : [];
+  const initialLines = existingItems.length ? existingItems : draftItem ? [draftItem] : [{ productId: "", recipeId: "", requestedYieldQuantity: 1, yieldUnit: "pieces", quantityMultiplier: 1 }];
+  const [orderRows, setOrderRows] = useState<number[]>(initialLines.map((_, index) => index));
+  const [lineDrafts, setLineDrafts] = useState<Record<number, OrderLineDraft>>(() => Object.fromEntries(initialLines.map((item, index) => [index, {
+    productId: item.productId,
+    recipeId: item.recipeId,
+    requestedYieldQuantity: item.requestedYieldQuantity,
+    yieldUnit: item.yieldUnit,
+    quantityMultiplier: item.quantityMultiplier
+  }])));
+  const validLines = orderRows.map((row) => lineDrafts[row]).filter((item): item is OrderLineDraft => Boolean(item?.recipeId && item.requestedYieldQuantity > 0 && item.quantityMultiplier > 0));
+  const requirements = validLines.length ? requirementsForOrderLines(validLines) : [];
   const availability = checkStockAvailability(requirements);
-  const cost = order ? calculateOrderCost(order.id) : requirements.reduce((sum, item) => {
+  const cost = requirements.reduce((sum, item) => {
     const ingredient = ingredients.find((candidate) => candidate.id === item.ingredientId);
     return sum + item.scaledQuantity * (ingredient?.latestUnitCost ?? 0);
   }, 0);
@@ -1222,13 +1283,7 @@ function CreateOrder({ orderId, orderDraft, setOrderDraft, setPage, notify, relo
   const margin = calculateMargin(netPrice, cost);
   return (
     <FormShell title={order ? "Edit Order" : "Create Order"} action="Confirm and Reserve Stock" cancelTo="orders" setPage={setPage} onDone={async (form) => {
-      const items = orderRows.map((_, index) => ({
-        productId: formValue(form, `productId-${index}`),
-        recipeId: formValue(form, `recipeId-${index}`),
-        requestedYieldQuantity: formNumber(form, `requestedYieldQuantity-${index}`, 1),
-        yieldUnit: formValue(form, `yieldUnit-${index}`),
-        quantityMultiplier: formNumber(form, `quantityMultiplier-${index}`, 1)
-      }));
+      const items = orderRows.map((row) => lineDrafts[row]).filter((item): item is OrderLineDraft => Boolean(item?.productId && item.recipeId));
       await apiAction("order.save", {
         reserve: true,
         order: {
@@ -1249,17 +1304,19 @@ function CreateOrder({ orderId, orderDraft, setOrderDraft, setPage, notify, relo
       setPage("orders");
     }}>
       <Section title="Customer info"><div className="form-grid"><Field label="Customer name"><input name="customerName" defaultValue={order?.customerName ?? ""} placeholder="Customer name" required /></Field><Field label="Customer phone"><input name="customerPhone" type="tel" defaultValue={order?.customerPhone ?? ""} placeholder="+234..." /></Field><Field label="Due date"><input name="dueDate" type="date" defaultValue={order?.dueDate ?? new Date().toISOString().slice(0, 10)} required /></Field><Field label="Delivery or pickup"><select name="deliveryMethod" defaultValue={order?.deliveryMethod ?? "Pickup"}><option>Pickup</option><option>Delivery</option></select></Field><Field label="Payment status"><select name="paymentStatus" defaultValue={order?.paymentStatus ?? "Unpaid"}><option>Unpaid</option><option>Deposit Paid</option><option>Paid</option></select></Field><Field label="Notes"><textarea name="notes" defaultValue={order?.notes ?? ""} placeholder="Order notes" /></Field></div></Section>
-      <Section title="Order items" action={<Button variant="secondary" onClick={() => setOrderRows((rows) => [...rows, Date.now()])}><Plus size={18} /> Add another product</Button>}>
+      <Section title="Order items" action={<Button variant="secondary" onClick={() => { const row = Date.now(); setOrderRows((rows) => [...rows, row]); setLineDrafts((drafts) => ({ ...drafts, [row]: { productId: "", recipeId: "", requestedYieldQuantity: 1, yieldUnit: "pieces", quantityMultiplier: 1 } })); }}><Plus size={18} /> Add another product</Button>}>
         <div className="compact-list">
           {orderRows.map((row, index) => {
-            const item = existingItems[index] ?? (index === 0 ? draftItem : undefined);
+            const item = lineDrafts[row] ?? { productId: "", recipeId: "", requestedYieldQuantity: 1, yieldUnit: "pieces", quantityMultiplier: 1 };
+            const updateLine = (patch: Partial<OrderLineDraft>) => setLineDrafts((drafts) => ({ ...drafts, [row]: { ...item, ...patch } }));
             return (
-              <div className="builder-row" key={row}>
-                <label className="builder-field"><span>Product</span><select name={`productId-${index}`} defaultValue={item?.productId ?? ""} required><option value="" disabled>Select product</option>{products.map((product) => <option key={product.id} value={product.id}>{product.name}</option>)}</select></label>
-                <label className="builder-field"><span>Recipe</span><select name={`recipeId-${index}`} defaultValue={item?.recipeId ?? ""} required><option value="" disabled>Select recipe</option>{recipes.map((recipe) => <option key={recipe.id} value={recipe.id}>{recipe.name}</option>)}</select></label>
-                <label className="builder-field"><span>Yield qty</span><input name={`requestedYieldQuantity-${index}`} type="number" min="0.001" step="0.001" defaultValue={item?.requestedYieldQuantity ?? ""} placeholder="0" /></label>
-                <label className="builder-field"><span>Yield unit</span><select name={`yieldUnit-${index}`} defaultValue={item?.yieldUnit ?? "pieces"}><option>pieces</option><option>cookies</option><option>loaves</option></select></label>
-                <label className="builder-field"><span>Multiplier</span><input aria-label={`Order item ${index + 1} multiplier`} name={`quantityMultiplier-${index}`} type="number" min="0.001" step="0.001" defaultValue={item?.quantityMultiplier ?? 1} /></label>
+              <div className="builder-row order-builder-row" key={row}>
+                <label className="builder-field"><span>Product</span><select name={`productId-${index}`} value={item.productId} onChange={(event) => updateLine({ productId: event.target.value })} required><option value="" disabled>Select product</option>{products.map((product) => <option key={product.id} value={product.id}>{product.name}</option>)}</select></label>
+                <label className="builder-field"><span>Recipe</span><select name={`recipeId-${index}`} value={item.recipeId} onChange={(event) => { const recipe = recipes.find((candidate) => candidate.id === event.target.value); updateLine({ recipeId: event.target.value, productId: item.productId || recipe?.productId || "", requestedYieldQuantity: item.requestedYieldQuantity || recipe?.baseYieldQuantity || 1, yieldUnit: recipe?.yieldUnit || item.yieldUnit }); }} required><option value="" disabled>Select recipe</option>{recipes.map((recipe) => <option key={recipe.id} value={recipe.id}>{recipe.name}</option>)}</select></label>
+                <label className="builder-field"><span>Yield qty</span><input name={`requestedYieldQuantity-${index}`} type="number" min="0.001" step="0.001" value={item.requestedYieldQuantity || ""} onChange={(event) => updateLine({ requestedYieldQuantity: Number(event.target.value) })} placeholder="0" /></label>
+                <label className="builder-field"><span>Yield unit</span><select name={`yieldUnit-${index}`} value={item.yieldUnit} onChange={(event) => updateLine({ yieldUnit: event.target.value })}><option>pieces</option><option>cookies</option><option>loaves</option></select></label>
+                <label className="builder-field"><span>Multiplier</span><input aria-label={`Order item ${index + 1} multiplier`} name={`quantityMultiplier-${index}`} type="number" min="0.001" step="0.001" value={item.quantityMultiplier || ""} onChange={(event) => updateLine({ quantityMultiplier: Number(event.target.value) })} /></label>
+                {orderRows.length > 1 && <Button variant="ghost" onClick={() => setOrderRows((rows) => rows.filter((candidate) => candidate !== row))}>Remove</Button>}
               </div>
             );
           })}
@@ -1267,7 +1324,10 @@ function CreateOrder({ orderId, orderDraft, setOrderDraft, setPage, notify, relo
       </Section>
       <div className="split">
         <Section title="Ingredient Requirement Preview"><div className="compact-list">{requirements.map((item) => <div className="row-card" key={item.ingredientId}><span>{item.ingredientName}</span><strong>{item.scaledQuantity}{item.unit}</strong></div>)}</div></Section>
-      <Section title="Stock Availability"><div className="compact-list">{availability.map((item) => <div className="row-card" key={item.ingredientId}><span>{item.ingredientName}<small>Available {item.availableStock}</small></span><Badge tone={item.status === "shortage" ? "danger" : "success"}>{item.status.replace(/_/g, " ")}</Badge></div>)}</div></Section>
+      <Section title="Stock Availability"><div className="compact-list">{availability.map((item) => {
+        const unit = requirements.find((requirement) => requirement.ingredientId === item.ingredientId)?.unit ?? "g";
+        return <div className="row-card" key={item.ingredientId}><span>{item.ingredientName}<small>Available {formatQuantity(item.availableStock, unit)}</small></span><Badge tone={item.status === "shortage" ? "danger" : "success"}>{item.status.replace(/_/g, " ")}</Badge></div>;
+      })}</div></Section>
       </div>
       {availability.some((item) => item.shortageQuantity > 0) && <article className="warning-card"><AlertTriangle size={22} /> Some ingredients are short. You can still save this order, but production cannot be completed until stock is updated.</article>}
       <div className="metric-grid small"><Metric label="Estimated Production Cost" value={formatNaira(cost)} /><Metric label="Net Selling Price" value={formatNaira(netPrice)} /><Metric label="Estimated Gross Margin" value={`${margin.grossMarginPercentage.toFixed(1)}%`} /></div>
@@ -1308,7 +1368,10 @@ function OrderDetail({ orderId, user, setPage, notify, askConfirm, reloadData }:
       {hasShortage && <article className="warning-card"><AlertTriangle size={22} /> Resolve ingredient shortages before reserving stock, starting production, or marking this order produced.</article>}
       <div className="split"><SummaryCard title="Customer Info" items={[["Name", order.customerName], ["Phone", order.customerPhone], ["Payment", order.paymentStatus], ["Notes", order.notes ?? "None"]]} /><SummaryCard title="Cost Summary" items={[["Production cost", formatNaira(cost)], ["Stock status", order.stockStatus], ["Production status", order.productionStatus], ["Order status", order.status]]} /></div>
       <Section title="Required Ingredients"><div className="compact-list">{requirements.map((item) => <div className="row-card" key={item.ingredientId}><span>{item.ingredientName}</span><strong>{item.scaledQuantity}{item.unit}</strong></div>)}</div></Section>
-      <Section title="Stock Check"><div className="compact-list">{availability.map((item) => <div className="row-card" key={item.ingredientId}><span>{item.ingredientName}<small>Required {item.requiredQuantity}, available {item.availableStock}</small></span><Badge tone={item.shortageQuantity > 0 ? "danger" : "success"}>{item.shortageQuantity > 0 ? "Shortage" : "Enough Stock"}</Badge></div>)}</div></Section>
+      <Section title="Stock Check"><div className="compact-list">{availability.map((item) => {
+        const unit = requirements.find((requirement) => requirement.ingredientId === item.ingredientId)?.unit ?? "g";
+        return <div className="row-card" key={item.ingredientId}><span>{item.ingredientName}<small>Required {formatQuantity(item.requiredQuantity, unit)}, available {formatQuantity(item.availableStock, unit)}</small></span><Badge tone={item.shortageQuantity > 0 ? "danger" : "success"}>{item.shortageQuantity > 0 ? "Shortage" : "Enough Stock"}</Badge></div>;
+      })}</div></Section>
       <Section title="Timeline"><div className="timeline"><article><CheckCircle2 size={18} /><div><strong>Order confirmed</strong><small>May 18, 2026</small></div></article><article><AlertTriangle size={18} /><div><strong>Stock shortage detected</strong><small>Dark Chocolate and Eggs need restock</small></div></article></div></Section>
     </div>
   );
@@ -1316,6 +1379,7 @@ function OrderDetail({ orderId, user, setPage, notify, askConfirm, reloadData }:
 
 function Production({ user, setPage, setSelectedOrderId, notify, reloadData }: any) {
   const [reviewBatchKey, setReviewBatchKey] = useState("");
+  const [scaledOrderId, setScaledOrderId] = useState("");
   const activeOrders = orders.filter((order) => !["Delivered", "Cancelled"].includes(order.status));
   const batches = Object.values(orderItems.reduce<Record<string, { key: string; recipeId: string; dueDate: string; orderIds: string[]; totalYield: number }>>((acc, item) => {
     const order = activeOrders.find((candidate) => candidate.id === item.orderId);
@@ -1382,7 +1446,7 @@ function Production({ user, setPage, setSelectedOrderId, notify, reloadData }: a
                   <h3>{orderItems.filter((item) => item.orderId === order.id).map((item) => products.find((product) => product.id === item.productId)?.name).join(", ")}</h3>
                   <p>{order.customerName} · due {order.dueDate}</p>
                   <small>Required: {requirementsForOrder(order.id).slice(0, 3).map((item) => `${item.ingredientName} ${item.scaledQuantity}${item.unit}`).join(", ")}</small>
-                  <div className="button-row"><Button variant="secondary" onClick={async (event) => { event.stopPropagation(); try { await apiAction("order.status", { orderId: order.id, status: "In Production", productionStatus: "In Progress" }); notify("Production started for this order."); await reloadData(); } catch (error) { notify(error instanceof Error ? error.message : "Unable to start production."); } }} disabled={!canStartProduction || !canUser(user, "runProduction")}>Start Production</Button><Button variant="secondary" onClick={(event) => { event.stopPropagation(); setSelectedOrderId(order.id); setPage("order-detail"); }}>View Scaled Recipe</Button><Button onClick={async (event) => { event.stopPropagation(); try { await markOrderProduced(order.id, notify); await reloadData(); } catch (error) { notify(error instanceof Error ? error.message : "Unable to deduct inventory."); } }} disabled={!canDeductInventory || !canUser(user, "runProduction")}>Deduct Inventory</Button></div>
+                  <div className="button-row"><Button variant="secondary" onClick={async (event) => { event.stopPropagation(); try { await apiAction("order.status", { orderId: order.id, status: "In Production", productionStatus: "In Progress" }); notify("Production started for this order."); await reloadData(); } catch (error) { notify(error instanceof Error ? error.message : "Unable to start production."); } }} disabled={!canStartProduction || !canUser(user, "runProduction")}>Start Production</Button><Button variant="secondary" onClick={(event) => { event.stopPropagation(); setScaledOrderId(order.id); }}>View Scaled Recipe</Button><Button onClick={async (event) => { event.stopPropagation(); try { await markOrderProduced(order.id, notify); await reloadData(); } catch (error) { notify(error instanceof Error ? error.message : "Unable to deduct inventory."); } }} disabled={!canDeductInventory || !canUser(user, "runProduction")}>Deduct Inventory</Button></div>
                 </article>
               );
             })}
@@ -1406,6 +1470,39 @@ function Production({ user, setPage, setSelectedOrderId, notify, reloadData }: a
           </article>
         </div>
       )}
+      {scaledOrderId && <ProductionScaledRecipeModal orderId={scaledOrderId} onClose={() => setScaledOrderId("")} />}
+    </div>
+  );
+}
+
+function ProductionScaledRecipeModal({ orderId, onClose }: { orderId: string; onClose: () => void }) {
+  const order = orders.find((item) => item.id === orderId);
+  const lines = orderItems.filter((item) => item.orderId === orderId);
+  if (!order) return null;
+  return (
+    <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="scaled-recipe-title">
+      <article className="confirm-modal wide">
+        <div className="section-head">
+          <div><p className="eyebrow">Scaled recipe</p><h2 id="scaled-recipe-title">{order.customerName}</h2></div>
+          <Button variant="secondary" onClick={onClose}>Close</Button>
+        </div>
+        {lines.map((line) => {
+          const recipe = recipes.find((item) => item.id === line.recipeId);
+          const requested = line.requestedYieldQuantity * line.quantityMultiplier;
+          const scaled = recipe ? scaleRecipe(recipe.id, requested) : [];
+          const cost = recipe ? calculateRecipeCost(recipe.id, requested) : { totalRecipeCost: 0, costPerYieldUnit: 0 };
+          return (
+            <section className="compact-list" key={line.id}>
+              <SummaryCard title={recipe?.name ?? "Recipe"} items={[
+                ["Requested yield", `${requested} ${line.yieldUnit}`],
+                ["Scale factor", recipe ? `${(requested / recipe.baseYieldQuantity).toFixed(2)}x` : "Unknown"],
+                ["Estimated cost", formatNaira(cost.totalRecipeCost)]
+              ]} />
+              <ResponsiveTable headers={["Ingredient", "Original", "Scaled"]} rows={scaled.map((item) => ({ key: item.ingredientId, cells: [item.ingredientName, formatQuantity(item.originalQuantity, item.unit), formatQuantity(item.scaledQuantity, item.unit)] }))} />
+            </section>
+          );
+        })}
+      </article>
     </div>
   );
 }
@@ -1413,7 +1510,7 @@ function Production({ user, setPage, setSelectedOrderId, notify, reloadData }: a
 function ShoppingList({ user, notify, reloadData }: { user?: AppUser; notify: (message: string) => void; reloadData: () => Promise<void> }) {
   const list = generateShoppingList();
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const [purchaseDrafts, setPurchaseDrafts] = useState<Record<string, { quantity: number; unitCost: number; note: string; expiryDate: string }>>({});
+  const [purchaseDrafts, setPurchaseDrafts] = useState<Record<string, { quantity: string; unitCost: string; note: string; expiryDate: string }>>({});
   useEffect(() => {
     setSelectedIds((current) => {
       const available = new Set(list.map((item) => item.ingredientId));
@@ -1426,8 +1523,8 @@ function ShoppingList({ user, notify, reloadData }: { user?: AppUser; notify: (m
       const next = { ...current };
       list.forEach((item) => {
         next[item.ingredientId] ??= {
-          quantity: item.suggestedBuyQuantity,
-          unitCost: item.unitCost,
+          quantity: String(item.suggestedBuyQuantity),
+          unitCost: String(item.unitCost),
           note: `${item.reason}${item.demandOrderCount ? ` for ${item.demandOrderCount} order${item.demandOrderCount === 1 ? "" : "s"}` : ""}`,
           expiryDate: ""
         };
@@ -1438,23 +1535,25 @@ function ShoppingList({ user, notify, reloadData }: { user?: AppUser; notify: (m
   const selectedItems = list
     .filter((item) => selectedIds.includes(item.ingredientId))
     .map((item) => {
-      const draft = purchaseDrafts[item.ingredientId] ?? { quantity: item.suggestedBuyQuantity, unitCost: item.unitCost, note: "", expiryDate: "" };
+      const draft = purchaseDrafts[item.ingredientId] ?? { quantity: String(item.suggestedBuyQuantity), unitCost: String(item.unitCost), note: "", expiryDate: "" };
+      const purchaseQuantity = Number(draft.quantity) || 0;
+      const unitCost = Number(draft.unitCost) || 0;
       return {
         ...item,
-        purchaseQuantity: draft.quantity,
-        unitCost: draft.unitCost,
-        estimatedCost: draft.quantity * draft.unitCost,
+        purchaseQuantity,
+        unitCost,
+        estimatedCost: purchaseQuantity * unitCost,
         note: draft.note,
         expiryDate: draft.expiryDate
       };
     });
-  const updateDraft = (ingredientId: string, patch: Partial<{ quantity: number; unitCost: number; note: string; expiryDate: string }>) => {
-    setPurchaseDrafts((current) => ({ ...current, [ingredientId]: { ...(current[ingredientId] ?? { quantity: 0, unitCost: 0, note: "", expiryDate: "" }), ...patch } }));
+  const updateDraft = (ingredientId: string, patch: Partial<{ quantity: string; unitCost: string; note: string; expiryDate: string }>) => {
+    setPurchaseDrafts((current) => ({ ...current, [ingredientId]: { ...(current[ingredientId] ?? { quantity: "", unitCost: "", note: "", expiryDate: "" }), ...patch } }));
   };
   const exportShoppingList = () => {
     const text = list.map((item) => {
-      const draft = purchaseDrafts[item.ingredientId] ?? { quantity: item.suggestedBuyQuantity, unitCost: item.unitCost };
-      return `${item.ingredientName}: buy ${draft.quantity}${item.unit} (${formatNaira(draft.quantity * draft.unitCost)})`;
+      const draft = purchaseDrafts[item.ingredientId] ?? { quantity: String(item.suggestedBuyQuantity), unitCost: String(item.unitCost) };
+      return `${item.ingredientName}: buy ${draft.quantity}${item.unit} (${formatNaira((Number(draft.quantity) || 0) * (Number(draft.unitCost) || 0))})`;
     }).join("\n");
     downloadText("pastry-county-shopping-list.txt", text || "No shopping list items.");
     notify("Shopping list exported.");
@@ -1464,10 +1563,11 @@ function ShoppingList({ user, notify, reloadData }: { user?: AppUser; notify: (m
   const allSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedIds.includes(id));
   return (
     <div className="page-grid">
-      <div className="metric-grid small"><Metric label="Needed for Orders" value={list.filter((item) => item.requiredQuantity > 0).length} /><Metric label="Below Reorder Level" value={ingredients.filter((item) => item.currentStock <= item.reorderLevel).length} /><Metric label="Selected Cost" value={formatNaira(selectedCost)} /></div>
+      <div className="metric-grid small"><Metric label="Needed for Orders" value={list.filter((item) => item.requiredQuantity > 0).length} /><Metric label="Below Reorder Level" value={ingredients.filter(isBelowReorder).length} /><Metric label="Selected Cost" value={formatNaira(selectedCost)} /></div>
       <Section title="Suggested Purchases" action={<Button variant="secondary" onClick={() => shareText(list.map((item) => `${item.ingredientName}: ${item.suggestedBuyQuantity}${item.unit}`).join("\n"), notify)}>Send to WhatsApp</Button>}>
         <ResponsiveTable headers={["Buy", "Ingredient", "Available", "Needed", "Purchase Qty", "Unit Cost", "Expiry", "Cost", "Reason", "Supplier"]} rows={list.map((item) => {
-          const draft = purchaseDrafts[item.ingredientId] ?? { quantity: item.suggestedBuyQuantity, unitCost: item.unitCost, note: "", expiryDate: "" };
+          const draft = purchaseDrafts[item.ingredientId] ?? { quantity: String(item.suggestedBuyQuantity), unitCost: String(item.unitCost), note: "", expiryDate: "" };
+          const lineCost = (Number(draft.quantity) || 0) * (Number(draft.unitCost) || 0);
           return {
             key: item.ingredientId,
             cells: [
@@ -1475,10 +1575,10 @@ function ShoppingList({ user, notify, reloadData }: { user?: AppUser; notify: (m
               item.ingredientName,
               `${item.availableStock}${item.unit}`,
               `${item.requiredQuantity}${item.unit}`,
-              <input aria-label={`${item.ingredientName} purchase quantity`} type="number" min="0.001" step="0.001" value={draft.quantity} onChange={(event) => updateDraft(item.ingredientId, { quantity: Number(event.target.value) })} />,
-              <input aria-label={`${item.ingredientName} unit cost`} type="number" min="0" step="0.0001" value={draft.unitCost} onChange={(event) => updateDraft(item.ingredientId, { unitCost: Number(event.target.value) })} />,
+              <input aria-label={`${item.ingredientName} purchase quantity`} type="number" min="0.001" step="0.001" value={draft.quantity} onChange={(event) => updateDraft(item.ingredientId, { quantity: event.target.value })} onBlur={(event) => updateDraft(item.ingredientId, { quantity: String(Math.max(0, Number(event.target.value) || 0)) })} />,
+              <input aria-label={`${item.ingredientName} unit cost`} type="number" min="0" step="0.0001" value={draft.unitCost} onChange={(event) => updateDraft(item.ingredientId, { unitCost: event.target.value })} onBlur={(event) => updateDraft(item.ingredientId, { unitCost: String(Math.max(0, Number(event.target.value) || 0)) })} />,
               <input aria-label={`${item.ingredientName} expiry date`} type="date" value={draft.expiryDate} onChange={(event) => updateDraft(item.ingredientId, { expiryDate: event.target.value })} />,
-              formatNaira(draft.quantity * draft.unitCost),
+              formatNaira(lineCost),
               <input aria-label={`${item.ingredientName} purchase note`} value={draft.note} onChange={(event) => updateDraft(item.ingredientId, { note: event.target.value })} />,
               item.supplier
             ]
@@ -1576,7 +1676,7 @@ function ConversionLibrary({ user, notify, askConfirm, reloadData }: { user?: Ap
           <ConversionRuleForm rule={editingRule} onCancel={() => setEditingRule(null)} notify={notify} reloadData={reloadData} />
         </div>
       )}
-      <Section title="Approved Conversion Rules" action={<Button onClick={() => setEditingRule({ ingredientId: ingredients[0]?.id, fromUnit: "cup", toUnit: ingredients[0]?.baseUnit ?? "g", conversionFactor: 1, confidenceLevel: "Medium", source: "manual entry", verified: false })} disabled={!canManage}><Plus size={18} /> Add Conversion Rule</Button>}>
+      <Section title="Approved Conversion Rules" action={<div className="button-row"><Button variant="secondary" onClick={() => exportCsv("pastry-county-conversion-rules.csv", ["Ingredient", "From Unit", "To Unit", "Factor", "Confidence", "Source", "Verified"], conversionRules.map((rule) => [ingredients.find((item) => item.id === rule.ingredientId)?.name ?? rule.ingredientId, rule.fromUnit, rule.toUnit, rule.conversionFactor, rule.confidenceLevel, rule.source, rule.verified ? "Yes" : "No"]), notify)}>Export CSV</Button><Button onClick={() => setEditingRule({ ingredientId: ingredients[0]?.id, fromUnit: "cup", toUnit: ingredients[0]?.baseUnit ?? "g", conversionFactor: 1, confidenceLevel: "Medium", source: "manual entry", verified: false })} disabled={!canManage}><Plus size={18} /> Add Conversion Rule</Button></div>}>
         <ResponsiveTable headers={["Ingredient", "From", "To", "Value", "Confidence", "Source", "Verified", "Actions"]} rows={conversionRules.map((rule) => ({ key: rule.id, cells: [ingredients.find((item) => item.id === rule.ingredientId)?.name, rule.fromUnit, rule.toUnit, `1 ${rule.fromUnit} = ${rule.conversionFactor}${rule.toUnit}`, rule.confidenceLevel, rule.source, rule.verified ? <Badge tone="success">Verified</Badge> : <Badge tone="warning">Review</Badge>, <div className="button-row"><Button variant="secondary" onClick={() => setEditingRule(rule)} disabled={!canManage}>Edit</Button><Button variant="secondary" onClick={async () => { await apiAction("conversion.verify", { ruleId: rule.id }); notify(`Verified ${rule.fromUnit} to ${rule.toUnit} conversion rule.`); await reloadData(); }} disabled={!canManage}>Mark Verified</Button><Button variant="danger" onClick={() => askConfirm({ title: "Delete conversion rule?", message: `This removes the ${rule.fromUnit} to ${rule.toUnit} conversion rule from the approved library.`, confirmLabel: "Delete Rule", tone: "danger", onConfirm: async () => { await apiAction("conversion.delete", { ruleId: rule.id }); notify("Conversion rule deleted."); await reloadData(); } })} disabled={!canUser(user, "deleteRecords")}>Delete</Button></div>] }))} />
       </Section>
     </div>
@@ -1690,13 +1790,13 @@ function SettingsPage({ user, setPage, notify, reloadData }: { user?: AppUser; s
   const [editingUser, setEditingUser] = useState<Partial<AppStaffUser> | null>(null);
   const canManageSettings = canUser(user, "manageSettings");
   const canRestoreArchive = canUser(user, "restoreArchive");
-  const lowStockRows = ingredients.filter((item) => item.currentStock <= item.reorderLevel);
+  const lowStockRows = ingredients.filter(isBelowReorder);
   const expiringRows = ingredientBatches.filter((batch) => batch.expiryDate).slice(0, 8);
   const wasteRows = inventoryMovements.filter((item) => item.movementType === "waste" || item.note?.toLowerCase().includes("spoil") || item.note?.toLowerCase().includes("waste")).slice(0, 8);
   const auditRows = (auditFilter === "All" ? auditLogs : auditLogs.filter((entry) => entry.entityType === auditFilter)).filter((entry) => [entry.entityType, entry.entityId, entry.action, entry.actor, new Date(entry.createdAt).toLocaleString()].join(" ").toLowerCase().includes(auditSearch.toLowerCase()));
   const supplierPerformance = suppliers.map((supplier) => {
     const supplied = ingredients.filter((ingredient) => ingredient.supplierId === supplier.id);
-    const low = supplied.filter((ingredient) => ingredient.currentStock <= ingredient.reorderLevel);
+    const low = supplied.filter(isBelowReorder);
     return { supplier, suppliedCount: supplied.length, lowCount: low.length, stockValue: supplied.reduce((sum, ingredient) => sum + ingredient.currentStock * ingredient.latestUnitCost, 0) };
   });
   const loadArchive = async () => {

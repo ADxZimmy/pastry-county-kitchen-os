@@ -633,13 +633,22 @@ export async function handleAction(sql, body, actor) {
     if (Number(ingredientRows[0].current_stock) + quantity < 0) {
       throw Object.assign(new Error("Adjustment would make stock negative."), { statusCode: 400 });
     }
-    await sql.transaction((txn) => [
-      txn`
+    await sql.transaction((txn) => {
+      const statements = [
+        txn`
         insert into inventory_movements (id, ingredient_id, movement_type, quantity_change, unit, note, created_by)
         values (${id("mov")}, ${ingredientId}, ${movementType}, ${quantity}, ${required(body.unit, "Unit")}, ${body.note || "Manual stock adjustment"}, 'system')
       `,
-      txn`update ingredients set current_stock = current_stock + ${quantity}, updated_at = now() where id = ${ingredientId}`
-    ]);
+        txn`update ingredients set current_stock = current_stock + ${quantity}, updated_at = now() where id = ${ingredientId}`
+      ];
+      if (movementType === "purchase" && quantity > 0) {
+        statements.push(txn`
+        insert into ingredient_batches (id, ingredient_id, quantity_received, quantity_remaining, unit, expiry_date, received_date, notes)
+        values (${id("lot")}, ${ingredientId}, ${quantity}, ${quantity}, ${required(body.unit, "Unit")}, ${body.expiryDate || null}, now(), ${body.note || "Manual stock purchase"})
+      `);
+      }
+      return statements;
+    });
     await audit(sql, "ingredients", ingredientId, "stock_adjust", before, await rowById(sql, "ingredients", ingredientId));
     return { ok: true };
   }

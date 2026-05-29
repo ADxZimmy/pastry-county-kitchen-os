@@ -1,6 +1,6 @@
 # Pastry County Kitchen OS Audit Milestone
 
-This milestone tracks every finding from `App Audit Request.pdf`, `App Audit Request (1).pdf`, `App Audit Request (2).pdf`, `Audit Scope Expansion Request.pdf`, and `Audit Scope Expansion Request UIUX.pdf` and the work needed to move the audit from "Not Ready" to complete coverage.
+This milestone tracks every finding from `App Audit Request.pdf`, `App Audit Request (1).pdf`, `App Audit Request (2).pdf`, `Audit Scope Expansion Request.pdf`, `Audit Scope Expansion Request UIUX.pdf`, and `Audit Expansion Request.pdf` and the work needed to move the audit from "Not Ready" to complete coverage.
 
 Status legend:
 
@@ -76,6 +76,18 @@ Status legend:
 | Done | Audit log search | Audit Reports filtered by entity but lacked search within logs. | Audit Reports now include text search across entity, record, action, actor, and date. |
 | Done | UI contrast/responsiveness | UI was too beige/brown, dense tables wrapped awkwardly, and shopping/audit still scrolled on narrower screens. | Added muted teal accents/focus states, stronger muted text contrast, labeled dense rows, and card/table breakpoint improvements for shopping/audit-style screens. |
 
+## Milestone 6 - Live Audit Expansion Follow-Up
+
+| Status | Area | Audit Finding | Completion Criteria |
+| --- | --- | --- | --- |
+| Done | Add order preview | Add Order did not update ingredient requirements, stock availability, cost, or margin while products were entered. | Order item rows are controlled, recalculate requirements/cost live from selected recipes, and preserve scaled-recipe drafts. |
+| Done | Production scaled recipe | Production card View Scaled Recipe routed to order detail instead of showing the recipe quantities. | View Scaled Recipe opens a production modal with requested yield, scale factor, cost, and ingredient quantities. |
+| Done | Ingredient usage history | View Usage only displayed a toast. | View Usage opens a filterable/exportable usage modal with event counts and usage totals. |
+| Done | Add stock FEFO lots | Add Stock lacked expiry entry and the audit flagged modal confusion after saving. | Add Stock now accepts optional expiry date, creates an ingredient lot for purchase movements, shows a success toast, reloads data, and closes on success. |
+| Done | Shopping list editing | Quantity/cost edits could reset and select-all felt unreliable. | Shopping drafts store input text locally until blur, selected purchase totals derive from draft values, and the visible-item toggle remains keyed to unique ingredient IDs. |
+| Done | Conversion bulk export | Conversion editing/export was incomplete. | Conversion Library now exports rules to CSV; existing modal supports ingredient/unit/value/source/confidence/verified edits. |
+| Done | Minor UI placeholders | Ingredient cost summary showed a hard-coded price trend placeholder and count units could display decimals. | Placeholder removed, purchase trend text is derived from movement history, and displayed count units round to whole units. |
+
 ## Validation Checklist
 
 - [x] Unit tests passed with `npm test`.
@@ -94,10 +106,11 @@ Status legend:
 - [x] Mobile/responsive controls verified through the responsive table/card implementation and browser smoke.
 - [x] Keyboard/accessibility pass covered visible focus, table scopes, named controls, modal scrolling, loading state, and recovery actions.
 - [x] Scope expansion audit PDFs reviewed and mapped to scaled-order, production, conversion, staff, supplier, audit-search, and UI responsiveness fixes.
-- [ ] Re-run an external audit after the scope expansion patch is live.
+- [x] Live audit expansion PDF reviewed and mapped to order-preview, production scaled-recipe, usage-history, stock modal, shopping edit, conversion export, and polish fixes.
+- [ ] Re-run an external audit after the live audit expansion follow-up is deployed.
 
 ## Next Recommended Work
 
-1. Re-run the external audit against the live deployment after this scope expansion patch is live.
+1. Re-run the external audit against the live deployment after this follow-up patch is live.
 2. Watch the first few Resend deliveries from the verified domain for spam placement and DMARC aggregate reports.
-3. Close any new external audit findings in this milestone file before marking the audit cycle complete.
+3. Consider server-side pagination/virtualization for very large audit/conversion lists if future usage volume grows.

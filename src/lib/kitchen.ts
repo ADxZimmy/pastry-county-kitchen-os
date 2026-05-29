@@ -99,6 +99,10 @@ export function checkStockAvailability(scaledIngredients: ScaledIngredient[], in
   });
 }
 
+export function requirementsForOrderLines(lines: Pick<OrderItem, "recipeId" | "requestedYieldQuantity" | "quantityMultiplier">[]) {
+  return combineRequirements(lines.flatMap((line) => scaleRecipe(line.recipeId, line.requestedYieldQuantity * line.quantityMultiplier)));
+}
+
 export function reservationQuantityForOrder(orderId: string, ingredientId: string, unit: Unit) {
   return inventoryMovements
     .filter((movement) => movement.relatedOrderId === orderId && movement.ingredientId === ingredientId && movement.unit === unit && ["reservation", "reservation_release"].includes(movement.movementType))
@@ -161,7 +165,7 @@ export function calculateMargin(sellingPrice: number, costPrice: number) {
 
 export function requirementsForOrder(orderId: string, allOrderItems = orderItems) {
   const lines = allOrderItems.filter((item) => item.orderId === orderId);
-  return combineRequirements(lines.flatMap((line) => scaleRecipe(line.recipeId, line.requestedYieldQuantity * line.quantityMultiplier)));
+  return requirementsForOrderLines(lines);
 }
 
 export function calculateOrderCost(orderId: string) {
@@ -191,10 +195,14 @@ function estimatedUnitCost(ingredient: Ingredient) {
   return 5;
 }
 
+function isBelowReorder(ingredient: Ingredient) {
+  return ingredient.reorderLevel > 0 && ingredient.currentStock <= ingredient.reorderLevel;
+}
+
 export function generateShoppingList(orderIds = orders.filter((order) => ["Confirmed", "Stock Reserved", "In Production"].includes(order.status)).map((order) => order.id)) {
   const orderRequirements = combineRequirements(orderIds.flatMap((orderId) => requirementsForOrder(orderId).map(normalizeRequirementToBase)));
   const lowStockLines = ingredients
-    .filter((ingredient) => ingredient.currentStock <= ingredient.reorderLevel)
+    .filter(isBelowReorder)
     .map((ingredient) => ({
       ingredientId: ingredient.id,
       ingredientName: ingredient.name,

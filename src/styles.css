@@ -285,6 +285,7 @@ tbody tr:hover { background: #fff4e6; }
 .field small { color: var(--muted); }
 .field-error { color: var(--red) !important; font-weight: 800; }
 .builder-row { display: grid; grid-template-columns: 1fr; gap: 10px; align-items: end; }
+.order-builder-row .btn { min-height: 46px; }
 .builder-field { display: grid; gap: 6px; min-width: 0; }
 .builder-field span { color: var(--muted); font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; }
 .sticky-actions {
@@ -380,6 +381,7 @@ tbody tr:hover { background: #fff4e6; }
   .form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .form-grid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .builder-row { grid-template-columns: minmax(180px, 1.5fr) minmax(110px, .8fr) minmax(110px, .8fr) minmax(110px, .8fr) auto; }
+  .order-builder-row { grid-template-columns: minmax(170px, 1.2fr) minmax(170px, 1.2fr) minmax(100px, .75fr) minmax(100px, .75fr) minmax(92px, .65fr) auto; }
   .more-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 }
 
