@@ -78,6 +78,12 @@ type OrderLineDraft = {
   quantityMultiplier: number;
 };
 
+type TableRow = {
+  key: string;
+  cells: React.ReactNode[];
+  onClick?: () => void;
+};
+
 const desktopNav = [
   ["dashboard", LayoutDashboard, "Dashboard"],
   ["recipes", Cookie, "Recipes"],
@@ -1668,7 +1674,16 @@ function AiAssistant({ setPage, notify, reloadData }: { setPage: (page: Page) =>
 
 function ConversionLibrary({ user, notify, askConfirm, reloadData }: { user?: AppUser; notify: (message: string) => void; askConfirm: AskConfirm; reloadData: () => Promise<void> }) {
   const [editingRule, setEditingRule] = useState<Partial<ConversionRule> | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
+  const [conversionSearch, setConversionSearch] = useState("");
+  const [conversionFilter, setConversionFilter] = useState("All");
   const canManage = canUser(user, "manageConversions");
+  const filteredRules = conversionRules.filter((rule) => {
+    const ingredientName = ingredients.find((item) => item.id === rule.ingredientId)?.name ?? rule.ingredientId;
+    const statusMatch = conversionFilter === "All" || (conversionFilter === "Verified" ? rule.verified : !rule.verified);
+    const queryMatch = [ingredientName, rule.fromUnit, rule.toUnit, rule.conversionFactor, rule.confidenceLevel, rule.source, rule.verified ? "verified" : "review"].join(" ").toLowerCase().includes(conversionSearch.toLowerCase());
+    return statusMatch && queryMatch;
+  });
   return (
     <div className="page-grid">
       {editingRule && (
@@ -1676,10 +1691,68 @@ function ConversionLibrary({ user, notify, askConfirm, reloadData }: { user?: Ap
           <ConversionRuleForm rule={editingRule} onCancel={() => setEditingRule(null)} notify={notify} reloadData={reloadData} />
         </div>
       )}
-      <Section title="Approved Conversion Rules" action={<div className="button-row"><Button variant="secondary" onClick={() => exportCsv("pastry-county-conversion-rules.csv", ["Ingredient", "From Unit", "To Unit", "Factor", "Confidence", "Source", "Verified"], conversionRules.map((rule) => [ingredients.find((item) => item.id === rule.ingredientId)?.name ?? rule.ingredientId, rule.fromUnit, rule.toUnit, rule.conversionFactor, rule.confidenceLevel, rule.source, rule.verified ? "Yes" : "No"]), notify)}>Export CSV</Button><Button onClick={() => setEditingRule({ ingredientId: ingredients[0]?.id, fromUnit: "cup", toUnit: ingredients[0]?.baseUnit ?? "g", conversionFactor: 1, confidenceLevel: "Medium", source: "manual entry", verified: false })} disabled={!canManage}><Plus size={18} /> Add Conversion Rule</Button></div>}>
-        <ResponsiveTable headers={["Ingredient", "From", "To", "Value", "Confidence", "Source", "Verified", "Actions"]} rows={conversionRules.map((rule) => ({ key: rule.id, cells: [ingredients.find((item) => item.id === rule.ingredientId)?.name, rule.fromUnit, rule.toUnit, `1 ${rule.fromUnit} = ${rule.conversionFactor}${rule.toUnit}`, rule.confidenceLevel, rule.source, rule.verified ? <Badge tone="success">Verified</Badge> : <Badge tone="warning">Review</Badge>, <div className="button-row"><Button variant="secondary" onClick={() => setEditingRule(rule)} disabled={!canManage}>Edit</Button><Button variant="secondary" onClick={async () => { await apiAction("conversion.verify", { ruleId: rule.id }); notify(`Verified ${rule.fromUnit} to ${rule.toUnit} conversion rule.`); await reloadData(); }} disabled={!canManage}>Mark Verified</Button><Button variant="danger" onClick={() => askConfirm({ title: "Delete conversion rule?", message: `This removes the ${rule.fromUnit} to ${rule.toUnit} conversion rule from the approved library.`, confirmLabel: "Delete Rule", tone: "danger", onConfirm: async () => { await apiAction("conversion.delete", { ruleId: rule.id }); notify("Conversion rule deleted."); await reloadData(); } })} disabled={!canUser(user, "deleteRecords")}>Delete</Button></div>] }))} />
+      {importOpen && (
+        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="conversion-import-title">
+          <ConversionImportModal onCancel={() => setImportOpen(false)} notify={notify} reloadData={reloadData} />
+        </div>
+      )}
+      <Section title="Approved Conversion Rules" action={<div className="button-row"><Button variant="secondary" onClick={() => exportCsv("pastry-county-conversion-rules.csv", ["Ingredient", "From Unit", "To Unit", "Factor", "Confidence", "Source", "Verified"], filteredRules.map((rule) => [ingredients.find((item) => item.id === rule.ingredientId)?.name ?? rule.ingredientId, rule.fromUnit, rule.toUnit, rule.conversionFactor, rule.confidenceLevel, rule.source, rule.verified ? "Yes" : "No"]), notify)}>Export CSV</Button><Button variant="secondary" onClick={() => setImportOpen(true)} disabled={!canManage}>Import CSV</Button><Button onClick={() => setEditingRule({ ingredientId: ingredients[0]?.id, fromUnit: "cup", toUnit: ingredients[0]?.baseUnit ?? "g", conversionFactor: 1, confidenceLevel: "Medium", source: "manual entry", verified: false })} disabled={!canManage}><Plus size={18} /> Add Conversion Rule</Button></div>}>
+        <Toolbar query={conversionSearch} setQuery={setConversionSearch} placeholder="Search conversions" />
+        <Chips items={["All", "Verified", "Needs Review"]} active={conversionFilter} setActive={setConversionFilter} />
+        <PaginatedTable
+          label="conversion rules"
+          headers={["Ingredient", "From", "To", "Value", "Confidence", "Source", "Verified", "Actions"]}
+          rows={filteredRules.map((rule) => ({ key: rule.id, cells: [ingredients.find((item) => item.id === rule.ingredientId)?.name, rule.fromUnit, rule.toUnit, `1 ${rule.fromUnit} = ${rule.conversionFactor}${rule.toUnit}`, rule.confidenceLevel, rule.source, rule.verified ? <Badge tone="success">Verified</Badge> : <Badge tone="warning">Review</Badge>, <div className="button-row"><Button variant="secondary" onClick={() => setEditingRule(rule)} disabled={!canManage}>Edit</Button><Button variant="secondary" onClick={async () => { await apiAction("conversion.verify", { ruleId: rule.id }); notify(`Verified ${rule.fromUnit} to ${rule.toUnit} conversion rule.`); await reloadData(); }} disabled={!canManage}>Mark Verified</Button><Button variant="danger" onClick={() => askConfirm({ title: "Delete conversion rule?", message: `This removes the ${rule.fromUnit} to ${rule.toUnit} conversion rule from the approved library.`, confirmLabel: "Delete Rule", tone: "danger", onConfirm: async () => { await apiAction("conversion.delete", { ruleId: rule.id }); notify("Conversion rule deleted."); await reloadData(); } })} disabled={!canUser(user, "deleteRecords")}>Delete</Button></div>] }))}
+        />
       </Section>
     </div>
+  );
+}
+
+function ConversionImportModal({ onCancel, notify, reloadData }: { onCancel: () => void; notify: (message: string) => void; reloadData: () => Promise<void> }) {
+  const [saving, setSaving] = useState(false);
+  const parseCsvLine = (line: string) => line.split(",").map((value) => value.trim().replace(/^"|"$/g, ""));
+  return (
+    <form className="section conversion-modal" onSubmit={async (event) => {
+      event.preventDefault();
+      const form = event.currentTarget;
+      const text = formValue(form, "rules");
+      const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+      const dataLines = lines[0]?.toLowerCase().includes("ingredient") ? lines.slice(1) : lines;
+      const rules = dataLines.map(parseCsvLine).map(([ingredientName, fromUnit, toUnit, factor, confidence = "Medium", source = "manual entry", verified = "No"]) => {
+        const ingredient = ingredients.find((item) => item.id === ingredientName || item.name.toLowerCase() === ingredientName.toLowerCase());
+        return {
+          ingredientId: ingredient?.id ?? "",
+          fromUnit,
+          toUnit,
+          conversionFactor: Number(factor),
+          confidenceLevel: confidence,
+          source,
+          verified: ["yes", "true", "verified"].includes(verified.toLowerCase())
+        };
+      });
+      const invalid = rules.find((rule) => !rule.ingredientId || !rule.fromUnit || !rule.toUnit || !Number.isFinite(rule.conversionFactor) || rule.conversionFactor <= 0);
+      if (invalid) {
+        notify("Import stopped. Check ingredient names, units, and positive numeric factors.");
+        return;
+      }
+      setSaving(true);
+      try {
+        for (const rule of rules) {
+          await apiAction("conversion.save", { rule });
+        }
+        notify(`${rules.length} conversion rule${rules.length === 1 ? "" : "s"} imported.`);
+        await reloadData();
+        onCancel();
+      } finally {
+        setSaving(false);
+      }
+    }}>
+      <div className="section-head"><h2 id="conversion-import-title">Import Conversion Rules</h2><div className="button-row"><Button variant="secondary" onClick={onCancel}>Cancel</Button><Button type="submit">{saving ? "Importing..." : "Import Rules"}</Button></div></div>
+      <Field label="CSV rows" helper="Columns: Ingredient, From Unit, To Unit, Factor, Confidence, Source, Verified. Ingredient can be the exact ingredient name or ID.">
+        <textarea name="rules" required rows={10} placeholder={'Flour,cup,g,125,High,measured in kitchen,Yes\nSugar,cup,g,200,Medium,manual entry,No'} />
+      </Field>
+    </form>
   );
 }
 
@@ -1907,7 +1980,7 @@ function SettingsPage({ user, setPage, notify, reloadData }: { user?: AppUser; s
       <Section title="Audit Reports" action={<div className="button-row"><Button variant="secondary" onClick={() => exportCsv("pastry-county-audit-report.csv", ["Entity", "Record", "Action", "Actor", "Date"], auditRows.map((entry) => [entry.entityType, entry.entityId, entry.action, entry.actor, new Date(entry.createdAt).toLocaleString()]), notify)}>Export CSV</Button><Button variant="secondary" onClick={() => exportPrintableReport("pastry-county-compliance-report.html", "Pastry County Compliance Report", [["Audit rows", auditRows.length], ["Low-stock items", lowStockRows.length], ["Waste events", wasteRows.length], ["Open shortages", orders.filter((order) => order.stockStatus === "Shortage").length]], notify)}>PDF/Print</Button></div>}>
         <Toolbar query={auditSearch} setQuery={setAuditSearch} placeholder="Search audit logs" />
         <Chips items={["All", ...Array.from(new Set(auditLogs.map((entry) => entry.entityType))).slice(0, 8)]} active={auditFilter} setActive={setAuditFilter} />
-        <ResponsiveTable headers={["Entity", "Record", "Action", "Actor", "Date"]} rows={auditRows.slice(0, 25).map((entry) => ({ key: entry.id, cells: [entry.entityType, entry.entityId, entry.action, entry.actor, new Date(entry.createdAt).toLocaleString()] }))} />
+        <PaginatedTable label="audit logs" headers={["Entity", "Record", "Action", "Actor", "Date"]} rows={auditRows.map((entry) => ({ key: entry.id, cells: [entry.entityType, entry.entityId, entry.action, entry.actor, new Date(entry.createdAt).toLocaleString()] }))} />
       </Section>
       <Section title="FEFO, Waste & Supplier Reports" action={<div className="button-row"><Button variant="secondary" onClick={sendLowStockAlert}>Send Low-Stock Alert</Button><Button variant="secondary" onClick={() => exportPrintableReport("pastry-county-operations-report.html", "Pastry County Operations Report", [["Expiring lots", expiringRows.length], ["Waste events", wasteRows.length], ["Suppliers", suppliers.length], ["Stock value", formatNaira(ingredients.reduce((sum, item) => sum + item.currentStock * item.latestUnitCost, 0))]], notify)}>PDF/Print</Button></div>}>
         <div className="split">
@@ -1961,7 +2034,32 @@ function Chips({ items, active, setActive }: { items: string[]; active: string; 
   return <div className="chips">{items.map((item) => <button key={item} className={item === active ? "active" : ""} onClick={() => setActive(item)}>{item}</button>)}</div>;
 }
 
-function ResponsiveTable({ headers, rows }: { headers: string[]; rows: { key: string; cells: React.ReactNode[]; onClick?: () => void }[] }) {
+function PaginatedTable({ headers, rows, label, pageSize = 25 }: { headers: string[]; rows: TableRow[]; label: string; pageSize?: number }) {
+  const [page, setPage] = useState(1);
+  const pageCount = Math.max(1, Math.ceil(rows.length / pageSize));
+  useEffect(() => {
+    setPage((current) => Math.min(current, pageCount));
+  }, [pageCount]);
+  const start = (page - 1) * pageSize;
+  const visibleRows = rows.slice(start, start + pageSize);
+  return (
+    <div className="paginated-table">
+      <ResponsiveTable headers={headers} rows={visibleRows} />
+      {rows.length > pageSize && (
+        <div className="table-footer">
+          <span>Showing {start + 1}-{Math.min(start + pageSize, rows.length)} of {rows.length} {label}</span>
+          <div className="pager">
+            <Button variant="secondary" onClick={() => setPage((current) => Math.max(1, current - 1))} disabled={page === 1}>Previous</Button>
+            <strong>Page {page} of {pageCount}</strong>
+            <Button variant="secondary" onClick={() => setPage((current) => Math.min(pageCount, current + 1))} disabled={page === pageCount}>Next</Button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ResponsiveTable({ headers, rows }: { headers: string[]; rows: TableRow[] }) {
   const activateRow = (event: React.MouseEvent, onClick?: () => void) => {
     const target = event.target as HTMLElement;
     if (target.closest("button,input,select,textarea,a")) return;

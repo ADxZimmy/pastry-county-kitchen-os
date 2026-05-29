@@ -107,10 +107,11 @@ Status legend:
 - [x] Keyboard/accessibility pass covered visible focus, table scopes, named controls, modal scrolling, loading state, and recovery actions.
 - [x] Scope expansion audit PDFs reviewed and mapped to scaled-order, production, conversion, staff, supplier, audit-search, and UI responsiveness fixes.
 - [x] Live audit expansion PDF reviewed and mapped to order-preview, production scaled-recipe, usage-history, stock modal, shopping edit, conversion export, and polish fixes.
+- [x] Post-audit large-list polish added for conversion rules and audit logs.
 - [ ] Re-run an external audit after the live audit expansion follow-up is deployed.
 
 ## Next Recommended Work
 
 1. Re-run the external audit against the live deployment after this follow-up patch is live.
 2. Watch the first few Resend deliveries from the verified domain for spam placement and DMARC aggregate reports.
-3. Consider server-side pagination/virtualization for very large audit/conversion lists if future usage volume grows.
+3. Consider moving conversion/audit pagination server-side only if production data grows beyond the current client snapshot model.

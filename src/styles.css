@@ -258,6 +258,18 @@ tbody tr:hover { background: #fff4e6; }
 .mobile-table-cards { display: grid; gap: 12px; }
 .mobile-row { display: flex; justify-content: space-between; gap: 16px; align-items: center; }
 .mobile-row strong { text-align: right; overflow-wrap: anywhere; }
+.paginated-table { display: grid; gap: 12px; }
+.table-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  color: var(--muted);
+  font-weight: 800;
+}
+.pager { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.pager strong { color: var(--ink); }
 .empty-note {
   margin: 0;
   padding: 14px;
