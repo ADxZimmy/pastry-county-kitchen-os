@@ -84,6 +84,12 @@ type TableRow = {
   onClick?: () => void;
 };
 
+type AiChatMessage = {
+  id: string;
+  role: "user" | "assistant";
+  text: string;
+};
+
 const desktopNav = [
   ["dashboard", LayoutDashboard, "Dashboard"],
   ["recipes", Cookie, "Recipes"],
@@ -1618,6 +1624,41 @@ function Costing() {
   );
 }
 
+function buildKitchenAiResponse(prompt: string) {
+  const lower = prompt.toLowerCase();
+  const shopping = generateShoppingList();
+  const lowStock = ingredients.filter(isBelowReorder);
+  const activeOrders = orders.filter((order) => !["Delivered", "Cancelled"].includes(order.status));
+  const shortageOrders = activeOrders.filter((order) => checkOrderStockAvailability(order.id).some((item) => item.shortageQuantity > 0));
+  const recipeMatch = recipes.find((recipe) => lower.includes(recipe.name.toLowerCase()));
+  const recipe = recipeMatch ?? recipes[0];
+  if (lower.includes("buy") || lower.includes("shopping") || lower.includes("restock")) {
+    const topItems = shopping.slice(0, 5).map((item) => `${item.ingredientName}: buy ${formatQuantity(item.suggestedBuyQuantity, item.unit)} (${formatNaira(item.estimatedCost)})`).join("\n");
+    return topItems ? `Here is the current buying priority from live stock and orders:\n${topItems}\n\nTotal suggested spend: ${formatNaira(shopping.reduce((sum, item) => sum + item.estimatedCost, 0))}.` : "No purchase is currently suggested from active orders and reorder levels.";
+  }
+  if (lower.includes("shortage") || lower.includes("blocked") || lower.includes("production")) {
+    const blocked = shortageOrders.map((order) => `${order.customerName}: ${checkOrderStockAvailability(order.id).filter((item) => item.shortageQuantity > 0).map((item) => `${item.ingredientName} short ${formatQuantity(item.shortageQuantity, requirementsForOrder(order.id).find((requirement) => requirement.ingredientId === item.ingredientId)?.unit ?? "g")}`).join(", ")}`).join("\n");
+    return blocked ? `Production blockers found:\n${blocked}\n\nResolve these through Shopping List before starting or completing production.` : "No active order is currently blocked by ingredient shortages.";
+  }
+  if (lower.includes("cost") || lower.includes("margin") || lower.includes("price")) {
+    const cost = calculateRecipeCost(recipe.id, recipe.baseYieldQuantity);
+    const margin = calculateMargin(netSellingPrice(18000), cost.totalRecipeCost);
+    return `${recipe.name} currently costs ${formatNaira(cost.totalRecipeCost)} per ${recipe.baseYieldQuantity} ${recipe.yieldUnit}, or ${formatNaira(cost.costPerYieldUnit)} per ${recipe.yieldUnit}. At a ${formatNaira(18000)} selling price, estimated gross margin is ${margin.grossMarginPercentage.toFixed(1)}%.`;
+  }
+  if (lower.includes("convert") || lower.includes("cup") || lower.includes("gram") || lower.includes("recipe text")) {
+    const parsed = parseRecipeText(prompt);
+    if (parsed.length) {
+      return `I parsed these recipe lines:\n${parsed.map((item) => `${item.ingredientName}: ${item.quantity} ${item.unit} -> ${item.convertedQuantity}${item.convertedUnit} (${item.confidence}${item.needsReview ? ", needs review" : ""})`).join("\n")}`;
+    }
+    const flour = convertUnit(1, "cup", "g", "flour");
+    return `For flour, the current rule converts 1 cup to ${flour.convertedQuantity}g with ${flour.confidenceLevel} confidence. Paste recipe lines and I can parse them into structured quantities.`;
+  }
+  if (lower.includes("low stock") || lower.includes("inventory")) {
+    return lowStock.length ? `Low-stock items right now:\n${lowStock.slice(0, 8).map((item) => `${item.name}: ${formatQuantity(item.currentStock, item.baseUnit)} left; reorder at ${formatQuantity(item.reorderLevel, item.baseUnit)}`).join("\n")}` : "No ingredient is below a positive reorder threshold right now.";
+  }
+  return `I can help with live kitchen questions. Current snapshot: ${activeOrders.length} active order${activeOrders.length === 1 ? "" : "s"}, ${lowStock.length} low-stock item${lowStock.length === 1 ? "" : "s"}, and ${shopping.length} suggested purchase line${shopping.length === 1 ? "" : "s"}. Try asking about what to buy, production blockers, recipe cost, low stock, or paste recipe measurements for conversion.`;
+}
+
 function AiAssistant({ setPage, notify, reloadData }: { setPage: (page: Page) => void; notify: (message: string) => void; reloadData: () => Promise<void> }) {
   const suggestions = [
     { id: "flour-cups", label: "Convert 4 cups flour to grams", ingredientId: "flour", quantity: 4, fromUnit: "cup" as Unit, toUnit: "g" as Unit },
@@ -1636,17 +1677,40 @@ function AiAssistant({ setPage, notify, reloadData }: { setPage: (page: Page) =>
   }, [selectedId, savedRule?.conversionFactor, conversion.convertedQuantity, selected.quantity]);
   const parsed = parseRecipeText("2 cups flour\n1 cup sugar\n4 eggs\n1/2 cup cocoa powder\n1 cup coconut oil");
   const convertedQuantity = selected.quantity * factor;
+  const [chatInput, setChatInput] = useState("");
+  const [messages, setMessages] = useState<AiChatMessage[]>([
+    { id: "welcome-ai", role: "assistant", text: buildKitchenAiResponse("summary") }
+  ]);
+  const askAssistant = (text: string) => {
+    const prompt = text.trim();
+    if (!prompt) return;
+    setMessages((current) => [
+      ...current,
+      { id: `user-${Date.now()}`, role: "user", text: prompt },
+      { id: `assistant-${Date.now()}`, role: "assistant", text: buildKitchenAiResponse(prompt) }
+    ]);
+    setChatInput("");
+  };
   return (
     <div className="ai-layout">
-      <Section title="Suggested actions">
+      <Section title="Ask AI">
+        <div className="chat">
+          {messages.map((message) => <article className={`message ${message.role === "user" ? "user" : "ai"}`} key={message.id}>{message.text.split("\n").map((line, index) => <p key={`${message.id}-${index}`}>{line || " "}</p>)}</article>)}
+        </div>
+        <form className="chat-composer" onSubmit={(event) => { event.preventDefault(); askAssistant(chatInput); }}>
+          <textarea value={chatInput} onChange={(event) => setChatInput(event.target.value)} placeholder="Ask about shortages, what to buy, recipe cost, or paste recipe measurements..." rows={3} />
+          <Button type="submit"><Bot size={18} /> Send</Button>
+        </form>
+        <div className="chips wrap">
+          {["What do I need to buy?", "Which orders are blocked by shortages?", "Estimate Classic Brownies cost", "Show low stock items"].map((prompt) => <button key={prompt} onClick={() => askAssistant(prompt)}>{prompt}</button>)}
+        </div>
+      </Section>
+      <Section title="Conversion workspace">
         <div className="chips wrap">
           {suggestions.map((chip) => <button key={chip.id} className={selectedId === chip.id ? "active" : ""} onClick={() => setSelectedId(chip.id)}>{chip.label}</button>)}
           <button onClick={() => setPage("shopping")}>What do I need to buy?</button>
           <button onClick={() => setPage("costing")}>Estimate recipe cost</button>
         </div>
-      </Section>
-      <div className="chat">
-        <article className="message user">{selected.label}.</article>
         <article className="message ai">
           <h3>Ingredient Conversion</h3>
           <SummaryCard title="Conversion result" items={[
@@ -1665,7 +1729,7 @@ function AiAssistant({ setPage, notify, reloadData }: { setPage: (page: Page) =>
             <Button variant="secondary" onClick={async () => { await apiAction("conversion.save", { rule: { id: savedRule?.id, ingredientId: selected.ingredientId, fromUnit: selected.fromUnit, toUnit: selected.toUnit, conversionFactor: factor, confidenceLevel: savedRule?.confidenceLevel ?? "Medium", source: savedRule?.source ?? "AI estimate", verified: Boolean(savedRule?.verified) } }); notify("Conversion rule saved to Neon for review."); await reloadData(); }}>Save conversion rule</Button>
           </div>
         </article>
-      </div>
+      </Section>
       <Section title="Recipe Parser Preview"><ResponsiveTable headers={["Ingredient", "Quantity", "Converted", "Confidence", "Review"]} rows={parsed.map((item) => ({ key: item.id, cells: [item.ingredientName, `${item.quantity} ${item.unit}`, `${item.convertedQuantity} ${item.convertedUnit}`, item.confidence, item.needsReview ? <Badge tone="warning">Needs review</Badge> : <Badge tone="success">Ready</Badge>] }))} /></Section>
       <Button variant="secondary" onClick={() => setPage("conversions")}><Wand2 size={18} /> Conversion Library</Button>
     </div>
