@@ -6,6 +6,8 @@ import {
   Calculator,
   CheckCircle2,
   ChefHat,
+  ChevronDown,
+  ChevronUp,
   ClipboardList,
   Clock,
   Cookie,
@@ -24,10 +26,10 @@ import {
   Users,
   Wand2
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { apiBaseUrl, backendMode } from "./lib/backend";
 import { appUsers, auditLogs, conversionRules, ingredientBatches, ingredients, inventoryMovements, orderItems, orders, products, recipeItems, recipes, settings, suppliers, setKitchenSnapshot } from "./data";
-import type { AppStaffUser, ConversionRule, Ingredient, Order, Recipe, StockStatus, Supplier, Unit } from "./types";
+import type { AppStaffUser, AuditLog, ConversionRule, Ingredient, Order, Recipe, StockStatus, Supplier, Unit } from "./types";
 import {
   calculateMargin,
   calculateOrderCost,
@@ -82,6 +84,8 @@ type TableRow = {
   key: string;
   cells: React.ReactNode[];
   onClick?: () => void;
+  details?: React.ReactNode;
+  expanded?: boolean;
 };
 
 type AiChatMessage = {
@@ -204,9 +208,9 @@ function Badge({ children, tone = "neutral" }: { children: React.ReactNode; tone
   return <span className={`badge badge-${tone}`}>{children}</span>;
 }
 
-function Button({ children, variant = "primary", onClick, type = "button", disabled = false }: { children: React.ReactNode; variant?: "primary" | "secondary" | "ghost" | "danger"; onClick?: React.MouseEventHandler<HTMLButtonElement>; type?: "button" | "submit" | "reset"; disabled?: boolean }) {
+function Button({ children, variant = "primary", type = "button", className = "", ...props }: React.ButtonHTMLAttributes<HTMLButtonElement> & { children: React.ReactNode; variant?: "primary" | "secondary" | "ghost" | "danger" }) {
   return (
-    <button className={`btn btn-${variant}`} onClick={onClick} type={type} disabled={disabled}>
+    <button className={`btn btn-${variant}${className ? ` ${className}` : ""}`} type={type} {...props}>
       {children}
     </button>
   );
@@ -261,6 +265,58 @@ function shortageText(items: { ingredientName: string; shortageQuantity: number;
 
 function stockMovementLabel(type: string) {
   return type.replace(/_/g, " ");
+}
+
+function isSensitiveAuditKey(key: string) {
+  return /(password|token|secret|hash|api[_-]?key|session)/i.test(key);
+}
+
+function redactAuditValue(value: unknown, key = ""): unknown {
+  if (isSensitiveAuditKey(key)) return "[redacted]";
+  if (Array.isArray(value)) return value.map((item) => redactAuditValue(item));
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([childKey, childValue]) => [childKey, redactAuditValue(childValue, childKey)]));
+  }
+  return value ?? null;
+}
+
+function auditDataJson(data?: Record<string, unknown>) {
+  if (!data || Object.keys(data).length === 0) return "None recorded";
+  return JSON.stringify(redactAuditValue(data), null, 2);
+}
+
+function auditChangedFields(entry: AuditLog) {
+  const before = entry.beforeData ?? {};
+  const after = entry.afterData ?? {};
+  const keys = Array.from(new Set([...Object.keys(before), ...Object.keys(after)])).filter((key) => !isSensitiveAuditKey(key));
+  return keys.filter((key) => JSON.stringify(redactAuditValue(before[key], key)) !== JSON.stringify(redactAuditValue(after[key], key)));
+}
+
+function auditFieldLabel(field: string) {
+  return field.replace(/_/g, " ");
+}
+
+function auditChangeSummary(entry: AuditLog) {
+  const changed = auditChangedFields(entry);
+  if (changed.length > 0) {
+    const visible = changed.slice(0, 4).map(auditFieldLabel).join(", ");
+    return changed.length > 4 ? `${visible}, +${changed.length - 4} more` : visible;
+  }
+  if (entry.beforeData || entry.afterData) return "Detailed values recorded";
+  return "No detailed values recorded";
+}
+
+function auditSearchText(entry: AuditLog) {
+  return [
+    entry.entityType,
+    entry.entityId,
+    entry.action,
+    entry.actor,
+    new Date(entry.createdAt).toLocaleString(),
+    auditChangeSummary(entry),
+    auditDataJson(entry.beforeData),
+    auditDataJson(entry.afterData)
+  ].join(" ");
 }
 
 type Notify = (message: string) => void;
@@ -1943,13 +1999,14 @@ function SettingsPage({ user, setPage, notify, reloadData }: { user?: AppUser; s
   const [archiveData, setArchiveData] = useState<Record<string, { id: string; name: string }[]> | null>(null);
   const [auditFilter, setAuditFilter] = useState("All");
   const [auditSearch, setAuditSearch] = useState("");
+  const [expandedAuditId, setExpandedAuditId] = useState<string | null>(null);
   const [editingUser, setEditingUser] = useState<Partial<AppStaffUser> | null>(null);
   const canManageSettings = canUser(user, "manageSettings");
   const canRestoreArchive = canUser(user, "restoreArchive");
   const lowStockRows = ingredients.filter(isBelowReorder);
   const expiringRows = ingredientBatches.filter((batch) => batch.expiryDate).slice(0, 8);
   const wasteRows = inventoryMovements.filter((item) => item.movementType === "waste" || item.note?.toLowerCase().includes("spoil") || item.note?.toLowerCase().includes("waste")).slice(0, 8);
-  const auditRows = (auditFilter === "All" ? auditLogs : auditLogs.filter((entry) => entry.entityType === auditFilter)).filter((entry) => [entry.entityType, entry.entityId, entry.action, entry.actor, new Date(entry.createdAt).toLocaleString()].join(" ").toLowerCase().includes(auditSearch.toLowerCase()));
+  const auditRows = (auditFilter === "All" ? auditLogs : auditLogs.filter((entry) => entry.entityType === auditFilter)).filter((entry) => auditSearchText(entry).toLowerCase().includes(auditSearch.toLowerCase()));
   const supplierPerformance = suppliers.map((supplier) => {
     const supplied = ingredients.filter((ingredient) => ingredient.supplierId === supplier.id);
     const low = supplied.filter(isBelowReorder);
@@ -2060,10 +2117,26 @@ function SettingsPage({ user, setPage, notify, reloadData }: { user?: AppUser; s
           cells: [staff.fullName, staff.email, staff.role, staff.active === false ? <Badge tone="warning">Disabled</Badge> : <Badge tone="success">Active</Badge>, <div className="button-row"><Button variant="secondary" onClick={() => setEditingUser(staff)} disabled={!canManageSettings}>Edit</Button><Button variant="secondary" onClick={async () => { await apiAction("user.revokeSessions", { userId: staff.id }); notify(staff.id === user?.id ? "Your sessions were revoked. Sign in again to continue." : "Staff sessions revoked."); await reloadData(); }} disabled={!canManageSettings}>Revoke Sessions</Button><Button variant="danger" onClick={async () => { await apiAction("user.disable", { userId: staff.id }); notify("Staff user disabled."); await reloadData(); }} disabled={!canManageSettings || staff.id === user?.id}>Disable</Button></div>]
         }))} />
       </Section>
-      <Section title="Audit Reports" action={<div className="button-row"><Button variant="secondary" onClick={() => exportCsv("pastry-county-audit-report.csv", ["Entity", "Record", "Action", "Actor", "Date"], auditRows.map((entry) => [entry.entityType, entry.entityId, entry.action, entry.actor, new Date(entry.createdAt).toLocaleString()]), notify)}>Export CSV</Button><Button variant="secondary" onClick={() => exportPrintableReport("pastry-county-compliance-report.html", "Pastry County Compliance Report", [["Audit rows", auditRows.length], ["Low-stock items", lowStockRows.length], ["Waste events", wasteRows.length], ["Open shortages", orders.filter((order) => order.stockStatus === "Shortage").length]], notify)}>PDF/Print</Button></div>}>
+      <Section title="Audit Reports" action={<div className="button-row"><Button variant="secondary" onClick={() => exportCsv("pastry-county-audit-report.csv", ["Entity", "Record", "Action", "Actor", "Date", "Changed Fields", "Before", "After"], auditRows.map((entry) => [entry.entityType, entry.entityId, entry.action, entry.actor, new Date(entry.createdAt).toLocaleString(), auditChangeSummary(entry), auditDataJson(entry.beforeData), auditDataJson(entry.afterData)]), notify)}>Export CSV</Button><Button variant="secondary" onClick={() => exportPrintableReport("pastry-county-compliance-report.html", "Pastry County Compliance Report", [["Audit rows", auditRows.length], ["Low-stock items", lowStockRows.length], ["Waste events", wasteRows.length], ["Open shortages", orders.filter((order) => order.stockStatus === "Shortage").length]], notify)}>PDF/Print</Button></div>}>
         <Toolbar query={auditSearch} setQuery={setAuditSearch} placeholder="Search audit logs" />
         <Chips items={["All", ...Array.from(new Set(auditLogs.map((entry) => entry.entityType))).slice(0, 8)]} active={auditFilter} setActive={setAuditFilter} />
-        <PaginatedTable label="audit logs" headers={["Entity", "Record", "Action", "Actor", "Date"]} rows={auditRows.map((entry) => ({ key: entry.id, cells: [entry.entityType, entry.entityId, entry.action, entry.actor, new Date(entry.createdAt).toLocaleString()] }))} />
+        <PaginatedTable label="audit logs" headers={["Entity", "Record", "Action", "Actor", "Date", "Details"]} rows={auditRows.map((entry) => {
+          const expanded = expandedAuditId === entry.id;
+          return {
+            key: entry.id,
+            onClick: () => setExpandedAuditId(expanded ? null : entry.id),
+            expanded,
+            details: <AuditDetails entry={entry} />,
+            cells: [
+              entry.entityType,
+              entry.entityId,
+              entry.action,
+              entry.actor,
+              new Date(entry.createdAt).toLocaleString(),
+              <Button variant="secondary" onClick={() => setExpandedAuditId(expanded ? null : entry.id)} aria-expanded={expanded}>{expanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />} {expanded ? "Hide" : "Details"}</Button>
+            ]
+          };
+        })} />
       </Section>
       <Section title="FEFO, Waste & Supplier Reports" action={<div className="button-row"><Button variant="secondary" onClick={sendLowStockAlert}>Send Low-Stock Alert</Button><Button variant="secondary" onClick={() => exportPrintableReport("pastry-county-operations-report.html", "Pastry County Operations Report", [["Expiring lots", expiringRows.length], ["Waste events", wasteRows.length], ["Suppliers", suppliers.length], ["Stock value", formatNaira(ingredients.reduce((sum, item) => sum + item.currentStock * item.latestUnitCost, 0))]], notify)}>PDF/Print</Button></div>}>
         <div className="split">
@@ -2151,9 +2224,37 @@ function ResponsiveTable({ headers, rows }: { headers: string[]; rows: TableRow[
   return (
     <div className="responsive-table">
       {rows.length === 0 ? <p className="empty-note">No rows to show.</p> : <>
-        <table><thead><tr>{headers.map((header) => <th key={header} scope="col">{header}</th>)}</tr></thead><tbody>{rows.map((row) => <tr key={row.key} onClick={(event) => activateRow(event, row.onClick)}>{row.cells.map((cell, index) => <td key={index} data-label={headers[index]}>{cell}</td>)}</tr>)}</tbody></table>
-        <div className="mobile-table-cards">{rows.map((row) => <article key={row.key} className="item-card" onClick={(event) => activateRow(event, row.onClick)}>{row.cells.map((cell, index) => <div className="mobile-row" key={index}><span>{headers[index]}</span><strong>{cell}</strong></div>)}</article>)}</div>
+        <table><thead><tr>{headers.map((header) => <th key={header} scope="col">{header}</th>)}</tr></thead><tbody>{rows.map((row) => (
+          <Fragment key={row.key}>
+            <tr className={row.expanded ? "is-expanded" : undefined} onClick={(event) => activateRow(event, row.onClick)}>{row.cells.map((cell, index) => <td key={index} data-label={headers[index]}>{cell}</td>)}</tr>
+            {row.expanded && row.details && <tr className="table-details-row"><td colSpan={headers.length}>{row.details}</td></tr>}
+          </Fragment>
+        ))}</tbody></table>
+        <div className="mobile-table-cards">{rows.map((row) => <article key={row.key} className={`item-card${row.expanded ? " is-expanded" : ""}`} onClick={(event) => activateRow(event, row.onClick)}>{row.cells.map((cell, index) => <div className="mobile-row" key={index}><span>{headers[index]}</span><strong>{cell}</strong></div>)}{row.expanded && row.details && <div className="mobile-row-details">{row.details}</div>}</article>)}</div>
       </>}
+    </div>
+  );
+}
+
+function AuditDetails({ entry }: { entry: AuditLog }) {
+  const changedFields = auditChangedFields(entry);
+  return (
+    <div className="audit-details">
+      <div className="audit-detail-head">
+        <span>Changed fields</span>
+        <strong>{auditChangeSummary(entry)}</strong>
+      </div>
+      {changedFields.length > 0 && <div className="audit-field-list">{changedFields.map((field) => <Badge key={field} tone="neutral">{auditFieldLabel(field)}</Badge>)}</div>}
+      <div className="audit-json-grid">
+        <article>
+          <h3>Before</h3>
+          <pre>{auditDataJson(entry.beforeData)}</pre>
+        </article>
+        <article>
+          <h3>After</h3>
+          <pre>{auditDataJson(entry.afterData)}</pre>
+        </article>
+      </div>
     </div>
   );
 }

@@ -255,9 +255,49 @@ th { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spa
 tr:last-child td { border-bottom: 0; }
 tbody tr { cursor: pointer; }
 tbody tr:hover { background: #fff4e6; }
+tbody tr.is-expanded { background: #edf7f5; }
+.table-details-row td { padding: 0 14px 16px; background: #edf7f5; }
+.table-details-row:hover { background: #edf7f5; }
 .mobile-table-cards { display: grid; gap: 12px; }
 .mobile-row { display: flex; justify-content: space-between; gap: 16px; align-items: center; }
 .mobile-row strong { text-align: right; overflow-wrap: anywhere; }
+.mobile-row-details { min-width: 0; }
+.item-card.is-expanded { border-color: rgba(47, 111, 115, .45); background: #f7fbfa; }
+.audit-details {
+  display: grid;
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid rgba(47, 111, 115, .22);
+  border-radius: 16px;
+  background: #fffdf8;
+}
+.audit-detail-head { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
+.audit-detail-head span { color: var(--muted); font-size: 13px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; }
+.audit-detail-head strong { text-align: right; overflow-wrap: anywhere; }
+.audit-field-list { display: flex; gap: 8px; flex-wrap: wrap; }
+.audit-json-grid { display: grid; gap: 12px; }
+.audit-json-grid article {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+}
+.audit-json-grid h3 { margin: 0; font-size: 14px; }
+.audit-json-grid pre {
+  margin: 0;
+  max-height: 240px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
 .paginated-table { display: grid; gap: 12px; }
 .table-footer {
   display: flex;
@@ -385,6 +425,8 @@ tbody tr:hover { background: #fff4e6; }
   .mobile-row strong { max-width: 62%; }
   .bar-chart > div { grid-template-columns: 1fr; gap: 8px; }
   .summary-card div { align-items: flex-start; }
+  .audit-detail-head { flex-direction: column; }
+  .audit-detail-head strong { text-align: left; }
   .confirm-modal { padding: 18px; border-radius: 18px; }
   .confirm-modal .button-row { justify-content: stretch; }
   .toast { left: 18px; right: 18px; }
@@ -400,6 +442,7 @@ tbody tr:hover { background: #fff4e6; }
   .builder-row { grid-template-columns: minmax(180px, 1.5fr) minmax(110px, .8fr) minmax(110px, .8fr) minmax(110px, .8fr) auto; }
   .order-builder-row { grid-template-columns: minmax(170px, 1.2fr) minmax(170px, 1.2fr) minmax(100px, .75fr) minmax(100px, .75fr) minmax(92px, .65fr) auto; }
   .more-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .audit-json-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (min-width: 1024px) {

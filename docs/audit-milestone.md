@@ -101,7 +101,7 @@ Latest audit source: `Audit Request Expansion.pdf`, score 71/100 on May 29, 2026
 | Done | Supplier deletion feedback | Linked supplier deletion can fail silently. | Linked suppliers either have Delete disabled with guidance or server/client show a specific linked-ingredient error. |
 | Todo | Mobile forms/modals | 360px mobile forms and modals can overflow or hide Save/Cancel. | Add/edit ingredient, stock adjustment, supplier, conversion, production review, and settings forms fit 360px width with internal scroll and reachable sticky actions. |
 | Done | Empty recipe validation | Blank recipes can be created without ingredients. | Recipe save requires at least one valid ingredient line and shows inline errors before API submission. |
-| Todo | Audit details | Audit rows are searchable/paginated but do not expose before/after detail. | Audit rows expand to show before/after JSON or meaningful summaries; export includes detailed values where available. |
+| Done | Audit details | Audit rows are searchable/paginated but do not expose before/after detail. | Audit rows expand to show before/after JSON or meaningful summaries; export includes detailed values where available. |
 | Todo | Global loading/errors | Route changes/API failures can show blank states or silent failures. | API calls use a common user-visible loading/error path; failed requests surface descriptive toasts and retain user-entered state. |
 | Todo | Mobile navigation | Audit requests bottom navigation and better touch targets. | Mobile has persistent bottom nav for key modules and all table/form actions meet 44px touch target expectations. |
 | Todo | Verification coverage | Audit recommends critical E2E tests. | Playwright smoke scripts cover login, ingredient add/edit, scaling to order, production block, shopping purchase, conversion edit/import, and 360px mobile checks. |
@@ -129,6 +129,7 @@ Latest audit source: `Audit Request Expansion.pdf`, score 71/100 on May 29, 2026
 - [x] Latest 71/100 audit reviewed and mapped into Milestone 7 95+ score plan.
 - [x] AI assistant chat smoke checked locally with live shopping-list response.
 - [x] Milestone 7 reliability pass added production shortage details, positive shopping purchase validation, supplier delete guards, empty recipe validation, and rounding/parser tests.
+- [x] Audit reports now expose expandable before/after details and include redacted detailed values in CSV export.
 - [ ] Re-run an external audit after the live audit expansion follow-up is deployed.
 
 ## Next Recommended Work
