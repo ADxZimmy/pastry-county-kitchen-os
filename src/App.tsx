@@ -109,21 +109,28 @@ const desktopNav = [
 
 const bottomNav = [
   ["dashboard", Home, "Dashboard"],
-  ["recipes", Cookie, "Recipes"],
   ["inventory", Boxes, "Inventory"],
   ["orders", ClipboardList, "Orders"],
+  ["production", ChefHat, "Production"],
+  ["shopping", ShoppingBasket, "Shopping"],
   ["settings", ListChecks, "More"]
 ] as const;
 
 const moreItems = [
-  ["production", ChefHat, "Production"],
-  ["shopping", ShoppingBasket, "Shopping List"],
+  ["recipes", Cookie, "Recipes"],
   ["costing", Calculator, "Costing"],
   ["ai", Bot, "AI Assistant"],
   ["conversions", Wand2, "Conversions"],
   ["suppliers", Truck, "Suppliers"],
   ["settings", Settings, "Settings"]
 ] as const;
+
+const bottomNavIds = new Set<Page>(bottomNav.map(([id]) => id as Page));
+const moreNavIds = new Set<Page>(moreItems.map(([id]) => id as Page));
+
+function isBottomNavActive(current: Page, id: Page) {
+  return current === id || (id === "settings" && moreNavIds.has(current) && !bottomNavIds.has(current));
+}
 
 const pageIds = new Set<Page>([
   "welcome",
@@ -631,9 +638,9 @@ function App() {
         </header>
         {content}
       </main>
-      <nav className="bottom-nav">
+      <nav className="bottom-nav" aria-label="Primary mobile navigation">
         {bottomNav.map(([id, Icon, label]) => (
-          <button key={id} className={page === id || (id === "settings" && moreItems.some(([moreId]) => moreId === page)) ? "active" : ""} onClick={() => navigate(id as Page)}>
+          <button key={id} className={isBottomNavActive(page, id as Page) ? "active" : ""} onClick={() => navigate(id as Page)}>
             <Icon size={20} />
             <span>{label}</span>
           </button>
