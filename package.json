@@ -10,7 +10,8 @@
     "start": "node server/index.js",
     "build": "tsc && vite build",
     "preview": "vite preview --host 0.0.0.0",
-    "test": "vitest run"
+    "test": "vitest run",
+    "smoke:milestone7": "node scripts/milestone7-smoke.mjs"
   },
   "dependencies": {
     "@neondatabase/serverless": "^0.10.4",
@@ -31,6 +32,7 @@
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
     "jsdom": "^25.0.1",
+    "playwright": "^1.60.0",
     "vitest": "^2.1.8"
   }
 }

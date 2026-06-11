@@ -335,6 +335,11 @@ type ConfirmRequest = {
   onConfirm: () => Promise<void> | void;
 };
 type AskConfirm = (request: ConfirmRequest) => void;
+const kitchenRequestEvent = "pastry-county:kitchen-request";
+
+function emitKitchenRequest(detail: { phase: "start" | "end" }) {
+  if (typeof window !== "undefined") window.dispatchEvent(new CustomEvent(kitchenRequestEvent, { detail }));
+}
 
 function formValue(form: HTMLFormElement, name: string) {
   const value = new FormData(form).get(name);
@@ -357,17 +362,23 @@ function netSellingPrice(grossPrice: number) {
 
 async function apiAction(action: string, payload: Record<string, unknown> = {}) {
   const token = currentSessionToken();
-  const response = await fetch(`${apiBaseUrl}/api/actions`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-    body: JSON.stringify({ action, ...payload })
-  });
-  const result = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(result.error || "Kitchen action failed.");
-  return result;
+  emitKitchenRequest({ phase: "start" });
+  try {
+    const response = await fetch(`${apiBaseUrl}/api/actions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body: JSON.stringify({ action, ...payload })
+    });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.error || "Kitchen action failed.");
+    return result;
+  } finally {
+    emitKitchenRequest({ phase: "end" });
+  }
 }
 
 async function markOrderProduced(orderId: string, notify: Notify) {
+  emitKitchenRequest({ phase: "start" });
   try {
     const token = currentSessionToken();
     const response = await fetch(`${apiBaseUrl}/api/orders/${orderId}/produced`, {
@@ -381,6 +392,8 @@ async function markOrderProduced(orderId: string, notify: Notify) {
     notify(result.alreadyProduced ? "This order was already produced. Inventory was not deducted again." : "Order marked as produced and inventory deducted.");
   } catch (error) {
     notify(error instanceof Error ? error.message : "Unable to mark order as produced.");
+  } finally {
+    emitKitchenRequest({ phase: "end" });
   }
 }
 
@@ -468,10 +481,13 @@ function App() {
   const [query, setQuery] = useState("");
   const [dataStatus, setDataStatus] = useState<"loading" | "ready" | "error">("loading");
   const [dataError, setDataError] = useState("");
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [activeRequests, setActiveRequests] = useState(0);
   const [dataVersion, setDataVersion] = useState(0);
   const [toast, setToast] = useState("");
   const [confirmRequest, setConfirmRequest] = useState<ConfirmRequest | null>(null);
   const historyAction = useRef<"push" | "replace">("replace");
+  const dataStatusRef = useRef(dataStatus);
 
   const notify = useCallback((message: string) => {
     setToast(message);
@@ -482,7 +498,13 @@ function App() {
     setConfirmRequest(request);
   }, []);
 
+  useEffect(() => {
+    dataStatusRef.current = dataStatus;
+  }, [dataStatus]);
+
   const loadKitchenData = useCallback(async (cancelled?: () => boolean) => {
+      const wasReady = dataStatusRef.current === "ready";
+      if (wasReady) setIsRefreshing(true);
       try {
         const response = await fetch(`${apiBaseUrl}/api/bootstrap`);
         if (!response.ok) throw new Error(`Kitchen API returned ${response.status}`);
@@ -492,15 +514,29 @@ function App() {
           setSelectedRecipeId((current) => snapshot.recipes.some((item: Recipe) => item.id === current) ? current : snapshot.recipes[0]?.id ?? "");
           setSelectedIngredientId((current) => snapshot.ingredients.some((item: Ingredient) => item.id === current) ? current : snapshot.ingredients[0]?.id ?? "");
           setSelectedOrderId((current) => current && snapshot.orders.some((item: Order) => item.id === current) ? current : "");
+          setDataError("");
           setDataStatus("ready");
           setDataVersion((version) => version + 1);
         }
       } catch (error) {
         if (!cancelled?.()) {
-          setDataError(error instanceof Error ? error.message : "Unable to load kitchen data");
-          setDataStatus("error");
+          const message = error instanceof Error ? error.message : "Unable to load kitchen data";
+          setDataError(message);
+          if (wasReady) notify(`Live data refresh failed: ${message}`);
+          else setDataStatus("error");
         }
+      } finally {
+        if (!cancelled?.()) setIsRefreshing(false);
       }
+  }, [notify]);
+
+  useEffect(() => {
+    const onKitchenRequest = (event: Event) => {
+      const detail = (event as CustomEvent<{ phase?: "start" | "end" }>).detail;
+      setActiveRequests((current) => detail?.phase === "start" ? current + 1 : Math.max(0, current - 1));
+    };
+    window.addEventListener(kitchenRequestEvent, onKitchenRequest);
+    return () => window.removeEventListener(kitchenRequestEvent, onKitchenRequest);
   }, []);
 
   useEffect(() => {
@@ -606,7 +642,7 @@ function App() {
   }
 
   return (
-    <div className="app-shell">
+    <div className="app-shell" aria-busy={isRefreshing || activeRequests > 0}>
       <aside className="sidebar">
         <BrandMark />
         <nav>
@@ -636,6 +672,16 @@ function App() {
             <Button variant="ghost" onClick={() => { setUser(undefined); setPage("login"); notify("Logged out."); }}>Logout</Button>
           </div>
         </header>
+        {(isRefreshing || activeRequests > 0) && (
+          <div className="global-status" role="status" aria-live="polite" aria-busy="true">
+            {activeRequests > 0 ? "Saving kitchen changes..." : "Refreshing live kitchen data..."}
+          </div>
+        )}
+        {dataError && dataStatus === "ready" && (
+          <div className="global-error" role="alert">
+            Live data is temporarily stale: {dataError}
+          </div>
+        )}
         {content}
       </main>
       <nav className="bottom-nav" aria-label="Primary mobile navigation">
@@ -770,7 +816,7 @@ function Login({ setPage, setUser, notify }: { setPage: (page: Page) => void; se
         <Button type="submit" disabled={working}>
           <LogIn size={18} /> {working ? "Checking..." : "Login"}
         </Button>
-        <button type="button" className="text-link" onClick={() => alert("Password reset will be connected when team email delivery is configured.")}>Forgot password?</button>
+        <button type="button" className="text-link" onClick={() => notify("Password reset will be connected when team email delivery is configured.")}>Forgot password?</button>
       </form>
     </main>
   );
@@ -778,13 +824,15 @@ function Login({ setPage, setUser, notify }: { setPage: (page: Page) => void; se
 
 function ConfirmDialog({ request, onClose }: { request: ConfirmRequest; onClose: () => void }) {
   const [working, setWorking] = useState(false);
+  const [error, setError] = useState("");
   const runConfirm = async () => {
     setWorking(true);
+    setError("");
     try {
       await request.onConfirm();
       onClose();
     } catch (error) {
-      alert(error instanceof Error ? error.message : "Unable to complete this action.");
+      setError(error instanceof Error ? error.message : "Unable to complete this action.");
       setWorking(false);
     }
   };
@@ -796,6 +844,7 @@ function ConfirmDialog({ request, onClose }: { request: ConfirmRequest; onClose:
           <h2 id="confirm-title">{request.title}</h2>
           <p>{request.message}</p>
         </div>
+        {error && <p className="global-error" role="alert">{error}</p>}
         <div className="button-row">
           <Button variant="secondary" onClick={onClose}>Keep it</Button>
           <Button variant={request.tone === "danger" ? "danger" : "primary"} onClick={runConfirm}>{working ? "Working..." : request.confirmLabel}</Button>
@@ -2289,9 +2338,11 @@ function EmptyState({ title, message }: { title: string; message: string }) {
 
 function FormShell({ title, action, onDone, children, cancelTo, setPage }: { title: string; action: string; onDone: (form: HTMLFormElement) => void | Promise<void>; children: React.ReactNode; cancelTo: Page; setPage: (page: Page) => void }) {
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
   return (
-    <form className="form-shell" onSubmit={async (event) => { event.preventDefault(); setSaving(true); try { await onDone(event.currentTarget); } catch (error) { alert(error instanceof Error ? error.message : "Unable to save."); } finally { setSaving(false); } }}>
+    <form className="form-shell" onSubmit={async (event) => { event.preventDefault(); setSaving(true); setSaveError(""); try { await onDone(event.currentTarget); } catch (error) { setSaveError(error instanceof Error ? error.message : "Unable to save."); } finally { setSaving(false); } }}>
       <div className="section-head"><h2>{title}</h2><div className="button-row"><Button variant="secondary" onClick={() => setPage(cancelTo)}>Cancel</Button><Button type="submit">{saving ? "Saving..." : action}</Button></div></div>
+      {saveError && <p className="global-error" role="alert">{saveError}</p>}
       {children}
       <div className="sticky-actions"><Button type="submit">{saving ? "Saving..." : action}</Button></div>
     </form>

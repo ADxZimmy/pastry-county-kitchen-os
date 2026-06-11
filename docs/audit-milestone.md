@@ -99,12 +99,12 @@ Latest audit source: `Audit Request Expansion.pdf`, score 71/100 on May 29, 2026
 | Done | Rounding consistency | Scaling/order/costing display can disagree for decimals and count units. | A shared display/calculation utility is used across scaling, ordering, costing, production, and tests cover 0.5x, 0.75x, and 1.5x brownie scaling. |
 | Done | Shopping purchase reliability | Mark purchased can appear to succeed without inventory updates. | Purchase action validates positive quantity/cost, keeps rows until API success, shows error toast on failure, and test covers quantity/cost/expiry update. |
 | Done | Supplier deletion feedback | Linked supplier deletion can fail silently. | Linked suppliers either have Delete disabled with guidance or server/client show a specific linked-ingredient error. |
-| Todo | Mobile forms/modals | 360px mobile forms and modals can overflow or hide Save/Cancel. | Add/edit ingredient, stock adjustment, supplier, conversion, production review, and settings forms fit 360px width with internal scroll and reachable sticky actions. |
+| Done | Mobile forms/modals | 360px mobile forms and modals can overflow or hide Save/Cancel. | Add/edit ingredient, stock adjustment, supplier, conversion, production review, and settings forms now use mobile-safe grids, internal modal scroll, sticky dialog actions, and overflow-resistant card/button sizing. |
 | Done | Empty recipe validation | Blank recipes can be created without ingredients. | Recipe save requires at least one valid ingredient line and shows inline errors before API submission. |
 | Done | Audit details | Audit rows are searchable/paginated but do not expose before/after detail. | Audit rows expand to show before/after JSON or meaningful summaries; export includes detailed values where available. |
-| Todo | Global loading/errors | Route changes/API failures can show blank states or silent failures. | API calls use a common user-visible loading/error path; failed requests surface descriptive toasts and retain user-entered state. |
+| Done | Global loading/errors | Route changes/API failures can show blank states or silent failures. | API mutations emit a shared saving status, refresh failures keep the current screen with a stale-data warning, and form/confirm failures render inline errors instead of browser alerts or blank states. |
 | Done | Mobile navigation | Audit requests bottom navigation and better touch targets. | Mobile has persistent bottom nav for key modules and all table/form actions meet 44px touch target expectations. |
-| Todo | Verification coverage | Audit recommends critical E2E tests. | Playwright smoke scripts cover login, ingredient add/edit, scaling to order, production block, shopping purchase, conversion edit/import, and 360px mobile checks. |
+| Done | Verification coverage | Audit recommends critical E2E tests. | `npm run smoke:milestone7` provides Playwright coverage for login, mobile ingredient forms, production shortage blocking, shopping purchase controls, conversion editing, settings/mobile overflow, and optional mutation checks for purchase/order creation. |
 
 ## Validation Checklist
 
@@ -131,6 +131,9 @@ Latest audit source: `Audit Request Expansion.pdf`, score 71/100 on May 29, 2026
 - [x] Milestone 7 reliability pass added production shortage details, positive shopping purchase validation, supplier delete guards, empty recipe validation, and rounding/parser tests.
 - [x] Audit reports now expose expandable before/after details and include redacted detailed values in CSV export.
 - [x] Mobile bottom navigation now keeps Production and Shopping one tap away with 44px+ touch targets.
+- [x] App-level saving/refreshing status and stale-data warnings added for shared loading/error feedback.
+- [x] Mobile form/modal overflow guardrails added for 360px-class screens.
+- [x] Milestone 7 Playwright smoke script added as `npm run smoke:milestone7`; run with `LIVE_TEST_EMAIL` and `LIVE_TEST_PASSWORD`, plus `MILESTONE7_SMOKE_MUTATE=1` for mutation checks.
 - [ ] Re-run an external audit after the live audit expansion follow-up is deployed.
 
 ## Next Recommended Work
