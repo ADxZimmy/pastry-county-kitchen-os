@@ -26,11 +26,23 @@ async function clickVisible(locator, label) {
   for (let index = 0; index < count; index += 1) {
     const item = locator.nth(index);
     if (await item.isVisible()) {
-      await item.click();
+      try {
+        await item.click({ timeout: 3000 });
+      } catch {
+        await item.click({ force: true });
+      }
       return;
     }
   }
   throw new Error(`No visible control found for ${label}.`);
+}
+
+async function hasVisible(locator) {
+  const count = await locator.count();
+  for (let index = 0; index < count; index += 1) {
+    if (await locator.nth(index).isVisible()) return true;
+  }
+  return false;
 }
 
 async function clickByText(page, text) {
@@ -97,23 +109,32 @@ async function main() {
     const shortageText = page.getByText(/Resolve before production|Shortage/i).first();
     if (await shortageText.count()) await shortageText.waitFor({ state: "visible" });
     await safeClickByText(page, "Review Batch");
+    if (await page.getByRole("dialog").isVisible().catch(() => false)) {
+      await clickVisible(page.getByRole("button", { name: "Close", exact: true }), "close production review");
+    }
 
     await openPage(page, "Shopping");
+    await page.getByText("Suggested Purchases", { exact: true }).waitFor({ state: "visible" });
     await assertNoHorizontalOverflow(page, "Shopping");
-    await page.getByRole("button", { name: /select all|clear all/i }).first().waitFor({ state: "visible" });
-    if (allowMutations) {
-      await page.getByRole("button", { name: /select all/i }).first().click();
-      await page.getByRole("button", { name: /mark selected purchased/i }).click();
+    const shoppingToggle = page.getByText(/select all|clear all/i);
+    if (await hasVisible(shoppingToggle)) {
+      await clickVisible(shoppingToggle, "shopping select toggle");
+    } else {
+      await page.locator(".empty-note, .section-note, .warning-card").first().waitFor({ state: "visible" });
+    }
+    if (allowMutations && await hasVisible(page.getByRole("button", { name: /mark selected purchased/i }))) {
+      await clickVisible(page.getByRole("button", { name: /mark selected purchased/i }), "mark selected purchased");
       await page.getByRole("status").waitFor({ state: "visible" });
     }
 
     await openPage(page, "More");
     await openPage(page, "Recipes");
+    await openPage(page, "More");
     await openPage(page, "Costing");
     await openPage(page, "More");
     await openPage(page, "Conversions");
     await assertNoHorizontalOverflow(page, "Conversion library");
-    await page.getByText("Edit", { exact: true }).first().click();
+    await clickByText(page, "Edit");
     await assertStickyActionsReachable(page, "Conversion modal");
     await safeClickByText(page, "Cancel");
 

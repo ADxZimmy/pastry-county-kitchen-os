@@ -134,6 +134,7 @@ Latest audit source: `Audit Request Expansion.pdf`, score 71/100 on May 29, 2026
 - [x] App-level saving/refreshing status and stale-data warnings added for shared loading/error feedback.
 - [x] Mobile form/modal overflow guardrails added for 360px-class screens.
 - [x] Milestone 7 Playwright smoke script added as `npm run smoke:milestone7`; run with `LIVE_TEST_EMAIL` and `LIVE_TEST_PASSWORD`, plus `MILESTONE7_SMOKE_MUTATE=1` for mutation checks.
+- [x] Milestone 7 live smoke passed against production in read-only mode with `npm run smoke:milestone7`.
 - [ ] Re-run an external audit after the live audit expansion follow-up is deployed.
 
 ## Next Recommended Work
