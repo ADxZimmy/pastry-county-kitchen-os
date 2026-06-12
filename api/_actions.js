@@ -141,6 +141,23 @@ function shortageSummary(shortages) {
     .join(", ");
 }
 
+export function productionShortageForRequirement(requirement, ingredient, reservedForOrder = 0) {
+  const requiredQuantity = Number(requirement.quantity);
+  const currentStock = Number(ingredient?.current_stock ?? ingredient?.currentStock ?? 0);
+  const reservedStock = Number(ingredient?.reserved_stock ?? ingredient?.reservedStock ?? 0);
+  const usableStock = currentStock - Math.max(0, reservedStock - Math.max(0, Number(reservedForOrder)));
+  const shortageQuantity = Math.max(0, requiredQuantity - usableStock);
+  if (shortageQuantity <= 0) return null;
+  return {
+    ingredientId: requirement.ingredient_id ?? requirement.ingredientId,
+    ingredientName: ingredient?.name || requirement.ingredient_name || requirement.ingredientName || requirement.ingredient_id || requirement.ingredientId,
+    unit: requirement.unit,
+    requiredQuantity,
+    availableQuantity: usableStock,
+    shortageQuantity
+  };
+}
+
 function conversionFactor(fromUnit, toUnit, ruleFactor) {
   if (fromUnit === toUnit) return 1;
   const direct = {
@@ -454,7 +471,7 @@ async function reservationBalancesForOrder(sql, orderId) {
 async function shortagesForProduction(sql, orderId, requirements) {
   return Promise.all(requirements.map(async (item) => {
     const rows = await sql`
-      select current_stock::float as current_stock, reserved_stock::float as reserved_stock
+      select name, current_stock::float as current_stock, reserved_stock::float as reserved_stock
       from ingredients
       where id = ${item.ingredient_id}
     `;
@@ -469,21 +486,9 @@ async function shortagesForProduction(sql, orderId, requirements) {
         and ingredient_id = ${item.ingredient_id}
         and movement_type in ('reservation', 'reservation_release')
     `;
-    const ingredient = rows[0];
-    const requiredQuantity = Number(item.quantity);
-    const currentStock = Number(ingredient?.current_stock ?? 0);
-    const reservedStock = Number(ingredient?.reserved_stock ?? 0);
     const reservedForOrder = Math.max(0, Number(reservationRows[0]?.quantity ?? 0));
-    const usableStock = currentStock - Math.max(0, reservedStock - reservedForOrder);
-    return {
-      ingredientId: item.ingredient_id,
-      ingredientName: ingredient?.name || item.ingredient_id,
-      unit: item.unit,
-      requiredQuantity,
-      availableQuantity: usableStock,
-      shortageQuantity: Math.max(0, requiredQuantity - usableStock)
-    };
-  })).then((rows) => rows.filter((row) => row.shortageQuantity > 0));
+    return productionShortageForRequirement(item, rows[0], reservedForOrder);
+  })).then((rows) => rows.filter(Boolean));
 }
 
 export async function produceOrder(sql, orderId, actor) {

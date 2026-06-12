@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { planBatchDeductions } from "./_actions.js";
+import { planBatchDeductions, productionShortageForRequirement } from "./_actions.js";
 
 describe("FEFO batch deduction planning", () => {
   it("deducts stock removals across lots in the provided FEFO order", () => {
@@ -20,5 +20,41 @@ describe("FEFO batch deduction planning", () => {
       { batchId: "lot-a", quantity: 40 },
       { batchId: "lot-b", quantity: 30 }
     ]);
+  });
+});
+
+describe("production shortage guardrails", () => {
+  it("flags a production shortage when usable stock is below the requirement", () => {
+    expect(productionShortageForRequirement(
+      { ingredient_id: "flour", unit: "g", quantity: 500 },
+      { name: "Flour", current_stock: 320, reserved_stock: 0 },
+      0
+    )).toMatchObject({
+      ingredientId: "flour",
+      ingredientName: "Flour",
+      unit: "g",
+      requiredQuantity: 500,
+      availableQuantity: 320,
+      shortageQuantity: 180
+    });
+  });
+
+  it("allows stock already reserved for the same order to be consumed", () => {
+    expect(productionShortageForRequirement(
+      { ingredient_id: "flour", unit: "g", quantity: 500 },
+      { name: "Flour", current_stock: 500, reserved_stock: 500 },
+      500
+    )).toBeNull();
+  });
+
+  it("treats stock reserved for other orders as unavailable", () => {
+    expect(productionShortageForRequirement(
+      { ingredient_id: "flour", unit: "g", quantity: 500 },
+      { name: "Flour", current_stock: 500, reserved_stock: 300 },
+      0
+    )).toMatchObject({
+      availableQuantity: 200,
+      shortageQuantity: 300
+    });
   });
 });

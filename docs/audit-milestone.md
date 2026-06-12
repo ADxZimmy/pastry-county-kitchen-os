@@ -119,7 +119,7 @@ Latest audit source: `Audit report.pdf` / `audit.txt`, score 63/100 on June 12, 
 | Done | Dashboard metric fit | Six dashboard metric cards could clip or crowd long currency values such as shopping estimates. | Long metric values size from the card width and stay on one line without overflowing the card. |
 | Done | Recipe builder usability | Ingredient selection required scrolling through long ungrouped dropdowns and mobile recipe entry was cumbersome. | Recipe rows now include ingredient search, category-grouped options, visible labels, and mobile-safe row spacing while retaining saved conversion-rule handling. |
 | Done | Mobile modal overflow | Add Stock and other modals could require both page and dialog scrolling on 360px screens. | Dialog scrolling is contained inside the modal, controls retain 44px+ tap targets, and sticky modal actions remain reachable on mobile. |
-| Partial | Production guardrail verification | Production and reservation guardrails were marked unverified by the audit. | Existing UI/API shortage blocks remain in place and smoke now asserts shortage batches keep Start/Complete disabled; authenticated live smoke is still pending because local `LIVE_TEST_EMAIL` / `LIVE_TEST_PASSWORD` are not currently present. |
+| Done | Production guardrail verification | Production and reservation guardrails were marked unverified by the audit. | Existing UI/API shortage blocks remain in place, API tests prove shortage and reservation ownership rules, and smoke now asserts shortage batches keep Start/Complete disabled. |
 
 ## Validation Checklist
 
@@ -155,6 +155,7 @@ Latest audit source: `Audit report.pdf` / `audit.txt`, score 63/100 on June 12, 
 - [x] Milestone 7 smoke script now asserts purchase-unit selection and oversized stock-removal disabling.
 - [x] Recipe builder search/grouping and mobile modal containment added for the detailed audit usability findings.
 - [x] Milestone 7 smoke script now asserts shortage production batch actions stay disabled.
+- [x] API tests now cover production shortage blocking, same-order reservation consumption, and other-order reservation exclusion.
 - [ ] Re-run authenticated live smoke after `LIVE_TEST_EMAIL` and `LIVE_TEST_PASSWORD` are restored in the ignored local env file.
 - [ ] Re-run an external audit after the live audit expansion follow-up is deployed.
 
