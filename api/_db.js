@@ -21,6 +21,10 @@ export async function loadKitchenSnapshot() {
   await sql`alter table suppliers add column if not exists lead_time_days integer not null default 2`;
   await sql`alter table suppliers add column if not exists supplied_ingredient_ids text[] not null default '{}'`;
   await sql`alter table suppliers add column if not exists active boolean not null default true`;
+  await sql`alter table ingredients add column if not exists purchase_unit text`;
+  await sql`update ingredients set purchase_unit = base_unit where purchase_unit is null or purchase_unit = ''`;
+  await sql`alter table ingredients alter column purchase_unit set default 'g'`;
+  await sql`alter table ingredients alter column purchase_unit set not null`;
   await sql`alter table conversion_rules add column if not exists active boolean not null default true`;
   await sql`alter table settings add column if not exists safety_margin_percentage numeric(6,3) not null default 10`;
   await sql`alter table settings add column if not exists default_tax_percentage numeric(6,3) not null default 0`;
@@ -86,6 +90,7 @@ export async function loadKitchenSnapshot() {
     sql`
       select ingredients.id, name, category, base_unit as "baseUnit", current_stock::float as "currentStock",
         reorder_level::float as "reorderLevel", coalesce(nullif(latest_unit_cost, 0), latest_purchase.cost_per_base_unit, 0)::float as "latestUnitCost",
+        coalesce(nullif(purchase_unit, ''), base_unit) as "purchaseUnit",
         supplier_id as "supplierId", expiry_tracking_enabled as "expiryTrackingEnabled",
         default_expiry_days as "defaultExpiryDays", notes, reserved_stock::float as "reservedStock",
         expiry_date::text as "expiryDate"

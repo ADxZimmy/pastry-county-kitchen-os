@@ -106,6 +106,18 @@ Latest audit source: `Audit Request Expansion.pdf`, score 71/100 on May 29, 2026
 | Done | Mobile navigation | Audit requests bottom navigation and better touch targets. | Mobile has persistent bottom nav for key modules and all table/form actions meet 44px touch target expectations. |
 | Done | Verification coverage | Audit recommends critical E2E tests. | `npm run smoke:milestone7` provides Playwright coverage for login, mobile ingredient forms, production shortage blocking, shopping purchase controls, conversion editing, settings/mobile overflow, and optional mutation checks for purchase/order creation. |
 
+## Milestone 8 - Regression Audit Recovery
+
+Latest audit source: `Audit report.pdf` / `audit.txt`, score 63/100 on June 12, 2026. Root cause: the external audit used stricter mutation checks than the previous smoke pass, exposing precision, persistence, and FEFO-lot regressions that were not pinned by tests.
+
+| Status | Area | Audit Finding | Completion Criteria |
+| --- | --- | --- | --- |
+| Done | Low-cost precision | Ingredients with unit costs below 1 were rounded up in cost displays, e.g. `0.5/g` rendered as `₦1/g`. | Shared currency formatting preserves two decimals for fractional costs while keeping whole-naira values compact; tests cover `0.5`, `0.64`, `2.75`, and whole-unit values. |
+| Done | Purchase unit persistence | Purchase Unit looked ineffective because the selector state was not preserved as a first-class ingredient field. | Ingredients store `purchaseUnit`, the form selector is controlled and visibly responsive, exports/detail screens expose the saved value, and purchase quantity converts kg/g and litre/ml into the base unit before costing/stock updates. |
+| Done | FEFO manual removals | Manual negative stock adjustments reduced current stock but did not decrement FEFO lot quantities. | Manual removals plan deductions against lots in FEFO order and update `ingredient_batches.quantity_remaining`; API tests cover multi-lot and capped deduction behavior. |
+| Done | Invalid removals | Audit flagged saves that appeared clickable or silent when removing more than available stock. | Adjustment UI keeps invalid removal submits disabled and the API still rejects stock-negative mutations. |
+| Done | Dashboard metric fit | Six dashboard metric cards could clip or crowd long currency values such as shopping estimates. | Long metric values size from the card width and stay on one line without overflowing the card. |
+
 ## Validation Checklist
 
 - [x] Unit tests passed with `npm test`.
@@ -135,6 +147,8 @@ Latest audit source: `Audit Request Expansion.pdf`, score 71/100 on May 29, 2026
 - [x] Mobile form/modal overflow guardrails added for 360px-class screens.
 - [x] Milestone 7 Playwright smoke script added as `npm run smoke:milestone7`; run with `LIVE_TEST_EMAIL` and `LIVE_TEST_PASSWORD`, plus `MILESTONE7_SMOKE_MUTATE=1` for mutation checks.
 - [x] Milestone 7 live smoke passed against production in read-only mode with `npm run smoke:milestone7`.
+- [x] Regression audit precision and FEFO unit tests passed with `npm test`.
+- [x] Regression audit production build passed with `npm run build`.
 - [ ] Re-run an external audit after the live audit expansion follow-up is deployed.
 
 ## Next Recommended Work

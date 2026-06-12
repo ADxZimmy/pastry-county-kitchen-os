@@ -25,6 +25,25 @@ function normalizeUnit(unit, fallback = "g") {
   return String(unit || fallback);
 }
 
+function directUnitFactor(fromUnit, toUnit) {
+  if (fromUnit === toUnit) return 1;
+  const direct = {
+    "kg:g": 1000,
+    "g:kg": 0.001,
+    "litre:ml": 1000,
+    "ml:litre": 0.001
+  };
+  return direct[`${fromUnit}:${toUnit}`];
+}
+
+function convertPurchaseQuantity(quantity, purchaseUnit, baseUnit) {
+  const factor = directUnitFactor(purchaseUnit, baseUnit);
+  if (!factor) {
+    throw Object.assign(new Error(`Purchase unit ${purchaseUnit} cannot be converted to base unit ${baseUnit}. Use matching units or kg/g and litre/ml pairs.`), { statusCode: 400 });
+  }
+  return quantity * factor;
+}
+
 const movementTypes = new Set(["purchase", "production_use", "reservation", "reservation_release", "adjustment", "waste", "return", "correction"]);
 const actionRoles = {
   "archive.list": ["Owner/Admin", "Inventory Manager"],
@@ -256,6 +275,10 @@ async function reserveOrder(sql, orderId) {
 
 async function ensureOperationalTables(sql) {
   await sql`alter table orders add column if not exists archived boolean not null default false`;
+  await sql`alter table ingredients add column if not exists purchase_unit text`;
+  await sql`update ingredients set purchase_unit = base_unit where purchase_unit is null or purchase_unit = ''`;
+  await sql`alter table ingredients alter column purchase_unit set default 'g'`;
+  await sql`alter table ingredients alter column purchase_unit set not null`;
   await sql`alter table suppliers add column if not exists default_currency text not null default 'NGN'`;
   await sql`alter table suppliers add column if not exists lead_time_days integer not null default 2`;
   await sql`alter table suppliers add column if not exists supplied_ingredient_ids text[] not null default '{}'`;
@@ -332,8 +355,17 @@ function createBatchFromPurchase(txn, item) {
   `;
 }
 
+export function planBatchDeductions(batches, quantity) {
+  let remaining = Number(quantity);
+  return batches.flatMap((batch) => {
+    if (remaining <= 0) return [];
+    const take = Math.min(remaining, Number(batch.quantity_remaining ?? batch.quantityRemaining ?? 0));
+    remaining -= take;
+    return take > 0 ? [{ batchId: batch.id, quantity: take }] : [];
+  });
+}
+
 async function batchDeductionsForRequirement(sql, requirement) {
-  let remaining = Number(requirement.quantity);
   const batches = await sql`
     select id, quantity_remaining::float as quantity_remaining
     from ingredient_batches
@@ -342,12 +374,19 @@ async function batchDeductionsForRequirement(sql, requirement) {
       and quantity_remaining > 0
     order by expiry_date nulls last, received_date, created_at
   `;
-  return batches.flatMap((batch) => {
-    if (remaining <= 0) return [];
-    const take = Math.min(remaining, Number(batch.quantity_remaining));
-    remaining -= take;
-    return [{ batchId: batch.id, quantity: take }];
-  });
+  return planBatchDeductions(batches, Number(requirement.quantity));
+}
+
+async function batchDeductionsForStockRemoval(sql, { ingredientId, unit, quantity }) {
+  const batches = await sql`
+    select id, quantity_remaining::float as quantity_remaining
+    from ingredient_batches
+    where ingredient_id = ${ingredientId}
+      and unit = ${unit}
+      and quantity_remaining > 0
+    order by expiry_date nulls last, received_date, created_at
+  `;
+  return planBatchDeductions(batches, quantity);
 }
 
 async function releaseReservation(sql, orderId) {
@@ -536,6 +575,7 @@ export async function handleAction(sql, body, actor) {
     const ingredientId = data.id || id("ing");
     const supplierId = data.supplierId || null;
     const baseUnit = normalizeUnit(data.baseUnit);
+    const purchaseUnit = normalizeUnit(data.purchaseUnit, baseUnit);
     const name = required(data.name, "Ingredient name");
     const category = required(data.category, "Category");
     const currentStock = nonNegative(num(data.currentStock), "Current stock");
@@ -557,9 +597,9 @@ export async function handleAction(sql, body, actor) {
     const existingRows = data.id ? await sql`select latest_unit_cost::float as latest_unit_cost from ingredients where id = ${data.id}` : [];
     const before = data.id ? await rowById(sql, "ingredients", data.id) : null;
     const fallbackUnitCost = data.latestUnitCost === undefined || data.latestUnitCost === "" ? Number(existingRows[0]?.latest_unit_cost ?? 0) : nonNegative(num(data.latestUnitCost), "Latest unit cost");
-    const stockAfterPurchase = currentStock + purchaseQuantity;
-    const convertedPurchaseQuantity = purchaseQuantity || currentStock;
-    const latestUnitCost = purchasePrice > 0 && purchaseQuantity > 0 ? purchasePrice / purchaseQuantity : fallbackUnitCost;
+    const convertedPurchaseQuantity = purchaseQuantity > 0 ? convertPurchaseQuantity(purchaseQuantity, purchaseUnit, baseUnit) : 0;
+    const stockAfterPurchase = currentStock + convertedPurchaseQuantity;
+    const latestUnitCost = purchasePrice > 0 && convertedPurchaseQuantity > 0 ? purchasePrice / convertedPurchaseQuantity : fallbackUnitCost;
     const defaultExpiryDays = num(data.defaultExpiryDays) || null;
     const expiryDate = data.expiryDate || (bool(data.expiryTrackingEnabled) && defaultExpiryDays
       ? new Date(Date.now() + defaultExpiryDays * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
@@ -568,9 +608,9 @@ export async function handleAction(sql, body, actor) {
     const purchaseId = id("pur");
     await sql.transaction((txn) => [
       txn`
-        insert into ingredients (id, name, category, base_unit, current_stock, reorder_level, latest_unit_cost, supplier_id, expiry_tracking_enabled, default_expiry_days, expiry_date, notes)
-        values (${ingredientId}, ${name}, ${category}, ${baseUnit}, ${stockAfterPurchase}, ${reorderLevel}, ${latestUnitCost}, ${supplierId}, ${bool(data.expiryTrackingEnabled)}, ${defaultExpiryDays}, ${expiryDate}, ${data.notes || null})
-        on conflict (id) do update set name = excluded.name, category = excluded.category, base_unit = excluded.base_unit,
+        insert into ingredients (id, name, category, base_unit, purchase_unit, current_stock, reorder_level, latest_unit_cost, supplier_id, expiry_tracking_enabled, default_expiry_days, expiry_date, notes)
+        values (${ingredientId}, ${name}, ${category}, ${baseUnit}, ${purchaseUnit}, ${stockAfterPurchase}, ${reorderLevel}, ${latestUnitCost}, ${supplierId}, ${bool(data.expiryTrackingEnabled)}, ${defaultExpiryDays}, ${expiryDate}, ${data.notes || null})
+        on conflict (id) do update set name = excluded.name, category = excluded.category, base_unit = excluded.base_unit, purchase_unit = excluded.purchase_unit,
           current_stock = excluded.current_stock, reorder_level = excluded.reorder_level, latest_unit_cost = excluded.latest_unit_cost,
           supplier_id = excluded.supplier_id, expiry_tracking_enabled = excluded.expiry_tracking_enabled, default_expiry_days = excluded.default_expiry_days,
           expiry_date = excluded.expiry_date, notes = excluded.notes, updated_at = now()
@@ -578,13 +618,13 @@ export async function handleAction(sql, body, actor) {
       ...(purchaseQuantity > 0 ? [
         txn`
           insert into purchase_logs (id, supplier_id, ingredient_id, purchase_quantity, purchase_unit, purchase_price, converted_quantity_in_base_unit, cost_per_base_unit, expiry_date, notes)
-          values (${purchaseId}, ${supplierId}, ${ingredientId}, ${purchaseQuantity}, ${normalizeUnit(data.purchaseUnit, baseUnit)}, ${purchasePrice}, ${convertedPurchaseQuantity}, ${latestUnitCost}, ${expiryDate}, 'Initial purchase from ingredient form')
+          values (${purchaseId}, ${supplierId}, ${ingredientId}, ${purchaseQuantity}, ${purchaseUnit}, ${purchasePrice}, ${convertedPurchaseQuantity}, ${latestUnitCost}, ${expiryDate}, 'Initial purchase from ingredient form')
         `,
         txn`
           insert into inventory_movements (id, ingredient_id, movement_type, quantity_change, unit, note, created_by)
-          values (${id("mov")}, ${ingredientId}, 'purchase', ${purchaseQuantity}, ${baseUnit}, 'Added stock from ingredient form purchase', 'system')
+          values (${id("mov")}, ${ingredientId}, 'purchase', ${convertedPurchaseQuantity}, ${baseUnit}, 'Added stock from ingredient form purchase', 'system')
         `,
-        createBatchFromPurchase(txn, { purchaseId, ingredientId, quantity: purchaseQuantity, unit: baseUnit, expiryDate, note: "Initial purchase from ingredient form" })
+        createBatchFromPurchase(txn, { purchaseId, ingredientId, quantity: convertedPurchaseQuantity, unit: baseUnit, expiryDate, note: "Initial purchase from ingredient form" })
       ] : [
         txn`
           insert into inventory_movements (id, ingredient_id, movement_type, quantity_change, unit, note, created_by)
@@ -640,18 +680,27 @@ export async function handleAction(sql, body, actor) {
     if (Number(ingredientRows[0].current_stock) + quantity < 0) {
       throw Object.assign(new Error("Adjustment would make stock negative."), { statusCode: 400 });
     }
+    const unit = required(body.unit, "Unit");
+    const batchDeductions = quantity < 0
+      ? await batchDeductionsForStockRemoval(sql, { ingredientId, unit, quantity: Math.abs(quantity) })
+      : [];
     await sql.transaction((txn) => {
       const statements = [
         txn`
         insert into inventory_movements (id, ingredient_id, movement_type, quantity_change, unit, note, created_by)
-        values (${id("mov")}, ${ingredientId}, ${movementType}, ${quantity}, ${required(body.unit, "Unit")}, ${body.note || "Manual stock adjustment"}, 'system')
+        values (${id("mov")}, ${ingredientId}, ${movementType}, ${quantity}, ${unit}, ${body.note || "Manual stock adjustment"}, 'system')
       `,
-        txn`update ingredients set current_stock = current_stock + ${quantity}, updated_at = now() where id = ${ingredientId}`
+        txn`update ingredients set current_stock = current_stock + ${quantity}, updated_at = now() where id = ${ingredientId}`,
+        ...batchDeductions.map((deduction) => txn`
+          update ingredient_batches
+          set quantity_remaining = greatest(0, quantity_remaining - ${deduction.quantity}), updated_at = now()
+          where id = ${deduction.batchId}
+        `)
       ];
       if (movementType === "purchase" && quantity > 0) {
         statements.push(txn`
         insert into ingredient_batches (id, ingredient_id, quantity_received, quantity_remaining, unit, expiry_date, received_date, notes)
-        values (${id("lot")}, ${ingredientId}, ${quantity}, ${quantity}, ${required(body.unit, "Unit")}, ${body.expiryDate || null}, now(), ${body.note || "Manual stock purchase"})
+        values (${id("lot")}, ${ingredientId}, ${quantity}, ${quantity}, ${unit}, ${body.expiryDate || null}, now(), ${body.note || "Manual stock purchase"})
       `);
       }
       return statements;

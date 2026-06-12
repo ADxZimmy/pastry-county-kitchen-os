@@ -33,6 +33,7 @@ export interface Ingredient {
   name: string;
   category: string;
   baseUnit: Unit;
+  purchaseUnit?: Unit;
   currentStock: number;
   reorderLevel: number;
   latestUnitCost: number;

@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { setKitchenSnapshot } from "./data";
-import { calculateMargin, calculateRecipeCost, checkStockAvailability, convertUnit, generateShoppingList, parseRecipeText, roundScaledQuantity, scaleRecipe } from "./lib/kitchen";
+import { calculateMargin, calculateRecipeCost, checkStockAvailability, convertUnit, formatNaira, generateShoppingList, parseRecipeText, roundScaledQuantity, scaleRecipe } from "./lib/kitchen";
 
 describe("kitchen calculations", () => {
   beforeEach(() => {
@@ -79,6 +79,13 @@ describe("kitchen calculations", () => {
     expect(cost.totalRecipeCost).toBeGreaterThan(0);
     const margin = calculateMargin(18000, cost.totalRecipeCost);
     expect(margin.grossProfit).toBeCloseTo(18000 - cost.totalRecipeCost);
+  });
+
+  it("keeps precision for sub-naira and fractional unit costs", () => {
+    expect(formatNaira(0.5)).toBe("₦0.50");
+    expect(formatNaira(0.64)).toBe("₦0.64");
+    expect(formatNaira(2.75)).toBe("₦2.75");
+    expect(formatNaira(160)).toBe("₦160");
   });
 
   it("uses ingredient-specific conversion rules", () => {

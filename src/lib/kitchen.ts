@@ -22,7 +22,14 @@ export interface StockAvailability {
 }
 
 export function formatNaira(value: number) {
-  return new Intl.NumberFormat("en-NG", { style: "currency", currency: settings.currency ?? "NGN", maximumFractionDigits: 0 }).format(value);
+  const safeValue = Number.isFinite(value) ? value : 0;
+  const decimals = Number.isInteger(safeValue) ? 0 : 2;
+  return new Intl.NumberFormat("en-NG", {
+    style: "currency",
+    currency: settings.currency ?? "NGN",
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals
+  }).format(safeValue);
 }
 
 export function roundByPreference(value: number, unit: Unit) {

@@ -995,7 +995,7 @@ function Inventory({ user, setPage, setSelectedIngredientId, query, setQuery }: 
   });
   return (
     <>
-      <Toolbar query={query} setQuery={setQuery} placeholder="Search ingredients" action={<div className="button-row"><Button variant="secondary" onClick={() => exportCsv("pastry-county-inventory.csv", ["Ingredient", "Category", "Current Stock", "Reorder Level", "Unit", "Latest Unit Cost", "Supplier"], list.map((item) => [item.name, item.category, item.currentStock, item.reorderLevel, item.baseUnit, item.latestUnitCost, suppliers.find((supplier) => supplier.id === item.supplierId)?.name ?? "Unassigned"]))}>Export CSV</Button><Button onClick={() => { setSelectedIngredientId(""); setPage("ingredient-form"); }} disabled={!canUser(user, "manageInventory")}><Plus size={18} /> Add Ingredient</Button></div>} />
+      <Toolbar query={query} setQuery={setQuery} placeholder="Search ingredients" action={<div className="button-row"><Button variant="secondary" onClick={() => exportCsv("pastry-county-inventory.csv", ["Ingredient", "Category", "Current Stock", "Reorder Level", "Base Unit", "Purchase Unit", "Latest Unit Cost", "Supplier"], list.map((item) => [item.name, item.category, item.currentStock, item.reorderLevel, item.baseUnit, item.purchaseUnit ?? item.baseUnit, item.latestUnitCost, suppliers.find((supplier) => supplier.id === item.supplierId)?.name ?? "Unassigned"]))}>Export CSV</Button><Button onClick={() => { setSelectedIngredientId(""); setPage("ingredient-form"); }} disabled={!canUser(user, "manageInventory")}><Plus size={18} /> Add Ingredient</Button></div>} />
       <Chips items={categories} active={filter} setActive={setFilter} />
       <ResponsiveTable
         headers={["Ingredient", "Category", "Current Stock", "Reorder", "Latest Cost", "Status"]}
@@ -1039,7 +1039,7 @@ function IngredientDetail({ ingredientId, user, setPage, notify, askConfirm, rel
       </article>
       <div className="split">
         <SummaryCard title="Stock Summary" items={[["Current stock", formatQuantity(ingredient.currentStock, ingredient.baseUnit)], ["Reserved stock", formatQuantity(ingredient.reservedStock ?? 0, ingredient.baseUnit)], ["Available stock", formatQuantity(ingredient.currentStock - (ingredient.reservedStock ?? 0), ingredient.baseUnit)], ["Reorder level", formatQuantity(ingredient.reorderLevel, ingredient.baseUnit)]]} />
-        <SummaryCard title="Cost Summary" items={[["Last purchase price", `${formatNaira(ingredient.latestUnitCost)}/${ingredient.baseUnit}`], ["Supplier", supplier?.name ?? "Unassigned"], ["Expiry date", ingredient.expiryDate ?? "Not tracked"], ["Purchase trend", trendText]]} />
+        <SummaryCard title="Cost Summary" items={[["Last purchase price", `${formatNaira(ingredient.latestUnitCost)}/${ingredient.baseUnit}`], ["Purchase unit", ingredient.purchaseUnit ?? ingredient.baseUnit], ["Supplier", supplier?.name ?? "Unassigned"], ["Expiry date", ingredient.expiryDate ?? "Not tracked"], ["Purchase trend", trendText]]} />
       </div>
       <Section title="Batch Lots & FEFO">
         <ResponsiveTable headers={["Lot", "Remaining", "Expiry", "Received", "Guidance"]} rows={batches.map((batch, index) => ({
@@ -1175,6 +1175,8 @@ function StockAdjustmentModal({ ingredient, mode, onClose, notify, reloadData }:
 
 function IngredientForm({ ingredientId, setPage, notify, reloadData }: { ingredientId: string; setPage: (page: Page) => void; notify: (message: string) => void; reloadData: () => Promise<void> }) {
   const ingredient = ingredients.find((item) => item.id === ingredientId);
+  const [baseUnit, setBaseUnit] = useState<Unit>(ingredient?.baseUnit ?? "g");
+  const [purchaseUnit, setPurchaseUnit] = useState<Unit>(ingredient?.purchaseUnit ?? ingredient?.baseUnit ?? "g");
   return (
     <FormShell title={ingredient ? "Edit Ingredient" : "Add Ingredient"} action="Save Ingredient" cancelTo="inventory" setPage={setPage} onDone={async (form) => {
       const supplierName = formValue(form, "supplierId");
@@ -1204,12 +1206,20 @@ function IngredientForm({ ingredientId, setPage, notify, reloadData }: { ingredi
       <div className="form-grid">
         <Field label="Ingredient name"><input name="name" defaultValue={ingredient?.name ?? ""} placeholder="Ingredient name" required /></Field>
         <Field label="Category"><select name="category" defaultValue={ingredient?.category ?? ""} required><option value="" disabled>Select category</option><option>Dry Goods</option><option>Dairy</option><option>Chocolate</option><option>Fruits</option><option>Packaging</option></select></Field>
-        <Field label="Base unit" helper="Use one consistent storage unit for calculations."><select name="baseUnit" defaultValue={ingredient?.baseUnit ?? "g"}><option>g</option><option>kg</option><option>ml</option><option>litre</option><option>pcs</option><option>pack</option><option>roll</option></select></Field>
+        <Field label="Base unit" helper="Use one consistent storage unit for calculations.">
+          <select name="baseUnit" value={baseUnit} onChange={(event) => {
+            const nextUnit = event.target.value as Unit;
+            setPurchaseUnit((currentUnit) => currentUnit === baseUnit ? nextUnit : currentUnit);
+            setBaseUnit(nextUnit);
+          }}><option>g</option><option>kg</option><option>ml</option><option>litre</option><option>pcs</option><option>pack</option><option>roll</option></select>
+        </Field>
         <Field label="Current stock"><input name="currentStock" type="number" min="0" step="0.001" defaultValue={ingredient?.currentStock ?? 0} placeholder="0" required /></Field>
         <Field label="Reorder level"><input name="reorderLevel" type="number" min="0" step="0.001" defaultValue={ingredient?.reorderLevel ?? 0} placeholder="0" required /></Field>
-        <Field label="Latest unit cost" helper={`Cost per ${ingredient?.baseUnit ?? "base unit"} used for costing when no purchase price is entered.`}><input name="latestUnitCost" type="number" min="0" step="0.0001" defaultValue={ingredient?.latestUnitCost ?? 0} placeholder="0" required /></Field>
+        <Field label="Latest unit cost" helper={`Cost per ${baseUnit} used for costing when no purchase price is entered.`}><input name="latestUnitCost" type="number" min="0" step="0.0001" defaultValue={ingredient?.latestUnitCost ?? 0} placeholder="0" required /></Field>
         <Field label="Purchase quantity" helper="Optional. Added on top of current stock."><input name="purchaseQuantity" type="number" min="0" step="0.001" placeholder="0" /></Field>
-        <Field label="Purchase unit"><select name="purchaseUnit" defaultValue={ingredient?.baseUnit ?? "g"}><option>g</option><option>kg</option><option>ml</option><option>litre</option><option>pcs</option><option>pack</option><option>roll</option></select></Field>
+        <Field label="Purchase unit" helper="Saved as the default purchase unit. kg/g and litre/ml purchases are converted into the base unit.">
+          <select name="purchaseUnit" value={purchaseUnit} onChange={(event) => setPurchaseUnit(event.target.value as Unit)}><option>g</option><option>kg</option><option>ml</option><option>litre</option><option>pcs</option><option>pack</option><option>roll</option></select>
+        </Field>
         <Field label="Purchase price"><input name="purchasePrice" type="number" min="0" step="0.01" placeholder="0" /></Field>
         <Field label="Supplier"><select name="supplierId" defaultValue={ingredient?.supplierId ?? ""}><option value="">Unassigned</option>{suppliers.map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.name}</option>)}</select></Field>
         <Field label="Expiry tracking"><select name="expiryTrackingEnabled" defaultValue={ingredient?.expiryTrackingEnabled ? "Yes" : "No"}><option>Yes</option><option>No</option></select></Field>
