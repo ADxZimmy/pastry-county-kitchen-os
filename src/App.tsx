@@ -1279,10 +1279,27 @@ function RecipeDetail({ recipeId, user, setPage, notify, askConfirm, reloadData 
   );
 }
 
+function ingredientPickerGroups(query: string, selectedId?: string): [string, Ingredient[]][] {
+  const normalizedQuery = query.trim().toLowerCase();
+  const filtered = ingredients.filter((ingredient) => {
+    if (ingredient.id === selectedId) return true;
+    if (!normalizedQuery) return true;
+    return `${ingredient.name} ${ingredient.category}`.toLowerCase().includes(normalizedQuery);
+  });
+  const groups = filtered.reduce<Record<string, Ingredient[]>>((acc, ingredient) => {
+    acc[ingredient.category] = [...(acc[ingredient.category] ?? []), ingredient];
+    return acc;
+  }, {});
+  return Object.entries(groups)
+    .sort(([categoryA], [categoryB]) => categoryA.localeCompare(categoryB))
+    .map(([category, items]) => [category, items.sort((a, b) => a.name.localeCompare(b.name))]);
+}
+
 function RecipeForm({ recipeId, setPage, notify, reloadData }: { recipeId: string; setPage: (page: Page) => void; notify: (message: string) => void; reloadData: () => Promise<void> }) {
   const recipe = recipes.find((item) => item.id === recipeId);
   const existingItems = recipeItems.filter((item) => item.recipeId === recipeId);
   const [builderRows, setBuilderRows] = useState<number[]>(existingItems.length ? existingItems.map((_, index) => index) : [0]);
+  const [ingredientSearches, setIngredientSearches] = useState<Record<number, string>>({});
   return (
     <FormShell title={recipe ? "Edit Recipe" : "Add Recipe"} action="Save Recipe" cancelTo="recipes" setPage={setPage} onDone={async (form) => {
       const items = builderRows.map((_, index) => ({
@@ -1323,9 +1340,11 @@ function RecipeForm({ recipeId, setPage, notify, reloadData }: { recipeId: strin
         <div className="compact-list">
           {builderRows.map((row, index) => {
             const item = existingItems[index];
+            const searchValue = ingredientSearches[row] ?? "";
+            const ingredientGroups = ingredientPickerGroups(searchValue, item?.ingredientId);
             return (
               <div className="builder-row" key={row}>
-                <label className="builder-field"><span>Ingredient</span><select name={`ingredientId-${index}`} defaultValue={item?.ingredientId ?? ""} required><option value="" disabled>Select ingredient</option>{ingredients.map((ingredient) => <option key={ingredient.id} value={ingredient.id}>{ingredient.name}</option>)}</select></label>
+                <label className="builder-field ingredient-picker"><span>Ingredient</span><input type="search" aria-label={`Search ingredients for recipe row ${index + 1}`} value={searchValue} onChange={(event) => setIngredientSearches((current) => ({ ...current, [row]: event.target.value }))} placeholder="Search ingredient or category" /><select name={`ingredientId-${index}`} defaultValue={item?.ingredientId ?? ""} required><option value="" disabled>Select ingredient</option>{ingredientGroups.map(([category, group]) => <optgroup key={category} label={category}>{group.map((ingredient) => <option key={ingredient.id} value={ingredient.id}>{ingredient.name}</option>)}</optgroup>)}</select></label>
                 <label className="builder-field"><span>Quantity</span><input name={`quantity-${index}`} type="number" step="0.001" defaultValue={item?.quantity ?? ""} placeholder="0" /></label>
                 <label className="builder-field"><span>Unit</span><select name={`unit-${index}`} defaultValue={item?.unit ?? "g"}><option>g</option><option>ml</option><option>pcs</option><option>cup</option><option>tablespoon</option><option>teaspoon</option><option>pack</option><option>roll</option></select></label>
                 <label className="builder-field"><span>Waste %</span><input name={`wastePercentage-${index}`} type="number" min="0" step="0.001" defaultValue={item?.wastePercentage ?? 0} placeholder="0" /></label>

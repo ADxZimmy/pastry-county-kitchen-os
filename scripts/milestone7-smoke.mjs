@@ -123,6 +123,17 @@ async function main() {
     await assertNoHorizontalOverflow(page, "Production");
     const shortageText = page.getByText(/Resolve before production|Shortage/i).first();
     if (await shortageText.count()) await shortageText.waitFor({ state: "visible" });
+    const shortageBatch = page.locator(".item-card", { hasText: /Resolve before production/i }).first();
+    if (await shortageBatch.count()) {
+      const startBatch = shortageBatch.getByRole("button", { name: "Start Batch", exact: true });
+      const completeBatch = shortageBatch.getByRole("button", { name: "Complete Batch", exact: true });
+      if (await startBatch.count() && !(await startBatch.isDisabled())) {
+        throw new Error("Shortage batch left Start Batch enabled.");
+      }
+      if (await completeBatch.count() && !(await completeBatch.isDisabled())) {
+        throw new Error("Shortage batch left Complete Batch enabled.");
+      }
+    }
     await safeClickByText(page, "Review Batch");
     if (await page.getByRole("dialog").isVisible().catch(() => false)) {
       await clickVisible(page.getByRole("button", { name: "Close", exact: true }), "close production review");

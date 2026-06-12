@@ -117,6 +117,9 @@ Latest audit source: `Audit report.pdf` / `audit.txt`, score 63/100 on June 12, 
 | Done | FEFO manual removals | Manual negative stock adjustments reduced current stock but did not decrement FEFO lot quantities. | Manual removals plan deductions against lots in FEFO order and update `ingredient_batches.quantity_remaining`; API tests cover multi-lot and capped deduction behavior. |
 | Done | Invalid removals | Audit flagged saves that appeared clickable or silent when removing more than available stock. | Adjustment UI keeps invalid removal submits disabled and the API still rejects stock-negative mutations. |
 | Done | Dashboard metric fit | Six dashboard metric cards could clip or crowd long currency values such as shopping estimates. | Long metric values size from the card width and stay on one line without overflowing the card. |
+| Done | Recipe builder usability | Ingredient selection required scrolling through long ungrouped dropdowns and mobile recipe entry was cumbersome. | Recipe rows now include ingredient search, category-grouped options, visible labels, and mobile-safe row spacing while retaining saved conversion-rule handling. |
+| Done | Mobile modal overflow | Add Stock and other modals could require both page and dialog scrolling on 360px screens. | Dialog scrolling is contained inside the modal, controls retain 44px+ tap targets, and sticky modal actions remain reachable on mobile. |
+| Partial | Production guardrail verification | Production and reservation guardrails were marked unverified by the audit. | Existing UI/API shortage blocks remain in place and smoke now asserts shortage batches keep Start/Complete disabled; authenticated live smoke is still pending because local `LIVE_TEST_EMAIL` / `LIVE_TEST_PASSWORD` are not currently present. |
 
 ## Validation Checklist
 
@@ -150,6 +153,8 @@ Latest audit source: `Audit report.pdf` / `audit.txt`, score 63/100 on June 12, 
 - [x] Regression audit precision and FEFO unit tests passed with `npm test`.
 - [x] Regression audit production build passed with `npm run build`.
 - [x] Milestone 7 smoke script now asserts purchase-unit selection and oversized stock-removal disabling.
+- [x] Recipe builder search/grouping and mobile modal containment added for the detailed audit usability findings.
+- [x] Milestone 7 smoke script now asserts shortage production batch actions stay disabled.
 - [ ] Re-run authenticated live smoke after `LIVE_TEST_EMAIL` and `LIVE_TEST_PASSWORD` are restored in the ignored local env file.
 - [ ] Re-run an external audit after the live audit expansion follow-up is deployed.
 

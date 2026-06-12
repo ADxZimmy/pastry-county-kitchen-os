@@ -360,6 +360,8 @@ tbody tr.is-expanded { background: #edf7f5; }
 .order-builder-row .btn { min-height: 46px; }
 .builder-field { display: grid; gap: 6px; min-width: 0; }
 .builder-field span { color: var(--muted); font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; }
+.ingredient-picker { align-self: stretch; }
+.ingredient-picker input[type="search"] { margin-bottom: 2px; }
 .sticky-actions {
   position: sticky;
   bottom: 92px;
@@ -425,12 +427,15 @@ tbody tr.is-expanded { background: #edf7f5; }
   background: rgba(36, 22, 13, .42);
   backdrop-filter: blur(6px);
   z-index: 100;
-  overflow: auto;
+  overflow: hidden;
+  overscroll-behavior: contain;
 }
 .confirm-modal {
   width: min(100%, 460px);
   max-height: calc(100dvh - 36px);
+  min-height: 0;
   overflow: auto;
+  overscroll-behavior: contain;
   display: grid;
   gap: 18px;
   padding: 22px;
@@ -500,6 +505,7 @@ tbody tr.is-expanded { background: #edf7f5; }
     width: 100%;
     max-height: calc(100dvh - 20px);
     min-width: 0;
+    min-height: 0;
     padding: 18px;
     border-radius: 18px;
     overflow: auto;
