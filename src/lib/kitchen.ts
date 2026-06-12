@@ -32,6 +32,12 @@ export function formatNaira(value: number) {
   }).format(safeValue);
 }
 
+export function formatQuantity(value: number, unit: Unit) {
+  const countUnits: Unit[] = ["pcs", "pack", "roll", "egg", "yolk", "white"];
+  const normalized = countUnits.includes(unit) ? (value < 0 ? Math.floor(value) : Math.ceil(value)) : Number(value.toFixed(3));
+  return `${normalized.toLocaleString("en-NG")}${unit}`;
+}
+
 export function roundByPreference(value: number, unit: Unit) {
   if (unit === "g") return Math.round(value / settings.gramRoundingPreference) * settings.gramRoundingPreference;
   if (unit === "ml") return Math.round(value / 5) * 5;
@@ -78,7 +84,8 @@ export function combineRequirements(requirements: ScaledIngredient[]) {
 }
 
 export function checkStockAvailability(scaledIngredients: ScaledIngredient[], ingredientList = ingredients): StockAvailability[] {
-  return scaledIngredients.map((item) => {
+  return scaledIngredients.map((rawItem) => {
+    const item = normalizeRequirementToBase(rawItem);
     const ingredient = ingredientList.find((candidate) => candidate.id === item.ingredientId);
     if (!ingredient) throw new Error(`Ingredient ${item.ingredientId} was not found`);
     const reservedStock = ingredient.reservedStock ?? 0;
@@ -148,7 +155,7 @@ export function checkOrderStockAvailability(orderId: string, ingredientList = in
 
 export function calculateRecipeCost(recipeId: string, requestedYieldQuantity: number) {
   const scaled = scaleRecipe(recipeId, requestedYieldQuantity);
-  const ingredientCostBreakdown = scaled.map((item) => {
+  const ingredientCostBreakdown = scaled.map(normalizeRequirementToBase).map((item) => {
     const ingredient = ingredients.find((candidate) => candidate.id === item.ingredientId)!;
     return { ...item, unitCost: ingredient.latestUnitCost, cost: item.scaledQuantity * ingredient.latestUnitCost };
   });
@@ -177,7 +184,7 @@ export function requirementsForOrder(orderId: string, allOrderItems = orderItems
 
 export function calculateOrderCost(orderId: string) {
   const requirements = requirementsForOrder(orderId);
-  return requirements.reduce((sum, item) => {
+  return requirements.map(normalizeRequirementToBase).reduce((sum, item) => {
     const ingredient = ingredients.find((candidate) => candidate.id === item.ingredientId)!;
     return sum + item.scaledQuantity * ingredient.latestUnitCost;
   }, 0);

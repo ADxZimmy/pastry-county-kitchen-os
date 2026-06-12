@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { planBatchDeductions, productionShortageForRequirement } from "./_actions.js";
 
 describe("FEFO batch deduction planning", () => {
-  it("deducts stock removals across lots in the provided FEFO order", () => {
+  it("deducts stock removals or production use across lots in the provided FEFO order", () => {
     expect(planBatchDeductions([
       { id: "lot-old", quantity_remaining: 100 },
       { id: "lot-new", quantity_remaining: 150 }

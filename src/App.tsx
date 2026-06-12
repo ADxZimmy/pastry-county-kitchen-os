@@ -38,6 +38,7 @@ import {
   checkStockAvailability,
   convertUnit,
   formatNaira,
+  formatQuantity,
   generateShoppingList,
   parseRecipeText,
   requirementsForOrder,
@@ -254,12 +255,6 @@ function stockTone(status: StockStatus | string) {
 
 function hasShortageForOrder(orderId: string) {
   return checkOrderStockAvailability(orderId).some((item) => item.shortageQuantity > 0);
-}
-
-function formatQuantity(value: number, unit: Unit) {
-  const countUnits: Unit[] = ["pcs", "pack", "roll", "egg", "yolk", "white"];
-  const normalized = countUnits.includes(unit) ? (value < 0 ? Math.floor(value) : Math.ceil(value)) : Number(value.toFixed(3));
-  return `${normalized.toLocaleString("en-NG")}${unit}`;
 }
 
 function isBelowReorder(item: Pick<Ingredient, "currentStock" | "reorderLevel">) {

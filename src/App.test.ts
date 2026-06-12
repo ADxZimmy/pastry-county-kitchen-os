@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { setKitchenSnapshot } from "./data";
-import { calculateMargin, calculateRecipeCost, checkStockAvailability, convertUnit, formatNaira, generateShoppingList, parseRecipeText, roundScaledQuantity, scaleRecipe } from "./lib/kitchen";
+import { calculateMargin, calculateRecipeCost, checkStockAvailability, convertUnit, formatNaira, formatQuantity, generateShoppingList, parseRecipeText, roundScaledQuantity, scaleRecipe } from "./lib/kitchen";
 
 describe("kitchen calculations", () => {
   beforeEach(() => {
@@ -19,11 +19,13 @@ describe("kitchen calculations", () => {
       ],
       products: [
         { id: "classic-brownies", name: "Classic Brownies", category: "Brownies", description: "", active: true },
-        { id: "lemon-blueberry-loaf", name: "Lemon Blueberry Loaf", category: "Loaves", description: "", active: true }
+        { id: "lemon-blueberry-loaf", name: "Lemon Blueberry Loaf", category: "Loaves", description: "", active: true },
+        { id: "cup-test-cake", name: "Cup Test Cake", category: "Cakes", description: "", active: true }
       ],
       recipes: [
         { id: "recipe-classic", productId: "classic-brownies", name: "Classic Brownies", category: "Brownies", baseYieldQuantity: 16, yieldUnit: "pieces", instructions: [], active: true, updatedAt: "2026-05-18" },
-        { id: "recipe-lemon", productId: "lemon-blueberry-loaf", name: "Lemon Blueberry Loaf", category: "Loaves", baseYieldQuantity: 1, yieldUnit: "loaf", instructions: [], active: true, updatedAt: "2026-05-18" }
+        { id: "recipe-lemon", productId: "lemon-blueberry-loaf", name: "Lemon Blueberry Loaf", category: "Loaves", baseYieldQuantity: 1, yieldUnit: "loaf", instructions: [], active: true, updatedAt: "2026-05-18" },
+        { id: "recipe-cup-test", productId: "cup-test-cake", name: "Cup Test Cake", category: "Cakes", baseYieldQuantity: 1, yieldUnit: "cake", instructions: [], active: true, updatedAt: "2026-05-18" }
       ],
       recipeItems: [
         { id: "ri-1", recipeId: "recipe-classic", ingredientId: "flour", quantity: 300, unit: "g" },
@@ -34,7 +36,8 @@ describe("kitchen calculations", () => {
         { id: "ri-6", recipeId: "recipe-classic", ingredientId: "coconut-oil", quantity: 180, unit: "ml" },
         { id: "ri-20", recipeId: "recipe-lemon", ingredientId: "flour", quantity: 420, unit: "g" },
         { id: "ri-22", recipeId: "recipe-lemon", ingredientId: "eggs", quantity: 3, unit: "pcs" },
-        { id: "ri-24", recipeId: "recipe-lemon", ingredientId: "blueberries", quantity: 400, unit: "g" }
+        { id: "ri-24", recipeId: "recipe-lemon", ingredientId: "blueberries", quantity: 400, unit: "g" },
+        { id: "ri-cup-test", recipeId: "recipe-cup-test", ingredientId: "flour", quantity: 2, unit: "cup" }
       ],
       orders: [
         { id: "ord-chika", customerName: "Chika", customerPhone: "", dueDate: "2026-05-18", deliveryMethod: "Pickup", status: "Confirmed", paymentStatus: "Paid", productionStatus: "Ready", stockStatus: "Shortage" },
@@ -88,9 +91,21 @@ describe("kitchen calculations", () => {
     expect(formatNaira(160)).toBe("₦160");
   });
 
+  it("formats count quantities without decimal noise", () => {
+    expect(formatQuantity(2.1, "pcs")).toBe("3pcs");
+    expect(formatQuantity(4.01, "pack")).toBe("5pack");
+    expect(formatQuantity(187.5, "g")).toBe("187.5g");
+  });
+
   it("uses ingredient-specific conversion rules", () => {
     expect(convertUnit(4, "cup", "g", "flour").convertedQuantity).toBe(480);
     expect(convertUnit(3, "yolk", "g", "egg-yolks").convertedQuantity).toBe(54);
+  });
+
+  it("reuses saved conversion rules when costing recipe ingredients", () => {
+    const cost = calculateRecipeCost("recipe-cup-test", 1);
+    expect(cost.ingredientCostBreakdown[0]).toMatchObject({ ingredientName: "Flour", scaledQuantity: 240, unit: "g" });
+    expect(cost.totalRecipeCost).toBeCloseTo(120);
   });
 
   it("parses plural recipe units and count ingredients", () => {
