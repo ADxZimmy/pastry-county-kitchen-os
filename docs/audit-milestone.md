@@ -149,6 +149,8 @@ Latest audit source: `Audit report.pdf` / `audit.txt`, score 63/100 on June 12, 
 - [x] Milestone 7 live smoke passed against production in read-only mode with `npm run smoke:milestone7`.
 - [x] Regression audit precision and FEFO unit tests passed with `npm test`.
 - [x] Regression audit production build passed with `npm run build`.
+- [x] Milestone 7 smoke script now asserts purchase-unit selection and oversized stock-removal disabling.
+- [ ] Re-run authenticated live smoke after `LIVE_TEST_EMAIL` and `LIVE_TEST_PASSWORD` are restored in the ignored local env file.
 - [ ] Re-run an external audit after the live audit expansion follow-up is deployed.
 
 ## Next Recommended Work

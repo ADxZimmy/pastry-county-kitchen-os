@@ -102,7 +102,22 @@ async function main() {
     await assertNoHorizontalOverflow(page, "Inventory");
     await clickByText(page, "Add Ingredient");
     await assertStickyActionsReachable(page, "Ingredient form");
+    const purchaseUnitSelect = page.locator('select[name="purchaseUnit"]');
+    await purchaseUnitSelect.selectOption("pcs");
+    const selectedPurchaseUnit = await purchaseUnitSelect.inputValue();
+    if (selectedPurchaseUnit !== "pcs") {
+      throw new Error(`Purchase unit selector did not change to pcs; current value is ${selectedPurchaseUnit}.`);
+    }
     await clickByText(page, "Cancel");
+    await clickFirstVisible(page, ".mobile-table-cards .item-card, .responsive-table tbody tr", "first inventory ingredient");
+    await clickByText(page, "Adjust Stock");
+    await page.locator('input[name="quantity"]').fill("999999999");
+    const saveAdjustmentButton = page.getByRole("button", { name: "Save Adjustment", exact: true });
+    if (!(await saveAdjustmentButton.isDisabled())) {
+      throw new Error("Oversized stock removal left Save Adjustment enabled.");
+    }
+    await page.getByRole("alert").waitFor({ state: "visible" });
+    await clickVisible(page.getByRole("button", { name: "Cancel", exact: true }), "cancel stock adjustment");
 
     await openPage(page, "Production");
     await assertNoHorizontalOverflow(page, "Production");
