@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { allowedRolesForAction, archiveTableForEntity, canRolePerformAction, normalizeShoppingPurchaseInput, planBatchDeductions, productionShortageForRequirement } from "./_actions.js";
+import { allowedRolesForAction, archiveTableForEntity, canRolePerformAction, normalizeShoppingPurchaseInput, planBatchDeductions, productionShortageForRequirement, sessionAccessError } from "./_actions.js";
 
 describe("FEFO batch deduction planning", () => {
   it("deducts stock removals or production use across lots in the provided FEFO order", () => {
@@ -82,6 +82,40 @@ describe("API role permissions", () => {
     expect(canRolePerformAction("Owner/Admin", "settings.save")).toBe(true);
     expect(canRolePerformAction("Inventory Manager", "settings.save")).toBe(false);
     expect(canRolePerformAction("Baker", "user.save")).toBe(false);
+    expect(canRolePerformAction("Inventory Manager", "user.disable")).toBe(false);
+    expect(canRolePerformAction("Baker", "user.revokeSessions")).toBe(false);
+  });
+});
+
+describe("staff session enforcement", () => {
+  it("requires a signed-in actor for mutating actions", () => {
+    expect(sessionAccessError(null, { active: true })).toEqual({
+      message: "Sign in again to continue.",
+      statusCode: 401
+    });
+  });
+
+  it("rejects disabled or missing staff sessions", () => {
+    const actor = { sub: "user-1", role: "Baker", iat: 100 };
+    expect(sessionAccessError(actor, null)).toEqual({
+      message: "This user session is no longer active.",
+      statusCode: 401
+    });
+    expect(sessionAccessError(actor, { active: false })).toEqual({
+      message: "This user session is no longer active.",
+      statusCode: 401
+    });
+  });
+
+  it("rejects sessions issued before staff session revocation", () => {
+    expect(sessionAccessError({ sub: "user-1", role: "Inventory Manager", iat: 100 }, { active: true, revoked_at: 120 })).toEqual({
+      message: "This session was revoked. Sign in again.",
+      statusCode: 401
+    });
+  });
+
+  it("allows active staff sessions issued after revocation time", () => {
+    expect(sessionAccessError({ sub: "user-1", role: "Inventory Manager", iat: 130 }, { active: true, revoked_at: 120 })).toBeNull();
   });
 });
 

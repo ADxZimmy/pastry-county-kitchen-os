@@ -127,6 +127,7 @@ Latest audit source: `Audit report.pdf` / `audit.txt`, score 63/100 on June 12, 
 | Done | Production guardrail verification | Production and reservation guardrails were marked unverified by the audit. | Existing UI/API shortage blocks remain in place, API tests prove shortage and reservation ownership rules, and smoke now asserts shortage batches keep Start/Complete disabled. |
 | Done | Shopping and role verification gaps | The audit matrix marked shopping purchases and server-side role enforcement as not verified. | Shopping purchases now validate every selected row for ingredient, positive quantity, positive unit cost, supplier fallback, expiry, and derived unit cost; API tests also cover role boundaries for shopping, production, settings, staff, and unknown actions. |
 | Done | Archive and audit export verification | Archive/recovery and audit export were marked untested in the audit matrix. | Archive restore now validates every recoverable entity type through a tested API mapper; audit report export/search/detail helpers are shared and tested for changed-field summaries plus redaction of passwords, tokens, hashes, sessions, and API keys. |
+| Done | Staff session enforcement verification | Staff management and disabled-user behavior were marked untested. | API permission tests now cover Owner-only staff save/disable/session revocation, missing actors, disabled users, missing users, revoked sessions, and active sessions issued after revocation. |
 
 ## Validation Checklist
 
@@ -168,6 +169,7 @@ Latest audit source: `Audit report.pdf` / `audit.txt`, score 63/100 on June 12, 
 - [x] Destructive stock removals now require explicit confirmation and shared validation tests.
 - [x] AI assistant responses are now shared-library logic with tests for shopping, shortages, costing, conversions, and low stock.
 - [x] Archive restore mapping and audit export/redaction helpers are now covered by unit tests.
+- [x] Staff/session enforcement tests now cover disabled users and revoked sessions.
 - [ ] Re-run authenticated live smoke after `LIVE_TEST_EMAIL` and `LIVE_TEST_PASSWORD` are restored in the ignored local env file.
 - [ ] Re-run an external audit after the live audit expansion follow-up is deployed.
 

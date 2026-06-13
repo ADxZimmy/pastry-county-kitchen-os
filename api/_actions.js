@@ -82,9 +82,18 @@ export function canRolePerformAction(role, action) {
   return action === "schema.ensure" || allowedRolesForAction(action).includes(role);
 }
 
+export function sessionAccessError(actor, userRow) {
+  if (!actor) return { message: "Sign in again to continue.", statusCode: 401 };
+  if (!userRow || userRow.active === false) return { message: "This user session is no longer active.", statusCode: 401 };
+  const revokedAt = Number(userRow.revoked_at ?? userRow.revokedAt ?? 0);
+  if (revokedAt && Number(actor.iat ?? 0) <= revokedAt) return { message: "This session was revoked. Sign in again.", statusCode: 401 };
+  return null;
+}
+
 async function requirePermission(sql, action, actor) {
   if (action === "schema.ensure") return;
-  if (!actor) throw Object.assign(new Error("Sign in again to continue."), { statusCode: 401 });
+  const missingActorError = sessionAccessError(actor, { active: true });
+  if (missingActorError) throw Object.assign(new Error(missingActorError.message), { statusCode: missingActorError.statusCode });
   if (!canRolePerformAction(actor.role, action)) {
     throw Object.assign(new Error(`${actor.role} cannot perform ${action}.`), { statusCode: 403 });
   }
@@ -94,13 +103,8 @@ async function requirePermission(sql, action, actor) {
     where id = ${actor.sub}
     limit 1
   `;
-  if (!rows.length || rows[0].active === false) {
-    throw Object.assign(new Error("This user session is no longer active."), { statusCode: 401 });
-  }
-  const revokedAt = Number(rows[0].revoked_at ?? 0);
-  if (revokedAt && Number(actor.iat ?? 0) <= revokedAt) {
-    throw Object.assign(new Error("This session was revoked. Sign in again."), { statusCode: 401 });
-  }
+  const sessionError = sessionAccessError(actor, rows[0]);
+  if (sessionError) throw Object.assign(new Error(sessionError.message), { statusCode: sessionError.statusCode });
 }
 
 function escapeHtml(value) {
