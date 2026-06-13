@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { setKitchenSnapshot } from "./data";
-import { calculateMargin, calculateRecipeCost, checkStockAvailability, convertUnit, formatNaira, formatQuantity, generateShoppingList, parseRecipeText, roundScaledQuantity, scaleRecipe, stockAdjustmentValidation } from "./lib/kitchen";
+import { buildKitchenAssistantResponse, calculateMargin, calculateRecipeCost, checkStockAvailability, convertUnit, formatNaira, formatQuantity, generateShoppingList, netSellingPrice, parseRecipeText, roundScaledQuantity, scaleRecipe, stockAdjustmentValidation } from "./lib/kitchen";
 
 describe("kitchen calculations", () => {
   beforeEach(() => {
@@ -118,6 +118,40 @@ describe("kitchen calculations", () => {
     const list = generateShoppingList(["ord-chika", "ord-tolu"]);
     expect(list.find((item) => item.ingredientName === "Dark Chocolate")).toBeTruthy();
     expect(list.find((item) => item.ingredientName === "Eggs")).toBeTruthy();
+  });
+
+  it("answers AI shopping questions from the live kitchen snapshot", () => {
+    const response = buildKitchenAssistantResponse("What do I need to buy?");
+    expect(response).toContain("current buying priority");
+    expect(response).toContain("Dark Chocolate");
+    expect(response).toContain("Total suggested spend");
+  });
+
+  it("answers AI production blocker questions with shortage details", () => {
+    const response = buildKitchenAssistantResponse("Which orders are blocked by shortages?");
+    expect(response).toContain("Production blockers found");
+    expect(response).toContain("Tolu");
+    expect(response).toContain("Blueberries short 500g");
+  });
+
+  it("answers AI costing questions with recipe cost and tax-aware margin", () => {
+    const response = buildKitchenAssistantResponse("Estimate Classic Brownies cost");
+    expect(response).toContain("Classic Brownies currently costs");
+    expect(response).toContain("estimated gross margin");
+    expect(netSellingPrice(18000)).toBe(18000);
+  });
+
+  it("answers AI conversion prompts with parsed recipe measurements", () => {
+    const response = buildKitchenAssistantResponse("2 cups flour");
+    expect(response).toContain("I parsed these recipe lines");
+    expect(response).toContain("flour: 2 cup -> 240g (High)");
+  });
+
+  it("answers AI low-stock questions from current inventory", () => {
+    const response = buildKitchenAssistantResponse("Show low stock items");
+    expect(response).toContain("Low-stock items right now");
+    expect(response).toContain("Dark Chocolate");
+    expect(response).toContain("Blueberries");
   });
 
   it("requires explicit confirmation for destructive stock removals", () => {

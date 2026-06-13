@@ -123,6 +123,7 @@ Latest audit source: `Audit report.pdf` / `audit.txt`, score 63/100 on June 12, 
 | Done | Recipe builder usability | Ingredient selection required scrolling through long ungrouped dropdowns and mobile recipe entry was cumbersome. | Recipe rows now include ingredient search, category-grouped options, visible labels, and mobile-safe row spacing while retaining saved conversion-rule handling. |
 | Done | Mobile modal overflow | Add Stock and other modals could require both page and dialog scrolling on 360px screens. | Dialog scrolling is contained inside the modal, controls retain 44px+ tap targets, and sticky modal actions remain reachable on mobile. |
 | Done | Conversion library integration | Conversion rules were not clearly proven to be reused during recipe entry/costing and editing/export looked static. | Recipe costing normalizes non-base ingredient units with saved conversion rules, recipe save applies verified conversions, conversion edit/export remain active, and tests cover rule reuse in recipe costing. |
+| Done | AI assistant verification | AI chat existed but was marked unverified and possibly static. | Assistant response logic now lives in the shared kitchen library and tests prove data-backed answers for shopping, production blockers, recipe costing, conversion parsing, and low-stock inventory. |
 | Done | Production guardrail verification | Production and reservation guardrails were marked unverified by the audit. | Existing UI/API shortage blocks remain in place, API tests prove shortage and reservation ownership rules, and smoke now asserts shortage batches keep Start/Complete disabled. |
 | Done | Shopping and role verification gaps | The audit matrix marked shopping purchases and server-side role enforcement as not verified. | Shopping purchases now validate every selected row for ingredient, positive quantity, positive unit cost, supplier fallback, expiry, and derived unit cost; API tests also cover role boundaries for shopping, production, settings, staff, and unknown actions. |
 
@@ -164,6 +165,7 @@ Latest audit source: `Audit report.pdf` / `audit.txt`, score 63/100 on June 12, 
 - [x] Shared quantity formatting and conversion-rule recipe costing tests added for the remaining Top 10 findings.
 - [x] API tests now cover shopping purchase validation and server-side role permission boundaries from the audit matrix.
 - [x] Destructive stock removals now require explicit confirmation and shared validation tests.
+- [x] AI assistant responses are now shared-library logic with tests for shopping, shortages, costing, conversions, and low stock.
 - [ ] Re-run authenticated live smoke after `LIVE_TEST_EMAIL` and `LIVE_TEST_PASSWORD` are restored in the ignored local env file.
 - [ ] Re-run an external audit after the live audit expansion follow-up is deployed.
 

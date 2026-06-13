@@ -196,6 +196,11 @@ export function calculateMargin(sellingPrice: number, costPrice: number) {
   };
 }
 
+export function netSellingPrice(grossPrice: number) {
+  const taxRate = (settings.defaultTaxPercentage ?? 0) / 100;
+  return taxRate > 0 ? grossPrice / (1 + taxRate) : grossPrice;
+}
+
 export function requirementsForOrder(orderId: string, allOrderItems = orderItems) {
   const lines = allOrderItems.filter((item) => item.orderId === orderId);
   return requirementsForOrderLines(lines);
@@ -274,6 +279,48 @@ export function generateShoppingList(orderIds = orders.filter((order) => ["Confi
       unit: ingredient.baseUnit
     };
   }).filter((item) => item.suggestedBuyQuantity > 0);
+}
+
+export function buildKitchenAssistantResponse(prompt: string) {
+  const lower = prompt.toLowerCase();
+  const shopping = generateShoppingList();
+  const lowStock = ingredients.filter(isBelowReorder);
+  const activeOrders = orders.filter((order) => !["Delivered", "Cancelled"].includes(order.status));
+  const shortageOrders = activeOrders.filter((order) => checkOrderStockAvailability(order.id).some((item) => item.shortageQuantity > 0));
+  const recipeMatch = recipes.find((recipe) => lower.includes(recipe.name.toLowerCase()));
+  const recipe = recipeMatch ?? recipes[0];
+
+  if (lower.includes("buy") || lower.includes("shopping") || lower.includes("restock")) {
+    const topItems = shopping.slice(0, 5).map((item) => `${item.ingredientName}: buy ${formatQuantity(item.suggestedBuyQuantity, item.unit)} (${formatNaira(item.estimatedCost)})`).join("\n");
+    return topItems ? `Here is the current buying priority from live stock and orders:\n${topItems}\n\nTotal suggested spend: ${formatNaira(shopping.reduce((sum, item) => sum + item.estimatedCost, 0))}.` : "No purchase is currently suggested from active orders and reorder levels.";
+  }
+
+  if (lower.includes("shortage") || lower.includes("blocked") || lower.includes("production")) {
+    const blocked = shortageOrders.map((order) => `${order.customerName}: ${checkOrderStockAvailability(order.id).filter((item) => item.shortageQuantity > 0).map((item) => `${item.ingredientName} short ${formatQuantity(item.shortageQuantity, requirementsForOrder(order.id).find((requirement) => requirement.ingredientId === item.ingredientId)?.unit ?? "g")}`).join(", ")}`).join("\n");
+    return blocked ? `Production blockers found:\n${blocked}\n\nResolve these through Shopping List before starting or completing production.` : "No active order is currently blocked by ingredient shortages.";
+  }
+
+  if (lower.includes("cost") || lower.includes("margin") || lower.includes("price")) {
+    if (!recipe) return "No recipe is available for costing yet.";
+    const cost = calculateRecipeCost(recipe.id, recipe.baseYieldQuantity);
+    const margin = calculateMargin(netSellingPrice(18000), cost.totalRecipeCost);
+    return `${recipe.name} currently costs ${formatNaira(cost.totalRecipeCost)} per ${recipe.baseYieldQuantity} ${recipe.yieldUnit}, or ${formatNaira(cost.costPerYieldUnit)} per ${recipe.yieldUnit}. At a ${formatNaira(18000)} selling price, estimated gross margin is ${margin.grossMarginPercentage.toFixed(1)}%.`;
+  }
+
+  if (lower.includes("convert") || lower.includes("cup") || lower.includes("gram") || lower.includes("recipe text")) {
+    const parsed = parseRecipeText(prompt);
+    if (parsed.length) {
+      return `I parsed these recipe lines:\n${parsed.map((item) => `${item.ingredientName}: ${item.quantity} ${item.unit} -> ${item.convertedQuantity}${item.convertedUnit} (${item.confidence}${item.needsReview ? ", needs review" : ""})`).join("\n")}`;
+    }
+    const flour = convertUnit(1, "cup", "g", "flour");
+    return `For flour, the current rule converts 1 cup to ${flour.convertedQuantity}g with ${flour.confidenceLevel} confidence. Paste recipe lines and I can parse them into structured quantities.`;
+  }
+
+  if (lower.includes("low stock") || lower.includes("inventory")) {
+    return lowStock.length ? `Low-stock items right now:\n${lowStock.slice(0, 8).map((item) => `${item.name}: ${formatQuantity(item.currentStock, item.baseUnit)} left; reorder at ${formatQuantity(item.reorderLevel, item.baseUnit)}`).join("\n")}` : "No ingredient is below a positive reorder threshold right now.";
+  }
+
+  return `I can help with live kitchen questions. Current snapshot: ${activeOrders.length} active order${activeOrders.length === 1 ? "" : "s"}, ${lowStock.length} low-stock item${lowStock.length === 1 ? "" : "s"}, and ${shopping.length} suggested purchase line${shopping.length === 1 ? "" : "s"}. Try asking about what to buy, production blockers, recipe cost, low stock, or paste recipe measurements for conversion.`;
 }
 
 export function convertUnit(quantity: number, fromUnit: Unit, toUnit: Unit, ingredientId?: string, rules: ConversionRule[] = conversionRules) {
