@@ -8,9 +8,13 @@ const email = process.env.LIVE_TEST_EMAIL;
 const password = process.env.LIVE_TEST_PASSWORD;
 const allowMutations = process.env.MILESTONE7_SMOKE_MUTATE === "1";
 
-function requiredEnv(name, value) {
-  if (!value) throw new Error(`${name} is required for the Milestone 7 smoke run.`);
-  return value;
+function assertPrerequisites() {
+  const missing = [];
+  if (!email) missing.push("LIVE_TEST_EMAIL");
+  if (!password) missing.push("LIVE_TEST_PASSWORD");
+  if (missing.length) {
+    throw new Error(`Milestone 7 smoke prerequisites missing: ${missing.join(", ")}. Add the live test credentials to .env.local, then run npm run smoke:milestone7.`);
+  }
 }
 
 async function loadPlaywright() {
@@ -84,8 +88,7 @@ async function assertStickyActionsReachable(page, label) {
 }
 
 async function main() {
-  requiredEnv("LIVE_TEST_EMAIL", email);
-  requiredEnv("LIVE_TEST_PASSWORD", password);
+  assertPrerequisites();
   const { chromium } = await loadPlaywright();
   const browser = await chromium.launch();
   const page = await browser.newPage({ viewport: { width: 390, height: 844 } });

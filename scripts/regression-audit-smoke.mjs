@@ -9,9 +9,14 @@ const password = process.env.LIVE_TEST_PASSWORD;
 const allowMutations = process.env.REGRESSION_AUDIT_SMOKE_MUTATE === "1";
 const runId = `audit-smoke-${Date.now()}`;
 
-function requiredEnv(name, value) {
-  if (!value) throw new Error(`${name} is required for the regression audit smoke run.`);
-  return value;
+function assertPrerequisites() {
+  const missing = [];
+  if (!email) missing.push("LIVE_TEST_EMAIL");
+  if (!password) missing.push("LIVE_TEST_PASSWORD");
+  if (!allowMutations) missing.push("REGRESSION_AUDIT_SMOKE_MUTATE=1");
+  if (missing.length) {
+    throw new Error(`Regression audit smoke prerequisites missing: ${missing.join(", ")}. Add the live test credentials to .env.local, then run in PowerShell: $env:REGRESSION_AUDIT_SMOKE_MUTATE="1"; npm run smoke:regression-audit`);
+  }
 }
 
 function assert(condition, message) {
@@ -56,7 +61,7 @@ async function requestJson(path, options = {}) {
 async function login() {
   return requestJson("/api/auth/login", {
     method: "POST",
-    body: JSON.stringify({ email: requiredEnv("LIVE_TEST_EMAIL", email), password: requiredEnv("LIVE_TEST_PASSWORD", password) })
+    body: JSON.stringify({ email, password })
   });
 }
 
@@ -162,10 +167,7 @@ async function runBrowserChecks(user, flourName) {
 }
 
 async function main() {
-  if (!allowMutations) {
-    throw new Error("REGRESSION_AUDIT_SMOKE_MUTATE=1 is required because this smoke creates and archives temporary AUDIT-Smoke ingredients.");
-  }
-
+  assertPrerequisites();
   const user = await login();
   assert(user.role === "Owner/Admin", `REGRESSION_AUDIT_SMOKE requires an Owner/Admin test account so temporary ingredients can be archived; received ${user.role}.`);
   const action = actionClient(user.token);

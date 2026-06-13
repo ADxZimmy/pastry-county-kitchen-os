@@ -170,13 +170,13 @@ Latest audit source: `Audit report.pdf` / `audit.txt`, score 63/100 on June 12, 
 - [x] AI assistant responses are now shared-library logic with tests for shopping, shortages, costing, conversions, and low stock.
 - [x] Archive restore mapping and audit export/redaction helpers are now covered by unit tests.
 - [x] Staff/session enforcement tests now cover disabled users and revoked sessions.
-- [x] Regression audit live smoke script added as `npm run smoke:regression-audit`; run with `LIVE_TEST_EMAIL`, `LIVE_TEST_PASSWORD`, and `REGRESSION_AUDIT_SMOKE_MUTATE=1` to create/archive temporary AUDIT-Smoke ingredients and verify sub-naira costs, purchase-unit selection, FEFO lot decrement, oversized-removal blocking, and mobile modal fit.
+- [x] Regression audit live smoke script added as `npm run smoke:regression-audit`; run with `LIVE_TEST_EMAIL`, `LIVE_TEST_PASSWORD`, and `REGRESSION_AUDIT_SMOKE_MUTATE=1` to create/archive temporary AUDIT-Smoke ingredients and verify sub-naira costs, purchase-unit selection, FEFO lot decrement, oversized-removal blocking, and mobile modal fit. On PowerShell, use `$env:REGRESSION_AUDIT_SMOKE_MUTATE="1"; npm run smoke:regression-audit`.
 - [ ] Re-run authenticated live smoke after `LIVE_TEST_EMAIL` and `LIVE_TEST_PASSWORD` are restored in the ignored local env file.
 - [ ] Re-run an external audit after the live audit expansion follow-up is deployed.
 
 ## Next Recommended Work
 
-1. Restore `LIVE_TEST_EMAIL` and `LIVE_TEST_PASSWORD`, then run `npm run smoke:milestone7` and `npm run smoke:regression-audit` against the live deployment.
+1. Restore `LIVE_TEST_EMAIL` and `LIVE_TEST_PASSWORD`, then run `npm run smoke:milestone7` and `$env:REGRESSION_AUDIT_SMOKE_MUTATE="1"; npm run smoke:regression-audit` against the live deployment.
 2. Re-run the external audit against the live deployment after the authenticated smoke runs pass.
 3. Watch the first few Resend deliveries from the verified domain for spam placement and DMARC aggregate reports.
 4. Consider moving conversion/audit pagination server-side only if production data grows beyond the current client snapshot model.
