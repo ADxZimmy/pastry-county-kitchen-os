@@ -116,6 +116,7 @@ Latest audit source: `Audit report.pdf` / `audit.txt`, score 63/100 on June 12, 
 | Done | Purchase unit persistence | Purchase Unit looked ineffective because the selector state was not preserved as a first-class ingredient field. | Ingredients store `purchaseUnit`, the form selector is controlled and visibly responsive, exports/detail screens expose the saved value, and purchase quantity converts kg/g and litre/ml into the base unit before costing/stock updates. |
 | Done | FEFO manual removals | Manual negative stock adjustments reduced current stock but did not decrement FEFO lot quantities. | Manual removals plan deductions against lots in FEFO order and update `ingredient_batches.quantity_remaining`; API tests cover multi-lot and capped deduction behavior. |
 | Done | Invalid removals | Audit flagged saves that appeared clickable or silent when removing more than available stock. | Adjustment UI keeps invalid removal submits disabled and the API still rejects stock-negative mutations. |
+| Done | Destructive stock removal confirmation | Security notes flagged Adjust Stock removals as destructive actions without explicit confirmation. | Valid stock removals now require an in-modal acknowledgement that stock, FEFO lots, and movement history will change; shared validation tests cover empty, oversized, unconfirmed, and confirmed removals. |
 | Done | Count-unit display consistency | Count-based items could show confusing decimal quantities or mismatched rounding across reports. | Shared quantity formatting rounds count units to whole display values while preserving decimal precision for measured units; tests cover `pcs`, `pack`, and grams. |
 | Done | Dashboard metric fit | Six dashboard metric cards could clip or crowd long currency values such as shopping estimates. | Long metric values size from the card width and stay on one line without overflowing the card. |
 | Done | FEFO production consumption | The audit found no proof that production consumes the oldest available lots. | Production and manual removals use the same FEFO-ordered batch deduction planner; tests cover multi-lot deduction order and capped deductions. |
@@ -162,6 +163,7 @@ Latest audit source: `Audit report.pdf` / `audit.txt`, score 63/100 on June 12, 
 - [x] API tests now cover production shortage blocking, same-order reservation consumption, and other-order reservation exclusion.
 - [x] Shared quantity formatting and conversion-rule recipe costing tests added for the remaining Top 10 findings.
 - [x] API tests now cover shopping purchase validation and server-side role permission boundaries from the audit matrix.
+- [x] Destructive stock removals now require explicit confirmation and shared validation tests.
 - [ ] Re-run authenticated live smoke after `LIVE_TEST_EMAIL` and `LIVE_TEST_PASSWORD` are restored in the ignored local env file.
 - [ ] Re-run an external audit after the live audit expansion follow-up is deployed.
 

@@ -38,6 +38,25 @@ export function formatQuantity(value: number, unit: Unit) {
   return `${normalized.toLocaleString("en-NG")}${unit}`;
 }
 
+export function stockAdjustmentValidation({
+  direction,
+  quantity,
+  currentStock,
+  unit,
+  removalConfirmed = false
+}: {
+  direction: "add" | "remove";
+  quantity: number;
+  currentStock: number;
+  unit: Unit;
+  removalConfirmed?: boolean;
+}) {
+  if (!Number.isFinite(quantity) || quantity <= 0) return "Enter an adjustment quantity greater than zero.";
+  if (direction === "remove" && quantity > currentStock) return `Cannot remove more than available stock (${formatQuantity(currentStock, unit)}).`;
+  if (direction === "remove" && !removalConfirmed) return "Confirm this stock removal before saving.";
+  return "";
+}
+
 export function roundByPreference(value: number, unit: Unit) {
   if (unit === "g") return Math.round(value / settings.gramRoundingPreference) * settings.gramRoundingPreference;
   if (unit === "ml") return Math.round(value / 5) * 5;

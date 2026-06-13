@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { setKitchenSnapshot } from "./data";
-import { calculateMargin, calculateRecipeCost, checkStockAvailability, convertUnit, formatNaira, formatQuantity, generateShoppingList, parseRecipeText, roundScaledQuantity, scaleRecipe } from "./lib/kitchen";
+import { calculateMargin, calculateRecipeCost, checkStockAvailability, convertUnit, formatNaira, formatQuantity, generateShoppingList, parseRecipeText, roundScaledQuantity, scaleRecipe, stockAdjustmentValidation } from "./lib/kitchen";
 
 describe("kitchen calculations", () => {
   beforeEach(() => {
@@ -118,5 +118,13 @@ describe("kitchen calculations", () => {
     const list = generateShoppingList(["ord-chika", "ord-tolu"]);
     expect(list.find((item) => item.ingredientName === "Dark Chocolate")).toBeTruthy();
     expect(list.find((item) => item.ingredientName === "Eggs")).toBeTruthy();
+  });
+
+  it("requires explicit confirmation for destructive stock removals", () => {
+    expect(stockAdjustmentValidation({ direction: "remove", quantity: 0, currentStock: 500, unit: "g", removalConfirmed: false })).toBe("Enter an adjustment quantity greater than zero.");
+    expect(stockAdjustmentValidation({ direction: "remove", quantity: 600, currentStock: 500, unit: "g", removalConfirmed: true })).toBe("Cannot remove more than available stock (500g).");
+    expect(stockAdjustmentValidation({ direction: "remove", quantity: 200, currentStock: 500, unit: "g", removalConfirmed: false })).toBe("Confirm this stock removal before saving.");
+    expect(stockAdjustmentValidation({ direction: "remove", quantity: 200, currentStock: 500, unit: "g", removalConfirmed: true })).toBe("");
+    expect(stockAdjustmentValidation({ direction: "add", quantity: 200, currentStock: 500, unit: "g" })).toBe("");
   });
 });

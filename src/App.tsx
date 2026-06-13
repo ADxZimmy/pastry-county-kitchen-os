@@ -43,7 +43,8 @@ import {
   parseRecipeText,
   requirementsForOrder,
   requirementsForOrderLines,
-  scaleRecipe
+  scaleRecipe,
+  stockAdjustmentValidation
 } from "./lib/kitchen";
 
 type Page =
@@ -1111,21 +1112,18 @@ function UsageHistoryModal({ ingredient, movements, onClose, notify }: { ingredi
 function StockAdjustmentModal({ ingredient, mode, onClose, notify, reloadData }: { ingredient: Ingredient; mode: "purchase" | "adjustment"; onClose: () => void; notify: (message: string) => void; reloadData: () => Promise<void> }) {
   const [direction, setDirection] = useState<"add" | "remove">(mode === "purchase" ? "add" : "remove");
   const [quantity, setQuantity] = useState(0);
+  const [removalConfirmed, setRemovalConfirmed] = useState(false);
   const [error, setError] = useState("");
-  const removalTooLarge = direction === "remove" && quantity > ingredient.currentStock;
-  const validationError = removalTooLarge ? `Cannot remove more than available stock (${formatQuantity(ingredient.currentStock, ingredient.baseUnit)}).` : error;
+  const clientValidationError = stockAdjustmentValidation({ direction, quantity, currentStock: ingredient.currentStock, unit: ingredient.baseUnit, removalConfirmed });
+  const validationError = quantity > 0 || error ? clientValidationError || error : "";
   return (
     <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="stock-adjustment-title">
       <form className="confirm-modal wide" onSubmit={async (event) => {
         event.preventDefault();
         setError("");
         const form = event.currentTarget;
-        if (quantity <= 0) {
-          setError("Enter an adjustment quantity greater than zero.");
-          return;
-        }
-        if (removalTooLarge) {
-          setError(`Cannot remove more than available stock (${formatQuantity(ingredient.currentStock, ingredient.baseUnit)}).`);
+        if (clientValidationError) {
+          setError(clientValidationError);
           return;
         }
         const signedQuantity = direction === "remove" ? -quantity : quantity;
@@ -1149,19 +1147,25 @@ function StockAdjustmentModal({ ingredient, mode, onClose, notify, reloadData }:
         <p>Current stock: {formatQuantity(ingredient.currentStock, ingredient.baseUnit)}. Removals cannot take stock below zero.</p>
         <div className="form-grid">
           <Field label="Adjustment type">
-            <select value={direction} onChange={(event) => { setDirection(event.target.value as "add" | "remove"); setError(""); }}>
+            <select value={direction} onChange={(event) => { setDirection(event.target.value as "add" | "remove"); setRemovalConfirmed(false); setError(""); }}>
               <option value="add">Add stock</option>
               <option value="remove">Remove stock</option>
             </select>
           </Field>
-          <Field label={`Quantity (${ingredient.baseUnit})`}><input name="quantity" type="number" min="0.001" step="0.001" value={quantity || ""} onChange={(event) => { setQuantity(Number(event.target.value)); setError(""); }} required /></Field>
+          <Field label={`Quantity (${ingredient.baseUnit})`}><input name="quantity" type="number" min="0.001" step="0.001" value={quantity || ""} onChange={(event) => { setQuantity(Number(event.target.value)); setRemovalConfirmed(false); setError(""); }} required /></Field>
           {mode === "purchase" && direction === "add" && <Field label="Expiry date" helper="Optional. Creates a FEFO lot for this purchase."><input name="expiryDate" type="date" /></Field>}
           <Field label="Reason"><textarea name="note" required placeholder="Purchase, spoilage, count correction, or production note" /></Field>
         </div>
+        {direction === "remove" && (
+          <label className="check-field destructive-check">
+            <input type="checkbox" checked={removalConfirmed} onChange={(event) => { setRemovalConfirmed(event.target.checked); setError(""); }} />
+            <span>I understand this will reduce available stock, deduct FEFO lots, and write a movement record.</span>
+          </label>
+        )}
         {validationError && <p className="field-error" role="alert">{validationError}</p>}
         <div className="button-row">
           <Button variant="secondary" onClick={onClose}>Cancel</Button>
-          <Button type="submit" disabled={removalTooLarge || quantity <= 0}>{mode === "purchase" ? "Add Stock" : "Save Adjustment"}</Button>
+          <Button type="submit" disabled={Boolean(clientValidationError)}>{mode === "purchase" ? "Add Stock" : "Save Adjustment"}</Button>
         </div>
       </form>
     </div>
