@@ -74,11 +74,18 @@ const actionRoles = {
   "notification.lowStockEmail": ["Owner/Admin", "Inventory Manager"]
 };
 
+export function allowedRolesForAction(action) {
+  return action === "schema.ensure" ? [] : (actionRoles[action] ?? ["Owner/Admin"]);
+}
+
+export function canRolePerformAction(role, action) {
+  return action === "schema.ensure" || allowedRolesForAction(action).includes(role);
+}
+
 async function requirePermission(sql, action, actor) {
   if (action === "schema.ensure") return;
   if (!actor) throw Object.assign(new Error("Sign in again to continue."), { statusCode: 401 });
-  const allowedRoles = actionRoles[action] ?? ["Owner/Admin"];
-  if (!allowedRoles.includes(actor.role)) {
+  if (!canRolePerformAction(actor.role, action)) {
     throw Object.assign(new Error(`${actor.role} cannot perform ${action}.`), { statusCode: 403 });
   }
   const rows = await sql`
@@ -133,6 +140,26 @@ function positive(value, label) {
     throw Object.assign(new Error(`${label} must be greater than zero.`), { statusCode: 400 });
   }
   return value;
+}
+
+export function normalizeShoppingPurchaseInput(item, ingredientRow, index = 0) {
+  const ingredientId = required(item?.ingredientId, "Ingredient");
+  if (!ingredientRow) throw Object.assign(new Error("Ingredient not found."), { statusCode: 404 });
+  const quantity = positive(num(item.purchaseQuantity ?? item.suggestedBuyQuantity), "Purchase quantity");
+  const unitCostInput = positive(num(item.unitCost), "Unit cost");
+  const purchasePrice = item.purchasePrice === undefined ? quantity * unitCostInput : positive(num(item.purchasePrice), "Purchase price");
+  return {
+    index,
+    purchaseId: id(`pur-${index}`),
+    ingredientId,
+    supplierId: item.supplierId || ingredientRow.supplier_id || ingredientRow.supplierId || null,
+    quantity,
+    unit: normalizeUnit(item.unit, ingredientRow.base_unit ?? ingredientRow.baseUnit),
+    purchasePrice,
+    unitCost: purchasePrice / quantity,
+    expiryDate: item.expiryDate || null,
+    note: item.note || "Marked purchased from shopping list"
+  };
 }
 
 function shortageSummary(shortages) {
@@ -887,27 +914,12 @@ export async function handleAction(sql, body, actor) {
   }
 
   if (action === "shopping.purchaseSuggested") {
-    const purchases = Array.isArray(body.items) ? body.items.filter((item) => item.ingredientId && num(item.purchaseQuantity ?? item.suggestedBuyQuantity) > 0) : [];
+    const purchases = Array.isArray(body.items) ? body.items : [];
     if (!purchases.length) throw Object.assign(new Error("No shopping list items to purchase."), { statusCode: 400 });
     const normalizedPurchases = await Promise.all(purchases.map(async (item, index) => {
-      const ingredientId = required(item.ingredientId, "Ingredient");
-      const quantity = positive(num(item.purchaseQuantity ?? item.suggestedBuyQuantity), "Purchase quantity");
-      const unitCost = positive(num(item.unitCost), "Unit cost");
-      const purchasePrice = item.purchasePrice === undefined ? quantity * unitCost : nonNegative(num(item.purchasePrice), "Purchase price");
+      const ingredientId = required(item?.ingredientId, "Ingredient");
       const ingredientRows = await sql`select supplier_id, base_unit from ingredients where id = ${ingredientId}`;
-      if (!ingredientRows.length) throw Object.assign(new Error("Ingredient not found."), { statusCode: 404 });
-      return {
-        index,
-        purchaseId: id(`pur-${index}`),
-        ingredientId,
-        supplierId: item.supplierId || ingredientRows[0].supplier_id || null,
-        quantity,
-        unit: normalizeUnit(item.unit, ingredientRows[0].base_unit),
-        purchasePrice,
-        unitCost: purchasePrice > 0 ? purchasePrice / quantity : unitCost,
-        expiryDate: item.expiryDate || null,
-        note: item.note || "Marked purchased from shopping list"
-      };
+      return normalizeShoppingPurchaseInput(item, ingredientRows[0], index);
     }));
     await sql.transaction((txn) => normalizedPurchases.flatMap((item) => {
       return [

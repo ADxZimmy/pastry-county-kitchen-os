@@ -123,6 +123,7 @@ Latest audit source: `Audit report.pdf` / `audit.txt`, score 63/100 on June 12, 
 | Done | Mobile modal overflow | Add Stock and other modals could require both page and dialog scrolling on 360px screens. | Dialog scrolling is contained inside the modal, controls retain 44px+ tap targets, and sticky modal actions remain reachable on mobile. |
 | Done | Conversion library integration | Conversion rules were not clearly proven to be reused during recipe entry/costing and editing/export looked static. | Recipe costing normalizes non-base ingredient units with saved conversion rules, recipe save applies verified conversions, conversion edit/export remain active, and tests cover rule reuse in recipe costing. |
 | Done | Production guardrail verification | Production and reservation guardrails were marked unverified by the audit. | Existing UI/API shortage blocks remain in place, API tests prove shortage and reservation ownership rules, and smoke now asserts shortage batches keep Start/Complete disabled. |
+| Done | Shopping and role verification gaps | The audit matrix marked shopping purchases and server-side role enforcement as not verified. | Shopping purchases now validate every selected row for ingredient, positive quantity, positive unit cost, supplier fallback, expiry, and derived unit cost; API tests also cover role boundaries for shopping, production, settings, staff, and unknown actions. |
 
 ## Validation Checklist
 
@@ -160,6 +161,7 @@ Latest audit source: `Audit report.pdf` / `audit.txt`, score 63/100 on June 12, 
 - [x] Milestone 7 smoke script now asserts shortage production batch actions stay disabled.
 - [x] API tests now cover production shortage blocking, same-order reservation consumption, and other-order reservation exclusion.
 - [x] Shared quantity formatting and conversion-rule recipe costing tests added for the remaining Top 10 findings.
+- [x] API tests now cover shopping purchase validation and server-side role permission boundaries from the audit matrix.
 - [ ] Re-run authenticated live smoke after `LIVE_TEST_EMAIL` and `LIVE_TEST_PASSWORD` are restored in the ignored local env file.
 - [ ] Re-run an external audit after the live audit expansion follow-up is deployed.
 
