@@ -11,6 +11,7 @@
     "build": "tsc && vite build",
     "preview": "vite preview --host 0.0.0.0",
     "test": "vitest run",
+    "audit:reconcile-fefo": "node scripts/reconcile-fefo-lots.mjs",
     "smoke:milestone7": "node scripts/milestone7-smoke.mjs",
     "smoke:regression-audit": "node scripts/regression-audit-smoke.mjs"
   },

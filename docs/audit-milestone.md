@@ -171,6 +171,7 @@ Latest audit source: `Audit report.pdf` / `audit.txt`, score 63/100 on June 12, 
 - [x] Archive restore mapping and audit export/redaction helpers are now covered by unit tests.
 - [x] Staff/session enforcement tests now cover disabled users and revoked sessions.
 - [x] Regression audit live smoke script added as `npm run smoke:regression-audit`; run with `LIVE_TEST_EMAIL`, `LIVE_TEST_PASSWORD`, and `REGRESSION_AUDIT_SMOKE_MUTATE=1` to create/archive temporary AUDIT-Smoke ingredients and verify sub-naira costs, purchase-unit selection, FEFO lot decrement, oversized-removal blocking, and mobile modal fit. On PowerShell, use `$env:REGRESSION_AUDIT_SMOKE_MUTATE="1"; npm run smoke:regression-audit`.
+- [x] Live production data checked for regression-era FEFO drift; `AUDIT-Flour` lot remaining was reconciled from `5,000g` to `4,800g` with an audit record using `npm run audit:reconcile-fefo`.
 - [ ] Re-run authenticated live smoke after `LIVE_TEST_EMAIL` and `LIVE_TEST_PASSWORD` are restored in the ignored local env file.
 - [ ] Re-run an external audit after the live audit expansion follow-up is deployed.
 
