@@ -162,6 +162,19 @@ export function normalizeShoppingPurchaseInput(item, ingredientRow, index = 0) {
   };
 }
 
+export function archiveTableForEntity(entityType) {
+  const tableMap = {
+    ingredient: "ingredients",
+    recipe: "recipes",
+    order: "orders",
+    supplier: "suppliers",
+    conversion: "conversion_rules"
+  };
+  const tableName = tableMap[entityType];
+  if (!tableName) throw Object.assign(new Error("Unsupported archive type."), { statusCode: 400 });
+  return tableName;
+}
+
 function shortageSummary(shortages) {
   return shortages
     .map((item) => `${item.ingredientName || item.ingredientId || item.ingredient_id}: short ${Number(item.shortageQuantity ?? item.shortage_quantity ?? 0).toFixed(1)}${item.unit || ""}`)
@@ -586,7 +599,7 @@ export async function handleAction(sql, body, actor) {
   if (action === "archive.restore") {
     const entityType = required(body.entityType, "Entity type");
     const entityId = required(body.entityId, "Entity");
-    const before = await rowById(sql, entityType === "order" ? "orders" : entityType === "conversion" ? "conversion_rules" : `${entityType}s`, entityId);
+    const before = await rowById(sql, archiveTableForEntity(entityType), entityId);
     if (entityType === "ingredient") await sql`update ingredients set active = true, updated_at = now() where id = ${entityId}`;
     else if (entityType === "recipe") {
       const rows = await sql`select product_id from recipes where id = ${entityId}`;
@@ -597,7 +610,6 @@ export async function handleAction(sql, body, actor) {
     } else if (entityType === "order") await sql`update orders set archived = false, updated_at = now() where id = ${entityId}`;
     else if (entityType === "supplier") await sql`update suppliers set active = true, updated_at = now() where id = ${entityId}`;
     else if (entityType === "conversion") await sql`update conversion_rules set active = true, updated_at = now() where id = ${entityId}`;
-    else throw Object.assign(new Error("Unsupported archive type."), { statusCode: 400 });
     await audit(sql, entityType, entityId, "restore", before, { restored: true });
     return { ok: true, restored: true };
   }

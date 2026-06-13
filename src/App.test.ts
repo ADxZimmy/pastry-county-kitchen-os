@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { setKitchenSnapshot } from "./data";
+import { auditChangeSummary, auditDataJson, auditExportRows, auditSearchText } from "./lib/audit";
 import { buildKitchenAssistantResponse, calculateMargin, calculateRecipeCost, checkStockAvailability, convertUnit, formatNaira, formatQuantity, generateShoppingList, netSellingPrice, parseRecipeText, roundScaledQuantity, scaleRecipe, stockAdjustmentValidation } from "./lib/kitchen";
+import type { AuditLog } from "./types";
 
 describe("kitchen calculations", () => {
   beforeEach(() => {
@@ -160,5 +162,37 @@ describe("kitchen calculations", () => {
     expect(stockAdjustmentValidation({ direction: "remove", quantity: 200, currentStock: 500, unit: "g", removalConfirmed: false })).toBe("Confirm this stock removal before saving.");
     expect(stockAdjustmentValidation({ direction: "remove", quantity: 200, currentStock: 500, unit: "g", removalConfirmed: true })).toBe("");
     expect(stockAdjustmentValidation({ direction: "add", quantity: 200, currentStock: 500, unit: "g" })).toBe("");
+  });
+});
+
+describe("audit report export helpers", () => {
+  const entry: AuditLog = {
+    id: "audit-1",
+    entityType: "ingredients",
+    entityId: "flour",
+    action: "update",
+    actor: "owner@pastrycounty.com",
+    createdAt: "2026-06-13T12:00:00.000Z",
+    beforeData: { name: "Flour", latest_unit_cost: 1, password_hash: "secret-before" },
+    afterData: { name: "Flour", latest_unit_cost: 0.5, password_hash: "secret-after", sessionToken: "abc123" }
+  };
+
+  it("summarizes changed audit fields without exposing sensitive keys", () => {
+    expect(auditChangeSummary(entry)).toBe("latest unit cost");
+    expect(auditSearchText(entry)).toContain("latest unit cost");
+    expect(auditSearchText(entry)).not.toContain("secret-after");
+  });
+
+  it("redacts sensitive before and after values in detailed audit export rows", () => {
+    const json = auditDataJson(entry.afterData);
+    expect(json).toContain('"latest_unit_cost": 0.5');
+    expect(json).toContain('"sessionToken": "[redacted]"');
+    expect(json).not.toContain("abc123");
+
+    const [row] = auditExportRows([entry]);
+    expect(row[0]).toBe("ingredients");
+    expect(row[5]).toBe("latest unit cost");
+    expect(String(row[6])).toContain('"password_hash": "[redacted]"');
+    expect(String(row[7])).toContain('"sessionToken": "[redacted]"');
   });
 });

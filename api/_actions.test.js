@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { allowedRolesForAction, canRolePerformAction, normalizeShoppingPurchaseInput, planBatchDeductions, productionShortageForRequirement } from "./_actions.js";
+import { allowedRolesForAction, archiveTableForEntity, canRolePerformAction, normalizeShoppingPurchaseInput, planBatchDeductions, productionShortageForRequirement } from "./_actions.js";
 
 describe("FEFO batch deduction planning", () => {
   it("deducts stock removals or production use across lots in the provided FEFO order", () => {
@@ -127,5 +127,19 @@ describe("shopping purchase validation", () => {
     expect(() => normalizeShoppingPurchaseInput({ ingredientId: "flour", purchaseQuantity: 10, unitCost: 0 }, flour)).toThrow("Unit cost must be greater than zero.");
     expect(() => normalizeShoppingPurchaseInput({ ingredientId: "flour", purchaseQuantity: 10, unitCost: 1, purchasePrice: -4 }, flour)).toThrow("Purchase price must be greater than zero.");
     expect(() => normalizeShoppingPurchaseInput({ ingredientId: "missing", purchaseQuantity: 10, unitCost: 1 }, null)).toThrow("Ingredient not found.");
+  });
+});
+
+describe("archive recovery helpers", () => {
+  it("maps every recoverable archive entity to its database table", () => {
+    expect(archiveTableForEntity("ingredient")).toBe("ingredients");
+    expect(archiveTableForEntity("recipe")).toBe("recipes");
+    expect(archiveTableForEntity("order")).toBe("orders");
+    expect(archiveTableForEntity("supplier")).toBe("suppliers");
+    expect(archiveTableForEntity("conversion")).toBe("conversion_rules");
+  });
+
+  it("rejects unsupported archive entity types before restore", () => {
+    expect(() => archiveTableForEntity("staff")).toThrow("Unsupported archive type.");
   });
 });

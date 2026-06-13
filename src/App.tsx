@@ -28,6 +28,7 @@ import {
 } from "lucide-react";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { apiBaseUrl, backendMode } from "./lib/backend";
+import { auditChangedFields, auditChangeSummary, auditDataJson, auditExportRows, auditFieldLabel, auditSearchText } from "./lib/audit";
 import { appUsers, auditLogs, conversionRules, ingredientBatches, ingredients, inventoryMovements, orderItems, orders, products, recipeItems, recipes, settings, suppliers, setKitchenSnapshot } from "./data";
 import type { AppStaffUser, AuditLog, ConversionRule, Ingredient, Order, Recipe, StockStatus, Supplier, Unit } from "./types";
 import {
@@ -270,58 +271,6 @@ function shortageText(items: { ingredientName: string; shortageQuantity: number;
 
 function stockMovementLabel(type: string) {
   return type.replace(/_/g, " ");
-}
-
-function isSensitiveAuditKey(key: string) {
-  return /(password|token|secret|hash|api[_-]?key|session)/i.test(key);
-}
-
-function redactAuditValue(value: unknown, key = ""): unknown {
-  if (isSensitiveAuditKey(key)) return "[redacted]";
-  if (Array.isArray(value)) return value.map((item) => redactAuditValue(item));
-  if (value && typeof value === "object") {
-    return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([childKey, childValue]) => [childKey, redactAuditValue(childValue, childKey)]));
-  }
-  return value ?? null;
-}
-
-function auditDataJson(data?: Record<string, unknown>) {
-  if (!data || Object.keys(data).length === 0) return "None recorded";
-  return JSON.stringify(redactAuditValue(data), null, 2);
-}
-
-function auditChangedFields(entry: AuditLog) {
-  const before = entry.beforeData ?? {};
-  const after = entry.afterData ?? {};
-  const keys = Array.from(new Set([...Object.keys(before), ...Object.keys(after)])).filter((key) => !isSensitiveAuditKey(key));
-  return keys.filter((key) => JSON.stringify(redactAuditValue(before[key], key)) !== JSON.stringify(redactAuditValue(after[key], key)));
-}
-
-function auditFieldLabel(field: string) {
-  return field.replace(/_/g, " ");
-}
-
-function auditChangeSummary(entry: AuditLog) {
-  const changed = auditChangedFields(entry);
-  if (changed.length > 0) {
-    const visible = changed.slice(0, 4).map(auditFieldLabel).join(", ");
-    return changed.length > 4 ? `${visible}, +${changed.length - 4} more` : visible;
-  }
-  if (entry.beforeData || entry.afterData) return "Detailed values recorded";
-  return "No detailed values recorded";
-}
-
-function auditSearchText(entry: AuditLog) {
-  return [
-    entry.entityType,
-    entry.entityId,
-    entry.action,
-    entry.actor,
-    new Date(entry.createdAt).toLocaleString(),
-    auditChangeSummary(entry),
-    auditDataJson(entry.beforeData),
-    auditDataJson(entry.afterData)
-  ].join(" ");
 }
 
 type Notify = (message: string) => void;
@@ -2163,7 +2112,7 @@ function SettingsPage({ user, setPage, notify, reloadData }: { user?: AppUser; s
           cells: [staff.fullName, staff.email, staff.role, staff.active === false ? <Badge tone="warning">Disabled</Badge> : <Badge tone="success">Active</Badge>, <div className="button-row"><Button variant="secondary" onClick={() => setEditingUser(staff)} disabled={!canManageSettings}>Edit</Button><Button variant="secondary" onClick={async () => { await apiAction("user.revokeSessions", { userId: staff.id }); notify(staff.id === user?.id ? "Your sessions were revoked. Sign in again to continue." : "Staff sessions revoked."); await reloadData(); }} disabled={!canManageSettings}>Revoke Sessions</Button><Button variant="danger" onClick={async () => { await apiAction("user.disable", { userId: staff.id }); notify("Staff user disabled."); await reloadData(); }} disabled={!canManageSettings || staff.id === user?.id}>Disable</Button></div>]
         }))} />
       </Section>
-      <Section title="Audit Reports" action={<div className="button-row"><Button variant="secondary" onClick={() => exportCsv("pastry-county-audit-report.csv", ["Entity", "Record", "Action", "Actor", "Date", "Changed Fields", "Before", "After"], auditRows.map((entry) => [entry.entityType, entry.entityId, entry.action, entry.actor, new Date(entry.createdAt).toLocaleString(), auditChangeSummary(entry), auditDataJson(entry.beforeData), auditDataJson(entry.afterData)]), notify)}>Export CSV</Button><Button variant="secondary" onClick={() => exportPrintableReport("pastry-county-compliance-report.html", "Pastry County Compliance Report", [["Audit rows", auditRows.length], ["Low-stock items", lowStockRows.length], ["Waste events", wasteRows.length], ["Open shortages", orders.filter((order) => order.stockStatus === "Shortage").length]], notify)}>PDF/Print</Button></div>}>
+      <Section title="Audit Reports" action={<div className="button-row"><Button variant="secondary" onClick={() => exportCsv("pastry-county-audit-report.csv", ["Entity", "Record", "Action", "Actor", "Date", "Changed Fields", "Before", "After"], auditExportRows(auditRows), notify)}>Export CSV</Button><Button variant="secondary" onClick={() => exportPrintableReport("pastry-county-compliance-report.html", "Pastry County Compliance Report", [["Audit rows", auditRows.length], ["Low-stock items", lowStockRows.length], ["Waste events", wasteRows.length], ["Open shortages", orders.filter((order) => order.stockStatus === "Shortage").length]], notify)}>PDF/Print</Button></div>}>
         <Toolbar query={auditSearch} setQuery={setAuditSearch} placeholder="Search audit logs" />
         <Chips items={["All", ...Array.from(new Set(auditLogs.map((entry) => entry.entityType))).slice(0, 8)]} active={auditFilter} setActive={setAuditFilter} />
         <PaginatedTable label="audit logs" headers={["Entity", "Record", "Action", "Actor", "Date", "Details"]} rows={auditRows.map((entry) => {
