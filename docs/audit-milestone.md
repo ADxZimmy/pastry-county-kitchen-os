@@ -175,6 +175,7 @@ Latest audit source: `Audit report.pdf` / `audit.txt`, score 63/100 on June 12, 
 - [x] Authenticated live smoke re-run against production using a temporary Owner/Admin smoke account; `npm run smoke:milestone7` passed in read-only mode and `$env:REGRESSION_AUDIT_SMOKE_MUTATE="1"; npm run smoke:regression-audit` passed with temporary AUDIT-Smoke ingredients archived afterward.
 - [x] Repeatable pre-audit runner added as `npm run smoke:live-audit`; it creates a temporary Owner/Admin smoke user, runs both authenticated live smoke suites, removes the user, and verifies no active AUDIT-Smoke data or FEFO overstatements remain.
 - [x] `npm run smoke:live-audit` passed against production and verified cleanup: zero temporary smoke users, zero active AUDIT-Smoke ingredients, and zero FEFO overstatements.
+- [x] External audit handoff captured in `docs/audit-handoff.md` with current commit, live URL, passed checks, and retest focus areas.
 - [ ] Re-run an external audit after the live audit expansion follow-up is deployed.
 
 ## Next Recommended Work
