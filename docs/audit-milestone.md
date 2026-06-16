@@ -173,11 +173,13 @@ Latest audit source: `Audit report.pdf` / `audit.txt`, score 63/100 on June 12, 
 - [x] Regression audit live smoke script added as `npm run smoke:regression-audit`; run with `LIVE_TEST_EMAIL`, `LIVE_TEST_PASSWORD`, and `REGRESSION_AUDIT_SMOKE_MUTATE=1` to create/archive temporary AUDIT-Smoke ingredients and verify sub-naira costs, purchase-unit selection, FEFO lot decrement, oversized-removal blocking, and mobile modal fit. On PowerShell, use `$env:REGRESSION_AUDIT_SMOKE_MUTATE="1"; npm run smoke:regression-audit`.
 - [x] Live production data checked for regression-era FEFO drift; `AUDIT-Flour` lot remaining was reconciled from `5,000g` to `4,800g` with an audit record using `npm run audit:reconcile-fefo`.
 - [x] Authenticated live smoke re-run against production using a temporary Owner/Admin smoke account; `npm run smoke:milestone7` passed in read-only mode and `$env:REGRESSION_AUDIT_SMOKE_MUTATE="1"; npm run smoke:regression-audit` passed with temporary AUDIT-Smoke ingredients archived afterward.
+- [x] Repeatable pre-audit runner added as `npm run smoke:live-audit`; it creates a temporary Owner/Admin smoke user, runs both authenticated live smoke suites, removes the user, and verifies no active AUDIT-Smoke data or FEFO overstatements remain.
+- [x] `npm run smoke:live-audit` passed against production and verified cleanup: zero temporary smoke users, zero active AUDIT-Smoke ingredients, and zero FEFO overstatements.
 - [ ] Re-run an external audit after the live audit expansion follow-up is deployed.
 
 ## Next Recommended Work
 
-1. Re-run the external audit against the live deployment now that authenticated smoke and live FEFO reconciliation have passed.
-2. Restore durable `LIVE_TEST_EMAIL` and `LIVE_TEST_PASSWORD` in the ignored local env file for future routine smoke runs.
+1. Run `npm run smoke:live-audit` before any new audit cycle, then re-run the external audit against the live deployment.
+2. Restore durable `LIVE_TEST_EMAIL` and `LIVE_TEST_PASSWORD` in the ignored local env file only if routine non-temporary smoke accounts are preferred.
 3. Watch the first few Resend deliveries from the verified domain for spam placement and DMARC aggregate reports.
 4. Consider moving conversion/audit pagination server-side only if production data grows beyond the current client snapshot model.
