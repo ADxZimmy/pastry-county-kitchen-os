@@ -141,8 +141,9 @@ async function runBrowserChecks(user, flourName) {
     await assertNoHorizontalOverflow(page, "Inventory");
 
     await page.getByPlaceholder("Search ingredients").fill(flourName);
-    await page.getByText(flourName, { exact: true }).first().waitFor({ state: "visible" });
-    await page.getByText(/0\.50\/g/).first().waitFor({ state: "visible" });
+    const flourCard = page.locator(".item-card", { hasText: flourName }).first();
+    await flourCard.waitFor({ state: "visible" });
+    await flourCard.getByText(/0\.50\/g/).first().waitFor({ state: "visible" });
 
     await clickVisible(page.getByRole("button", { name: /add ingredient/i }), "Add Ingredient");
     const purchaseUnitSelect = page.locator('select[name="purchaseUnit"]');
@@ -151,7 +152,7 @@ async function runBrowserChecks(user, flourName) {
     await clickVisible(page.getByRole("button", { name: "Cancel", exact: true }), "Cancel ingredient form");
 
     await page.getByPlaceholder("Search ingredients").fill(flourName);
-    await page.getByText(flourName, { exact: true }).first().click();
+    await flourCard.click();
     await page.getByRole("heading", { name: flourName, exact: true }).waitFor({ state: "visible" });
     await page.getByText(/4,800g/).first().waitFor({ state: "visible" });
     await page.getByText(/0\.50\/g/).first().waitFor({ state: "visible" });
