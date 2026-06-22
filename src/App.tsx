@@ -775,6 +775,7 @@ function App() {
 
   return (
     <div className="app-shell" aria-busy={isRefreshing || activeRequests > 0}>
+      <a className="skip-link" href="#main-content">Skip to main content</a>
       <aside className="sidebar">
         <BrandMark />
         <nav>
@@ -790,7 +791,7 @@ function App() {
           <span>{backendMode === "neon-api" || backendMode === "same-origin-api" ? "Connected to Neon API" : "Database mode active"}</span>
         </div>
       </aside>
-      <main className="main">
+      <main id="main-content" className="main" tabIndex={-1}>
         <header className="topbar">
           <div>
             <p className="eyebrow">Pastry County Kitchen OS</p>
