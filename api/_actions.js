@@ -123,8 +123,10 @@ function escapeHtml(value) {
 }
 
 export async function sendResendEmail({ to, subject, text }) {
-  if (!process.env.RESEND_API_KEY || !to) return { status: to ? "logged_missing_resend_key" : "missing_recipient" };
-  const from = process.env.RESEND_FROM_EMAIL || "Pastry County Kitchen OS <onboarding@resend.dev>";
+  if (!to) return { status: "missing_recipient" };
+  if (!process.env.RESEND_API_KEY) return { status: "logged_missing_resend_key" };
+  const from = process.env.RESEND_FROM_EMAIL;
+  if (!from || /onboarding@resend\.dev/i.test(from)) return { status: "missing_sender_domain" };
   const resend = new Resend(process.env.RESEND_API_KEY);
   const htmlLines = String(text).split(/\n+/).filter(Boolean).map((line) => `<tr><td style="padding:12px 14px;border-bottom:1px solid #eadccd;">${escapeHtml(line)}</td></tr>`).join("");
   const appUrl = process.env.PUBLIC_APP_URL || (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : "https://pastry-county-kitchen-os.vercel.app");

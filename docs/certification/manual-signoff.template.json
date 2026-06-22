@@ -1,0 +1,89 @@
+{
+  "certification_date": "YYYY-MM-DD",
+  "reviewer": {
+    "name": "",
+    "role": "",
+    "email": ""
+  },
+  "target": "https://pastry-county-kitchen-os.vercel.app",
+  "deployment_commit": "",
+  "gates": [
+    {
+      "domain": "security",
+      "name": "Production rate limiting / upstream abuse protection confirmed",
+      "status": "pending",
+      "evidence": "",
+      "reviewer_notes": ""
+    },
+    {
+      "domain": "security",
+      "name": "Production secret storage reviewed",
+      "status": "pending",
+      "evidence": "",
+      "reviewer_notes": ""
+    },
+    {
+      "domain": "security",
+      "name": "Role matrix reviewed against bakery staff duties",
+      "status": "pending",
+      "evidence": "",
+      "reviewer_notes": ""
+    },
+    {
+      "domain": "accessibility",
+      "name": "Keyboard-only task walkthrough completed",
+      "status": "pending",
+      "evidence": "",
+      "reviewer_notes": ""
+    },
+    {
+      "domain": "accessibility",
+      "name": "Screen-reader walkthrough completed",
+      "status": "pending",
+      "evidence": "",
+      "reviewer_notes": ""
+    },
+    {
+      "domain": "email",
+      "name": "Low-stock send action verified in controlled inbox",
+      "status": "pending",
+      "evidence": "",
+      "reviewer_notes": ""
+    },
+    {
+      "domain": "email",
+      "name": "Controlled inbox delivery confirmed",
+      "status": "pending",
+      "evidence": "",
+      "reviewer_notes": ""
+    },
+    {
+      "domain": "email",
+      "name": "Bounce and complaint owner confirmed",
+      "status": "pending",
+      "evidence": "",
+      "reviewer_notes": ""
+    },
+    {
+      "domain": "operations",
+      "name": "Backup and restore drill completed",
+      "status": "pending",
+      "evidence": "",
+      "reviewer_notes": ""
+    },
+    {
+      "domain": "operations",
+      "name": "Rollback drill or Vercel rollback process confirmed",
+      "status": "pending",
+      "evidence": "",
+      "reviewer_notes": ""
+    },
+    {
+      "domain": "operations",
+      "name": "Production alert routing owner confirmed",
+      "status": "pending",
+      "evidence": "",
+      "reviewer_notes": ""
+    }
+  ]
+}

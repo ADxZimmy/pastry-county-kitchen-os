@@ -116,6 +116,23 @@ describe("low-stock notification delivery guards", () => {
       else process.env.RESEND_API_KEY = previousKey;
     }
   });
+
+  it("requires an explicit verified sender domain before attempting Resend delivery", async () => {
+    const previousKey = process.env.RESEND_API_KEY;
+    const previousFrom = process.env.RESEND_FROM_EMAIL;
+    process.env.RESEND_API_KEY = "test-key";
+    delete process.env.RESEND_FROM_EMAIL;
+    try {
+      await expect(sendResendEmail({ to: "ops@example.com", subject: "Low stock", text: "Flour" })).resolves.toEqual({ status: "missing_sender_domain" });
+      process.env.RESEND_FROM_EMAIL = "Pastry County Kitchen OS <onboarding@resend.dev>";
+      await expect(sendResendEmail({ to: "ops@example.com", subject: "Low stock", text: "Flour" })).resolves.toEqual({ status: "missing_sender_domain" });
+    } finally {
+      if (previousKey === undefined) delete process.env.RESEND_API_KEY;
+      else process.env.RESEND_API_KEY = previousKey;
+      if (previousFrom === undefined) delete process.env.RESEND_FROM_EMAIL;
+      else process.env.RESEND_FROM_EMAIL = previousFrom;
+    }
+  });
 });
 
 describe("staff session enforcement", () => {
