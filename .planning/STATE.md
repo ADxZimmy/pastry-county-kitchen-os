@@ -22,10 +22,13 @@ Execute Phase 001 of the June 22 live-audit recovery, starting with authenticate
 - Implemented natural conversion prompt parsing for questions such as `Convert 1 cup sugar to grams`, including flour, sugar, cocoa, egg, yolk, white, and coconut oil audit cases.
 - Pushed `f08ebdf`, ran live `schema.ensure`, and verified production now has one active verified conversion rule for each audit ingredient with expected values: Flour `120g`, Sugar `200g`, Cocoa `85g`, Egg `50g`, Yolk `18g`, White `30g`, and Coconut Oil `240ml`.
 - Confirmed production serves frontend bundle `assets/index-CokzK8DM.js`, matching the local build that passed natural AI conversion parsing tests.
+- Used UI UX Pro Max guidance for the mobile/accessibility pass, then implemented Phase 001 Step 4: shopping purchase controls now use 44px hit targets, responsive tables render only the active desktop or mobile representation, and mobile table rows are constrained to prevent 320px overflow.
+- Pushed `6c863ca`, `715df84`, and `ac3e4ce`; production now serves `assets/index-C2zAVjqJ.js` and `assets/index-BFPzob9P.css`.
+- Verified live Shopping at 320, 360, 390, 414, and 430px: 14 purchase controls, minimum target `44x44`, unique purchase labels, mobile card representation only, and no horizontal overflow.
 
 ## In Progress
 
-- Phase 001 Step 4: mobile shopping accessibility.
+- Phase 001 Step 5: modal keyboard behavior.
 
 ## Blocked
 
@@ -34,7 +37,7 @@ Execute Phase 001 of the June 22 live-audit recovery, starting with authenticate
 
 ## Next Action
 
-Implement Phase 001 Step 4: improve mobile shopping touch targets and responsive accessibility exposure, then verify at narrow widths.
+Implement Phase 001 Step 5: add Escape close handling, focus return, and background inertness for modal surfaces.
 
 ## Verification Snapshot
 
@@ -74,3 +77,9 @@ Implement Phase 001 Step 4: improve mobile shopping touch targets and responsive
   Result: Passed; production has canonical active verified conversion rules for the audit ingredient set and no duplicate active ingredient/from/to rules.
 - Command/check: Live frontend bundle check
   Result: Passed; production serves `assets/index-CokzK8DM.js`, the same build artifact produced after the natural AI conversion parser tests passed.
+- Command/check: `npm.cmd test`
+  Result: Passed; 42 tests after the mobile shopping accessibility fix.
+- Command/check: `npm.cmd run build`
+  Result: Passed; TypeScript and Vite production build completed after the mobile shopping accessibility fix.
+- Command/check: Live mobile Shopping viewport smoke
+  Result: Passed; production served `assets/index-C2zAVjqJ.js` / `assets/index-BFPzob9P.css`, and Playwright verified widths 320/360/390/414/430 had unique purchase labels, 44x44 purchase checkbox targets, mobile cards only, and no horizontal overflow.

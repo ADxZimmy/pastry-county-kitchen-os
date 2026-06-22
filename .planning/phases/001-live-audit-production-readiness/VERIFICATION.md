@@ -74,6 +74,18 @@
   Result: Passed.
   Notes: Production serves `assets/index-CokzK8DM.js`, matching the local build artifact produced after the natural AI conversion parser tests passed.
 
+- Command: `npm.cmd test`
+  Result: Passed.
+  Notes: 3 test files, 42 tests after the mobile shopping accessibility fix.
+
+- Command: `npm.cmd run build`
+  Result: Passed.
+  Notes: TypeScript compilation and Vite production build completed after the mobile shopping accessibility fix.
+
+- Command: Live mobile Shopping viewport smoke
+  Result: Passed.
+  Notes: Production served `assets/index-C2zAVjqJ.js` / `assets/index-BFPzob9P.css`. Playwright verified Shopping at 320, 360, 390, 414, and 430px with 14 purchase controls, minimum target `44x44`, unique purchase labels, mobile cards only, and no horizontal overflow.
+
 ## Manual Checks
 
 - Check: Current progress comparison
@@ -86,8 +98,8 @@
 
 ## Residual Risk
 
-- Risk: Mobile shopping controls still need narrow-viewport touch-target and accessibility verification.
-  Owner: Phase 001 Step 4.
+- Risk: Modal Escape/focus behavior still needs implementation and verification.
+  Owner: Phase 001 Step 5.
 
 - Risk: Live Vercel deployment/project access in the connector may not include this project.
   Owner: Use GitHub deployment status, Vercel CLI/auth, or live URL checks during implementation.
