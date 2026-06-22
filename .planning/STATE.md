@@ -15,10 +15,11 @@ Execute Phase 001 of the June 22 live-audit recovery, starting with authenticate
 - Implemented Phase 001 Step 1 locally: `/api/bootstrap` now requires a signed bearer session in both serverless and Express entry points, and the React app sends the saved session token only after login.
 - Added bootstrap auth unit coverage for unauthenticated and authenticated reads.
 - Pushed `13c5008` and verified the live deployment: unauthenticated `/api/bootstrap` returns 401, while authenticated owner login plus bootstrap returns 200.
+- Reproduced the live decimal purchase failure with a temporary `AUDIT-Decimal` ingredient, then implemented local schema drift repair for decimal purchase/stock columns and user-safe purchase persistence errors.
 
 ## In Progress
 
-- Phase 001 Step 2: fix decimal shopping purchases and reconcile live schema drift.
+- Phase 001 Step 2 is implemented and locally verified; production deployment and live fractional purchase verification are pending.
 
 ## Blocked
 
@@ -27,7 +28,7 @@ Execute Phase 001 of the June 22 live-audit recovery, starting with authenticate
 
 ## Next Action
 
-Implement Phase 001 Step 2: inspect decimal purchase handling, reconcile live schema drift, add tests for fractional costs, and verify against production.
+Commit and push Phase 001 Step 2, then verify live `shopping.purchaseSuggested` accepts fractional unit costs and archives all temporary probe data.
 
 ## Verification Snapshot
 
@@ -43,3 +44,9 @@ Implement Phase 001 Step 2: inspect decimal purchase handling, reconcile live sc
   Result: Passed; production returned 401 with `Sign in again to continue.`.
 - Command/check: Live authenticated login plus `GET /api/bootstrap`
   Result: Passed; owner login returned 200 and authenticated bootstrap returned 200 with recipes, ingredients, orders, and settings loaded.
+- Command/check: Live decimal purchase reproduction
+  Result: Failed as expected before the fix; production returned `invalid input syntax for type integer: "0.5"` for a temporary fractional shopping purchase, and cleanup archived the probe ingredient.
+- Command/check: `npm.cmd test`
+  Result: Passed; 40 tests, including fractional shopping-cost normalization and safe purchase-error mapping.
+- Command/check: `npm.cmd run build`
+  Result: Passed; TypeScript and Vite production build completed after the decimal purchase fix.

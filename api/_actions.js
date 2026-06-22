@@ -45,6 +45,7 @@ function convertPurchaseQuantity(quantity, purchaseUnit, baseUnit) {
 }
 
 const movementTypes = new Set(["purchase", "production_use", "reservation", "reservation_release", "adjustment", "waste", "return", "correction"]);
+let decimalOperationalColumnsReady = false;
 const actionRoles = {
   "archive.list": ["Owner/Admin", "Inventory Manager"],
   "archive.restore": ["Owner/Admin"],
@@ -164,6 +165,14 @@ export function normalizeShoppingPurchaseInput(item, ingredientRow, index = 0) {
     expiryDate: item.expiryDate || null,
     note: item.note || "Marked purchased from shopping list"
   };
+}
+
+export function safePurchasePersistenceError(error) {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  if (/invalid input syntax|numeric field overflow|violates check constraint/i.test(message)) {
+    return Object.assign(new Error("Unable to save this purchase. Check the quantity and unit cost, then try again."), { statusCode: 400 });
+  }
+  return error;
 }
 
 export function archiveTableForEntity(entityType) {
@@ -389,6 +398,23 @@ async function ensureOperationalTables(sql) {
       created_at timestamptz not null default now()
     )
   `;
+  await ensureDecimalOperationalColumns(sql);
+}
+
+async function ensureDecimalOperationalColumns(sql) {
+  if (decimalOperationalColumnsReady) return;
+  await sql`alter table ingredients alter column current_stock type numeric(14,3) using current_stock::numeric`;
+  await sql`alter table ingredients alter column reserved_stock type numeric(14,3) using reserved_stock::numeric`;
+  await sql`alter table ingredients alter column reorder_level type numeric(14,3) using reorder_level::numeric`;
+  await sql`alter table ingredients alter column latest_unit_cost type numeric(14,4) using latest_unit_cost::numeric`;
+  await sql`alter table purchase_logs alter column purchase_quantity type numeric(14,3) using purchase_quantity::numeric`;
+  await sql`alter table purchase_logs alter column purchase_price type numeric(14,2) using purchase_price::numeric`;
+  await sql`alter table purchase_logs alter column converted_quantity_in_base_unit type numeric(14,3) using converted_quantity_in_base_unit::numeric`;
+  await sql`alter table purchase_logs alter column cost_per_base_unit type numeric(14,4) using cost_per_base_unit::numeric`;
+  await sql`alter table ingredient_batches alter column quantity_received type numeric(14,3) using quantity_received::numeric`;
+  await sql`alter table ingredient_batches alter column quantity_remaining type numeric(14,3) using quantity_remaining::numeric`;
+  await sql`alter table inventory_movements alter column quantity_change type numeric(14,3) using quantity_change::numeric`;
+  decimalOperationalColumnsReady = true;
 }
 
 async function audit(sql, entityType, entityId, action, beforeData, afterData) {
@@ -937,26 +963,30 @@ export async function handleAction(sql, body, actor) {
       const ingredientRows = await sql`select supplier_id, base_unit from ingredients where id = ${ingredientId}`;
       return normalizeShoppingPurchaseInput(item, ingredientRows[0], index);
     }));
-    await sql.transaction((txn) => normalizedPurchases.flatMap((item) => {
-      return [
-        txn`
-          insert into purchase_logs (id, supplier_id, ingredient_id, purchase_quantity, purchase_unit, purchase_price, converted_quantity_in_base_unit, cost_per_base_unit, expiry_date, notes)
-          values (${item.purchaseId}, ${item.supplierId}, ${item.ingredientId}, ${item.quantity}, ${item.unit}, ${item.purchasePrice}, ${item.quantity}, ${item.unitCost}, ${item.expiryDate}, ${item.note})
-        `,
-        txn`
-          insert into inventory_movements (id, ingredient_id, movement_type, quantity_change, unit, related_purchase_id, note, created_by)
-          values (${id(`mov-${item.index}`)}, ${item.ingredientId}, 'purchase', ${item.quantity}, ${item.unit}, ${item.purchaseId}, ${item.note}, 'system')
-        `,
-        txn`
-          update ingredients
-          set current_stock = current_stock + ${item.quantity},
-            latest_unit_cost = case when ${item.unitCost} > 0 then ${item.unitCost} else latest_unit_cost end,
-            updated_at = now()
-          where id = ${item.ingredientId}
-        `,
-        createBatchFromPurchase(txn, item)
-      ];
-    }));
+    try {
+      await sql.transaction((txn) => normalizedPurchases.flatMap((item) => {
+        return [
+          txn`
+            insert into purchase_logs (id, supplier_id, ingredient_id, purchase_quantity, purchase_unit, purchase_price, converted_quantity_in_base_unit, cost_per_base_unit, expiry_date, notes)
+            values (${item.purchaseId}, ${item.supplierId}, ${item.ingredientId}, ${item.quantity}, ${item.unit}, ${item.purchasePrice}, ${item.quantity}, ${item.unitCost}, ${item.expiryDate}, ${item.note})
+          `,
+          txn`
+            insert into inventory_movements (id, ingredient_id, movement_type, quantity_change, unit, related_purchase_id, note, created_by)
+            values (${id(`mov-${item.index}`)}, ${item.ingredientId}, 'purchase', ${item.quantity}, ${item.unit}, ${item.purchaseId}, ${item.note}, 'system')
+          `,
+          txn`
+            update ingredients
+            set current_stock = current_stock + ${item.quantity},
+              latest_unit_cost = case when ${item.unitCost} > 0 then ${item.unitCost} else latest_unit_cost end,
+              updated_at = now()
+            where id = ${item.ingredientId}
+          `,
+          createBatchFromPurchase(txn, item)
+        ];
+      }));
+    } catch (error) {
+      throw safePurchasePersistenceError(error);
+    }
     await Promise.all(normalizedPurchases.map((item) => audit(sql, "ingredients", item.ingredientId, "purchase", null, { purchaseId: item.purchaseId, quantity: item.quantity, unit: item.unit, expiryDate: item.expiryDate })));
     return { ok: true, count: normalizedPurchases.length };
   }

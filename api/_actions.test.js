@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { allowedRolesForAction, archiveTableForEntity, canRolePerformAction, normalizeShoppingPurchaseInput, planBatchDeductions, productionShortageForRequirement, sessionAccessError } from "./_actions.js";
+import { allowedRolesForAction, archiveTableForEntity, canRolePerformAction, normalizeShoppingPurchaseInput, planBatchDeductions, productionShortageForRequirement, safePurchasePersistenceError, sessionAccessError } from "./_actions.js";
 
 describe("FEFO batch deduction planning", () => {
   it("deducts stock removals or production use across lots in the provided FEFO order", () => {
@@ -155,12 +155,40 @@ describe("shopping purchase validation", () => {
     }, flour).unitCost).toBe(1.5);
   });
 
+  it("preserves fractional shopping costs that previously failed on live integer columns", () => {
+    expect(normalizeShoppingPurchaseInput({
+      ingredientId: "flour",
+      purchaseQuantity: 1,
+      unitCost: 0.5
+    }, flour)).toMatchObject({
+      purchasePrice: 0.5,
+      unitCost: 0.5
+    });
+
+    expect(normalizeShoppingPurchaseInput({
+      ingredientId: "flour",
+      purchaseQuantity: 1,
+      unitCost: 2.75
+    }, flour)).toMatchObject({
+      purchasePrice: 2.75,
+      unitCost: 2.75
+    });
+  });
+
   it("rejects missing ingredients and non-positive purchase fields", () => {
     expect(() => normalizeShoppingPurchaseInput({ purchaseQuantity: 10, unitCost: 1 }, flour)).toThrow("Ingredient is required.");
     expect(() => normalizeShoppingPurchaseInput({ ingredientId: "flour", purchaseQuantity: 0, unitCost: 1 }, flour)).toThrow("Purchase quantity must be greater than zero.");
     expect(() => normalizeShoppingPurchaseInput({ ingredientId: "flour", purchaseQuantity: 10, unitCost: 0 }, flour)).toThrow("Unit cost must be greater than zero.");
     expect(() => normalizeShoppingPurchaseInput({ ingredientId: "flour", purchaseQuantity: 10, unitCost: 1, purchasePrice: -4 }, flour)).toThrow("Purchase price must be greater than zero.");
     expect(() => normalizeShoppingPurchaseInput({ ingredientId: "missing", purchaseQuantity: 10, unitCost: 1 }, null)).toThrow("Ingredient not found.");
+  });
+
+  it("maps low-level decimal persistence failures to user-safe messages", () => {
+    const error = safePurchasePersistenceError(new Error("invalid input syntax for type integer: \"0.5\""));
+    expect(error).toMatchObject({
+      message: "Unable to save this purchase. Check the quantity and unit cost, then try again.",
+      statusCode: 400
+    });
   });
 });
 

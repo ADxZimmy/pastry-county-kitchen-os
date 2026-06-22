@@ -26,6 +26,18 @@
   Result: Passed.
   Notes: Login returned 200, authenticated bootstrap returned 200, and the snapshot included recipes, ingredients, orders, and settings.
 
+- Command: Live decimal purchase reproduction
+  Result: Failed as expected before the fix.
+  Notes: A temporary `AUDIT-Decimal` ingredient reproduced the audit's `invalid input syntax for type integer: "0.5"` response on `shopping.purchaseSuggested`; cleanup archived the probe ingredient.
+
+- Command: `npm.cmd test`
+  Result: Passed.
+  Notes: 3 test files, 40 tests. Added fractional `0.5`/`2.75` shopping-cost coverage and safe purchase persistence error mapping.
+
+- Command: `npm.cmd run build`
+  Result: Passed.
+  Notes: TypeScript compilation and Vite production build completed after the decimal purchase fix.
+
 ## Manual Checks
 
 - Check: Current progress comparison
@@ -38,8 +50,8 @@
 
 ## Residual Risk
 
-- Risk: Decimal shopping purchases still fail on live for fractional costs.
-  Owner: Phase 001 Step 2.
+- Risk: Decimal shopping purchase fix has passed local tests/build but still needs production deployment verification.
+  Owner: Next implementation pass.
 
 - Risk: Live Vercel deployment/project access in the connector may not include this project.
   Owner: Use GitHub deployment status, Vercel CLI/auth, or live URL checks during implementation.
