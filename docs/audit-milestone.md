@@ -176,7 +176,7 @@ Latest audit source: `Audit report.pdf` / `audit.txt`, score 63/100 on June 12, 
 - [x] Repeatable pre-audit runner added as `npm run smoke:live-audit`; it creates a temporary Owner/Admin smoke user, runs both authenticated live smoke suites, removes the user, and verifies no active AUDIT-Smoke data or FEFO overstatements remain.
 - [x] `npm run smoke:live-audit` passed against production and verified cleanup: zero temporary smoke users, zero active AUDIT-Smoke ingredients, and zero FEFO overstatements.
 - [x] External audit handoff captured in `docs/audit-handoff.md` with current commit, live URL, passed checks, and retest focus areas.
-- [x] Latest production deployment verified as `READY` on Vercel for commit `b3cc35a011078f2d95a67d8ab9c275cd43d2142a`; GitHub reports the Vercel deployment status as successful and live `/api/health` returns 200.
+- [x] Production verification baseline confirmed as `READY` on Vercel for commit `b3cc35a011078f2d95a67d8ab9c275cd43d2142a`; GitHub reported the Vercel deployment status as successful and live `/api/health` returned 200.
 - [ ] Re-run an external audit after the live audit expansion follow-up is deployed.
 
 ## Next Recommended Work

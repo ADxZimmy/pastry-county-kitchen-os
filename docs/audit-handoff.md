@@ -3,8 +3,8 @@
 Date: 2026-06-16
 Last verified: 2026-06-22
 Live URL: https://pastry-county-kitchen-os.vercel.app
-Git commit: `b3cc35a011078f2d95a67d8ab9c275cd43d2142a`
-Vercel deployment: `dpl_FpriRE78kDXk2KDFe41HSMSVc95J`
+Verification baseline commit: `b3cc35a011078f2d95a67d8ab9c275cd43d2142a`
+Verification baseline deployment: `dpl_FpriRE78kDXk2KDFe41HSMSVc95J`
 
 ## Current Status
 
@@ -19,7 +19,8 @@ These checks passed against the current workspace and production deployment:
 - `npm run audit:reconcile-fefo`: no FEFO lot overstatements found.
 - Live health: `/api/health` returned `{"ok":true,"database":"neon"}`.
 - `npm run smoke:live-audit`: passed against production.
-- Vercel production deployment `dpl_FpriRE78kDXk2KDFe41HSMSVc95J` is `READY`, matches commit `b3cc35a011078f2d95a67d8ab9c275cd43d2142a`, and GitHub reports the Vercel status as successful.
+- The verification baseline production deployment `dpl_FpriRE78kDXk2KDFe41HSMSVc95J` was `READY`, matched commit `b3cc35a011078f2d95a67d8ab9c275cd43d2142a`, and GitHub reported the Vercel status as successful.
+- Later documentation-only handoff commits may create newer Vercel deployments; use GitHub/Vercel status as the source of truth for the current latest deployment.
 
 The live audit smoke runner creates a temporary Owner/Admin user, runs authenticated Milestone 7 and regression-audit smoke suites, removes the user, and verifies cleanup:
 
