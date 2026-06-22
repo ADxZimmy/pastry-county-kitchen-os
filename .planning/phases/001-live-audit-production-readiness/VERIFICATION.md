@@ -66,6 +66,14 @@
   Result: Passed.
   Notes: TypeScript compilation and Vite production build completed after the conversion/AI fix.
 
+- Command: Live `schema.ensure` and conversion snapshot
+  Result: Passed.
+  Notes: Production has one active verified conversion rule for each audit ingredient/from/to pair: Flour `120g`, Sugar `200g`, Cocoa `85g`, Egg `50g`, Yolk `18g`, White `30g`, and Coconut Oil `240ml`; duplicate active rules are gone.
+
+- Command: Live frontend bundle check
+  Result: Passed.
+  Notes: Production serves `assets/index-CokzK8DM.js`, matching the local build artifact produced after the natural AI conversion parser tests passed.
+
 ## Manual Checks
 
 - Check: Current progress comparison
@@ -78,8 +86,8 @@
 
 ## Residual Risk
 
-- Risk: Conversion/AI fix has passed local tests/build but still needs production deployment verification.
-  Owner: Next implementation pass.
+- Risk: Mobile shopping controls still need narrow-viewport touch-target and accessibility verification.
+  Owner: Phase 001 Step 4.
 
 - Risk: Live Vercel deployment/project access in the connector may not include this project.
   Owner: Use GitHub deployment status, Vercel CLI/auth, or live URL checks during implementation.

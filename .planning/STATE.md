@@ -20,10 +20,12 @@ Execute Phase 001 of the June 22 live-audit recovery, starting with authenticate
 - Pushed `1bd7f3e` and verified live shopping purchases with unit costs `0.5`, `0.64`, `2.75`, and `10`; purchase logs, latest ingredient cost, inventory movements, and FEFO batches all persisted expected values, then cleanup archived the probe ingredient.
 - Reproduced live conversion drift: Flour had two active verified `cup -> g` rules at `125g`; implemented conversion-rule reconciliation to restore audit values and archive duplicate active verified rules.
 - Implemented natural conversion prompt parsing for questions such as `Convert 1 cup sugar to grams`, including flour, sugar, cocoa, egg, yolk, white, and coconut oil audit cases.
+- Pushed `f08ebdf`, ran live `schema.ensure`, and verified production now has one active verified conversion rule for each audit ingredient with expected values: Flour `120g`, Sugar `200g`, Cocoa `85g`, Egg `50g`, Yolk `18g`, White `30g`, and Coconut Oil `240ml`.
+- Confirmed production serves frontend bundle `assets/index-CokzK8DM.js`, matching the local build that passed natural AI conversion parsing tests.
 
 ## In Progress
 
-- Phase 001 Step 3 is implemented and locally verified; production deployment and live conversion/AI verification are pending.
+- Phase 001 Step 4: mobile shopping accessibility.
 
 ## Blocked
 
@@ -32,7 +34,7 @@ Execute Phase 001 of the June 22 live-audit recovery, starting with authenticate
 
 ## Next Action
 
-Commit and push Phase 001 Step 3, then run live `schema.ensure`, verify conversion-rule dedupe/correct values, and smoke the audit conversion prompts.
+Implement Phase 001 Step 4: improve mobile shopping touch targets and responsive accessibility exposure, then verify at narrow widths.
 
 ## Verification Snapshot
 
@@ -68,3 +70,7 @@ Commit and push Phase 001 Step 3, then run live `schema.ensure`, verify conversi
   Result: Passed; 42 tests, including natural conversion prompt parsing and AI response coverage for audit ingredients.
 - Command/check: `npm.cmd run build`
   Result: Passed; TypeScript and Vite production build completed after the conversion/AI fix.
+- Command/check: Live `schema.ensure` and conversion snapshot
+  Result: Passed; production has canonical active verified conversion rules for the audit ingredient set and no duplicate active ingredient/from/to rules.
+- Command/check: Live frontend bundle check
+  Result: Passed; production serves `assets/index-CokzK8DM.js`, the same build artifact produced after the natural AI conversion parser tests passed.
