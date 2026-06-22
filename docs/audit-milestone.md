@@ -140,7 +140,7 @@ Latest audit source: Codex audit session `019eeee0-894f-7880-b3fa-4a7c002de3ab`,
 | Done | Conversion rule correctness | Flour had duplicate verified `1 cup = 125g` rules while audit expects `1 cup = 120g`. | Active verified rules are unique by ingredient/from/to, flour/sugar/cocoa/egg/yolk/white/coconut-oil audit conversions match expected values, and duplicate live rules were archived with audit history. |
 | Done | AI conversion parsing | Natural prompts like `Convert 1 cup sugar to grams` parsed into nonsensical `1 g -> 1g` answers. | AI parser recognizes conversion questions with quantity, unit, ingredient, and target unit; tests cover all audit prompts, and production serves the deployed bundle that includes the parser fix. |
 | Done | Mobile shopping accessibility | Shopping checkboxes were 22px and desktop/mobile duplicate controls were both exposed to assistive technology. | Shopping controls meet 44px touch targets at 320-430px, only the active responsive representation is rendered, and Playwright checks cover unique purchase labels, mobile card exposure, and no horizontal overflow. |
-| Todo | Modal keyboard behavior | Production review modal does not close on Escape. | Review Batch, View Scaled Recipe, conversion, stock adjustment, and confirm dialogs close on Escape, trap focus, keep background inert, and return focus to the trigger. |
+| Done | Modal keyboard behavior | Production review modal does not close on Escape. | Review Batch, View Scaled Recipe, conversion, stock adjustment, and confirm dialogs close on Escape, trap focus, keep background inert, and return focus to the trigger. |
 | Todo | Unknown route fallback | Unknown hash routes keep stale content under an invalid URL. | Unknown hashes redirect to dashboard or show a safe not-found state without stale page content; tests cover direct invalid hashes and back/forward behavior. |
 | Todo | Dashboard date freshness | Today's Production shows May 2026 orders on the June 22, 2026 audit date. | Dashboard filters today's production by the actual current date and separates overdue/completed orders from today's queue. |
 | Todo | Audit display-name search | Audit search by created ingredient name did not find the human-readable record. | Audit rows/search/export include safe display names and changed-field summaries while preserving sensitive-data redaction. |
@@ -203,11 +203,12 @@ Latest audit source: Codex audit session `019eeee0-894f-7880-b3fa-4a7c002de3ab`,
 - [x] Phase 001 conversion drift reproduced live, then local conversion-rule reconciliation and natural AI conversion parsing passed with `npm test` and `npm run build`.
 - [x] Phase 001 conversion/AI fix passed live verification: `schema.ensure` repaired and deduped production conversion rules, and production serves the parser-fix frontend bundle.
 - [x] Phase 001 mobile shopping accessibility passed live Playwright verification at 320/360/390/414/430px: unique purchase labels, 44x44 checkbox hit targets, mobile cards only, and no horizontal overflow.
+- [x] Phase 001 modal keyboard behavior passed local tests/build and live Playwright verification: Review Batch, View Scaled Recipe, stock adjustment, conversion edit/import, and confirm dialogs close on Escape, trap focus, keep background inert, return focus to the trigger, and restore inert state after close.
 - [ ] Re-run an external audit after the live audit expansion follow-up is deployed.
 
 ## Next Recommended Work
 
-1. Continue GSD Phase 001 with mobile shopping accessibility and modal keyboard behavior.
+1. Continue GSD Phase 001 with unknown-route fallback, dashboard date freshness, audit display-name search, and remaining verification gaps.
 2. Run `npm run smoke:live-audit` before the next audit cycle, then re-run the external audit against the live deployment.
 3. Restore durable `LIVE_TEST_EMAIL` and `LIVE_TEST_PASSWORD` in the ignored local env file only if routine non-temporary smoke accounts are preferred.
 4. Watch the first few Resend deliveries from the verified domain for spam placement and DMARC aggregate reports.

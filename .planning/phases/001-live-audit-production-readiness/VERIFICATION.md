@@ -86,6 +86,18 @@
   Result: Passed.
   Notes: Production served `assets/index-C2zAVjqJ.js` / `assets/index-BFPzob9P.css`. Playwright verified Shopping at 320, 360, 390, 414, and 430px with 14 purchase controls, minimum target `44x44`, unique purchase labels, mobile cards only, and no horizontal overflow.
 
+- Command: `npm.cmd test`
+  Result: Passed.
+  Notes: 3 test files, 42 tests after the modal keyboard accessibility fix.
+
+- Command: `npm.cmd run build`
+  Result: Passed.
+  Notes: TypeScript compilation and Vite production build completed after the modal keyboard accessibility fix, producing `assets/index-BfoHVrrm.js`.
+
+- Command: Live modal keyboard smoke
+  Result: Passed.
+  Notes: Production served `assets/index-BfoHVrrm.js`. Playwright verified Review Batch, View Scaled Recipe, stock adjustment, conversion edit, conversion import, and confirm dialogs all focus inside the dialog, keep background shell elements inert, trap Tab, close on Escape, return focus to the trigger, and restore inert state after close.
+
 ## Manual Checks
 
 - Check: Current progress comparison
@@ -98,8 +110,8 @@
 
 ## Residual Risk
 
-- Risk: Modal Escape/focus behavior still needs implementation and verification.
-  Owner: Phase 001 Step 5.
+- Risk: Unknown hash routes, dashboard date freshness, audit display-name search, and targeted verification gaps still need implementation and live verification.
+  Owner: Phase 001 Steps 6-8.
 
 - Risk: Live Vercel deployment/project access in the connector may not include this project.
   Owner: Use GitHub deployment status, Vercel CLI/auth, or live URL checks during implementation.

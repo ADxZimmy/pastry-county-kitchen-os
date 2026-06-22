@@ -25,19 +25,22 @@ Execute Phase 001 of the June 22 live-audit recovery, starting with authenticate
 - Used UI UX Pro Max guidance for the mobile/accessibility pass, then implemented Phase 001 Step 4: shopping purchase controls now use 44px hit targets, responsive tables render only the active desktop or mobile representation, and mobile table rows are constrained to prevent 320px overflow.
 - Pushed `6c863ca`, `715df84`, and `ac3e4ce`; production now serves `assets/index-C2zAVjqJ.js` and `assets/index-BFPzob9P.css`.
 - Verified live Shopping at 320, 360, 390, 414, and 430px: 14 purchase controls, minimum target `44x44`, unique purchase labels, mobile card representation only, and no horizontal overflow.
+- Implemented Phase 001 Step 5: shared modal keyboard behavior now gives dialog panels Escape close handling, focus trapping, trigger focus return, and inert background state.
+- Pushed `53b5e49`; production now serves `assets/index-BfoHVrrm.js`.
+- Verified live modal behavior for Review Batch, View Scaled Recipe, stock adjustment, conversion edit, conversion import, and confirm dialogs: each kept focus inside, made background shell elements inert, closed on Escape, restored trigger focus, and restored inert state after close.
 
 ## In Progress
 
-- Phase 001 Step 5: modal keyboard behavior.
+- Phase 001 Step 6: unknown route fallback and dashboard date behavior.
 
 ## Blocked
 
 - Item: Final production-ready claim.
-  Reason: Live audit found public bootstrap data exposure, decimal purchase failure, conversion/AI regressions, mobile/a11y issues, and verification gaps.
+  Reason: Live audit found public bootstrap data exposure, decimal purchase failure, conversion/AI regressions, mobile/a11y issues, routing/date issues, audit search gaps, and verification gaps.
 
 ## Next Action
 
-Implement Phase 001 Step 5: add Escape close handling, focus return, and background inertness for modal surfaces.
+Implement Phase 001 Step 6: route unknown hashes safely and fix Dashboard "Today's Production" date freshness.
 
 ## Verification Snapshot
 
@@ -83,3 +86,9 @@ Implement Phase 001 Step 5: add Escape close handling, focus return, and backgro
   Result: Passed; TypeScript and Vite production build completed after the mobile shopping accessibility fix.
 - Command/check: Live mobile Shopping viewport smoke
   Result: Passed; production served `assets/index-C2zAVjqJ.js` / `assets/index-BFPzob9P.css`, and Playwright verified widths 320/360/390/414/430 had unique purchase labels, 44x44 purchase checkbox targets, mobile cards only, and no horizontal overflow.
+- Command/check: `npm.cmd test`
+  Result: Passed; 42 tests after the modal keyboard accessibility fix.
+- Command/check: `npm.cmd run build`
+  Result: Passed; TypeScript and Vite production build completed after the modal keyboard accessibility fix, producing `assets/index-BfoHVrrm.js`.
+- Command/check: Live modal keyboard smoke
+  Result: Passed; production served `assets/index-BfoHVrrm.js`, and Playwright verified Review Batch, View Scaled Recipe, stock adjustment, conversion edit/import, and confirm dialogs for Escape close, focus trap, trigger focus return, inert background state, and inert restoration.
