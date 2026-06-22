@@ -17,10 +17,11 @@ Execute Phase 001 of the June 22 live-audit recovery, starting with authenticate
 - Pushed `13c5008` and verified the live deployment: unauthenticated `/api/bootstrap` returns 401, while authenticated owner login plus bootstrap returns 200.
 - Reproduced the live decimal purchase failure with a temporary `AUDIT-Decimal` ingredient, then implemented local schema drift repair for decimal purchase/stock columns and user-safe purchase persistence errors.
 - After the first decimal patch deployed, live fractional purchases returned the new user-safe message but still failed; removed an unnecessary SQL `case when unitCost > 0` comparison that could force integer parameter inference.
+- Pushed `1bd7f3e` and verified live shopping purchases with unit costs `0.5`, `0.64`, `2.75`, and `10`; purchase logs, latest ingredient cost, inventory movements, and FEFO batches all persisted expected values, then cleanup archived the probe ingredient.
 
 ## In Progress
 
-- Phase 001 Step 2 is implemented and locally verified; production deployment and live fractional purchase verification are pending.
+- Phase 001 Step 3: repair conversion rule correctness and AI conversion parsing.
 
 ## Blocked
 
@@ -29,7 +30,7 @@ Execute Phase 001 of the June 22 live-audit recovery, starting with authenticate
 
 ## Next Action
 
-Commit and push Phase 001 Step 2, then verify live `shopping.purchaseSuggested` accepts fractional unit costs and archives all temporary probe data.
+Implement Phase 001 Step 3: reconcile live conversion rules, fix AI conversion parsing, add tests for audit prompts, and verify against production.
 
 ## Verification Snapshot
 
@@ -57,3 +58,5 @@ Commit and push Phase 001 Step 2, then verify live `shopping.purchaseSuggested` 
   Result: Passed; 40 tests after replacing the latest-cost SQL branch with direct decimal assignment.
 - Command/check: `npm.cmd run build`
   Result: Passed; TypeScript and Vite production build completed after the SQL parameter-inference follow-up patch.
+- Command/check: Live decimal purchase verification
+  Result: Passed; production accepted `0.5`, `0.64`, `2.75`, and `10` unit costs, updated latest cost to `10`, created four purchase movements and four FEFO batches with total remaining quantity `4`, and cleanup archived the probe ingredient.
