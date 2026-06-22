@@ -18,6 +18,14 @@
   Result: Passed.
   Notes: TypeScript compilation and Vite production build completed.
 
+- Command: Live unauthenticated `GET https://pastry-county-kitchen-os.vercel.app/api/bootstrap`
+  Result: Passed.
+  Notes: Production returned 401 with the safe message `Sign in again to continue.` and no private snapshot data.
+
+- Command: Live authenticated owner login plus `GET https://pastry-county-kitchen-os.vercel.app/api/bootstrap`
+  Result: Passed.
+  Notes: Login returned 200, authenticated bootstrap returned 200, and the snapshot included recipes, ingredients, orders, and settings.
+
 ## Manual Checks
 
 - Check: Current progress comparison
@@ -30,8 +38,8 @@
 
 ## Residual Risk
 
-- Risk: Bootstrap fix has passed local tests/build but still needs production deployment verification.
-  Owner: Next implementation pass.
+- Risk: Decimal shopping purchases still fail on live for fractional costs.
+  Owner: Phase 001 Step 2.
 
 - Risk: Live Vercel deployment/project access in the connector may not include this project.
   Owner: Use GitHub deployment status, Vercel CLI/auth, or live URL checks during implementation.

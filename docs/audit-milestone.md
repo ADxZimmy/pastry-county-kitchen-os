@@ -135,7 +135,7 @@ Latest audit source: Codex audit session `019eeee0-894f-7880-b3fa-4a7c002de3ab`,
 
 | Status | Area | Audit Finding | Completion Criteria |
 | --- | --- | --- | --- |
-| Partial | Bootstrap API security | Unauthenticated `GET /api/bootstrap` exposes suppliers, staff records, orders, movements, batches, audit logs, conversion rules, and settings. | Local fix implemented: `/api/bootstrap` requires a valid signed session, authenticated app loading sends the bearer token, session expiry redirects to login, and unit/build verification passes. Remaining: push/deploy and confirm live unauthenticated requests return 401 with no private data. |
+| Done | Bootstrap API security | Unauthenticated `GET /api/bootstrap` exposed suppliers, staff records, orders, movements, batches, audit logs, conversion rules, and settings. | `/api/bootstrap` now requires a valid signed session, unauthenticated production requests return 401 with no private data, authenticated app loading sends the bearer token, session expiry redirects to login, and unit/build/live verification passes. |
 | Todo | Decimal shopping costs | Shopping purchase with `unitCost: 0.5` fails on live with an integer parsing error. | Decimal unit costs `0.5`, `0.64`, `2.75`, and whole values persist end-to-end in purchase logs, latest ingredient cost, inventory movement, and FEFO lots; live schema drift is reconciled. |
 | Todo | Conversion rule correctness | Flour has duplicate verified `1 cup = 125g` rules while audit expects `1 cup = 120g`. | Active verified rules are unique by ingredient/from/to, flour/sugar/cocoa/egg/yolk/white/coconut oil audit conversions match expected values, and duplicate live rules are archived with audit history. |
 | Todo | AI conversion parsing | Natural prompts like `Convert 1 cup sugar to grams` parse into nonsensical `1 g -> 1g` answers. | AI parser recognizes conversion questions with quantity, unit, ingredient, and target unit; low-confidence prompts ask for clarification instead of returning fake precision; tests cover all audit prompts. |
@@ -196,12 +196,13 @@ Latest audit source: Codex audit session `019eeee0-894f-7880-b3fa-4a7c002de3ab`,
 - [x] External audit handoff captured in `docs/audit-handoff.md` with current commit, live URL, passed checks, and retest focus areas.
 - [x] Production verification baseline confirmed as `READY` on Vercel for commit `b3cc35a011078f2d95a67d8ab9c275cd43d2142a`; GitHub reported the Vercel deployment status as successful and live `/api/health` returned 200.
 - [x] June 22 live audit reviewed and mapped into GSD Hybrid Phase 001 plus Milestone 9 production-readiness recovery plan.
-- [x] Phase 001 bootstrap authentication fix passed locally with `npm test` and `npm run build`; live deployment verification remains before marking the Milestone 9 bootstrap row Done.
+- [x] Phase 001 bootstrap authentication fix passed locally with `npm test` and `npm run build`.
+- [x] Phase 001 bootstrap authentication fix passed live verification: unauthenticated `/api/bootstrap` returns 401 and authenticated owner bootstrap returns 200.
 - [ ] Re-run an external audit after the live audit expansion follow-up is deployed.
 
 ## Next Recommended Work
 
-1. Execute GSD Phase 001: close Milestone 9 production-readiness findings, starting with `/api/bootstrap` authentication.
+1. Continue GSD Phase 001 with decimal shopping-cost persistence and live schema drift reconciliation.
 2. Run `npm run smoke:live-audit` before the next audit cycle, then re-run the external audit against the live deployment.
 3. Restore durable `LIVE_TEST_EMAIL` and `LIVE_TEST_PASSWORD` in the ignored local env file only if routine non-temporary smoke accounts are preferred.
 4. Watch the first few Resend deliveries from the verified domain for spam placement and DMARC aggregate reports.

@@ -14,10 +14,11 @@ Execute Phase 001 of the June 22 live-audit recovery, starting with authenticate
 - Initialized GSD Hybrid planning artifacts under `.planning/`.
 - Implemented Phase 001 Step 1 locally: `/api/bootstrap` now requires a signed bearer session in both serverless and Express entry points, and the React app sends the saved session token only after login.
 - Added bootstrap auth unit coverage for unauthenticated and authenticated reads.
+- Pushed `13c5008` and verified the live deployment: unauthenticated `/api/bootstrap` returns 401, while authenticated owner login plus bootstrap returns 200.
 
 ## In Progress
 
-- Phase 001 Step 1 is implemented and locally verified; production deployment and live `/api/bootstrap` verification are pending.
+- Phase 001 Step 2: fix decimal shopping purchases and reconcile live schema drift.
 
 ## Blocked
 
@@ -26,7 +27,7 @@ Execute Phase 001 of the June 22 live-audit recovery, starting with authenticate
 
 ## Next Action
 
-Commit and push Phase 001 Step 1, then verify the live deployment returns 401 for unauthenticated `/api/bootstrap` and still loads for an authenticated owner session.
+Implement Phase 001 Step 2: inspect decimal purchase handling, reconcile live schema drift, add tests for fractional costs, and verify against production.
 
 ## Verification Snapshot
 
@@ -38,3 +39,7 @@ Commit and push Phase 001 Step 1, then verify the live deployment returns 401 fo
   Result: Passed; 38 tests, including new bootstrap authentication coverage.
 - Command/check: `npm.cmd run build`
   Result: Passed; TypeScript and Vite production build completed.
+- Command/check: Live unauthenticated `GET /api/bootstrap`
+  Result: Passed; production returned 401 with `Sign in again to continue.`.
+- Command/check: Live authenticated login plus `GET /api/bootstrap`
+  Result: Passed; owner login returned 200 and authenticated bootstrap returned 200 with recipes, ingredients, orders, and settings loaded.
