@@ -75,8 +75,10 @@ function actionClient(token) {
   };
 }
 
-async function bootstrap() {
-  return requestJson("/api/bootstrap");
+async function bootstrap(token) {
+  return requestJson("/api/bootstrap", {
+    headers: { Authorization: `Bearer ${token}` }
+  });
 }
 
 function ingredientById(snapshot, id) {
@@ -229,7 +231,7 @@ async function main() {
       createdIngredientIds.push(result.id);
     }
 
-    let snapshot = await bootstrap();
+    let snapshot = await bootstrap(user.token);
     let flour = ingredientById(snapshot, flourId);
     const sugar = ingredientById(snapshot, sugarId);
     const packaging = ingredientById(snapshot, packagingId);
@@ -249,7 +251,7 @@ async function main() {
       note: "Regression audit smoke FEFO removal"
     });
 
-    snapshot = await bootstrap();
+    snapshot = await bootstrap(user.token);
     flour = ingredientById(snapshot, flourId);
     flourBatch = batchByIngredient(snapshot, flourId);
     assertNear(flour.currentStock, 4800, "Flour stock after FEFO removal");
