@@ -1,5 +1,7 @@
 import type { AuditLog } from "../types";
 
+export type AuditRecordNameLookup = Record<string, Record<string, string | undefined>>;
+
 export function isSensitiveAuditKey(key: string) {
   return /(password|token|secret|hash|api[_-]?key|session)/i.test(key);
 }
@@ -39,10 +41,51 @@ export function auditChangeSummary(entry: AuditLog) {
   return "No detailed values recorded";
 }
 
-export function auditSearchText(entry: AuditLog) {
+function auditValue(data: Record<string, unknown> | undefined, keys: string[]) {
+  for (const key of keys) {
+    const value = data?.[key];
+    if (typeof value === "string" && value.trim() && !isSensitiveAuditKey(key)) return value.trim();
+  }
+  return "";
+}
+
+function auditLookupName(entry: AuditLog, lookup: AuditRecordNameLookup) {
+  return lookup[entry.entityType]?.[entry.entityId]?.trim() ?? "";
+}
+
+export function auditRecordName(entry: AuditLog, lookup: AuditRecordNameLookup = {}) {
+  const after = entry.afterData;
+  const before = entry.beforeData;
+  const lookupName = auditLookupName(entry, lookup);
+
+  if (entry.entityType === "settings") return "Business settings";
+  if (entry.entityType === "notifications") return auditValue(after, ["subject", "type"]) || auditValue(before, ["subject", "type"]) || lookupName || entry.entityId;
+  if (entry.entityType === "conversion_rules") {
+    const source = after ?? before;
+    const ingredientId = auditValue(source, ["ingredientId", "ingredient_id"]);
+    const ingredientName = ingredientId ? lookup.ingredients?.[ingredientId] ?? ingredientId : "";
+    const fromUnit = auditValue(source, ["fromUnit", "from_unit"]);
+    const toUnit = auditValue(source, ["toUnit", "to_unit"]);
+    if (ingredientName && fromUnit && toUnit) return `${ingredientName} ${fromUnit} -> ${toUnit}`;
+  }
+
+  return auditValue(after, ["name", "customerName", "customer_name", "fullName", "full_name", "businessName", "business_name", "email"])
+    || auditValue(before, ["name", "customerName", "customer_name", "fullName", "full_name", "businessName", "business_name", "email"])
+    || lookupName
+    || entry.entityId;
+}
+
+export function auditRecordLabel(entry: AuditLog, lookup: AuditRecordNameLookup = {}) {
+  const name = auditRecordName(entry, lookup);
+  return name && name !== entry.entityId ? `${name} (${entry.entityId})` : entry.entityId;
+}
+
+export function auditSearchText(entry: AuditLog, lookup: AuditRecordNameLookup = {}) {
   return [
     entry.entityType,
     entry.entityId,
+    auditRecordName(entry, lookup),
+    auditRecordLabel(entry, lookup),
     entry.action,
     entry.actor,
     new Date(entry.createdAt).toLocaleString(),
@@ -52,10 +95,10 @@ export function auditSearchText(entry: AuditLog) {
   ].join(" ");
 }
 
-export function auditExportRows(entries: AuditLog[]) {
+export function auditExportRows(entries: AuditLog[], lookup: AuditRecordNameLookup = {}) {
   return entries.map((entry) => [
     entry.entityType,
-    entry.entityId,
+    auditRecordLabel(entry, lookup),
     entry.action,
     entry.actor,
     new Date(entry.createdAt).toLocaleString(),

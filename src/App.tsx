@@ -28,7 +28,7 @@ import {
 } from "lucide-react";
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { apiBaseUrl, backendMode } from "./lib/backend";
-import { auditChangedFields, auditChangeSummary, auditDataJson, auditExportRows, auditFieldLabel, auditSearchText } from "./lib/audit";
+import { auditChangedFields, auditChangeSummary, auditDataJson, auditExportRows, auditFieldLabel, auditRecordLabel, auditSearchText, type AuditRecordNameLookup } from "./lib/audit";
 import { appUsers, auditLogs, conversionRules, ingredientBatches, ingredients, inventoryMovements, orderItems, orders, products, recipeItems, recipes, settings, suppliers, setKitchenSnapshot } from "./data";
 import type { AppStaffUser, AuditLog, ConversionRule, Ingredient, Order, Recipe, StockStatus, Supplier, Unit } from "./types";
 import {
@@ -2193,7 +2193,20 @@ function SettingsPage({ user, setPage, notify, reloadData }: { user?: AppUser; s
   const lowStockRows = ingredients.filter(isBelowReorder);
   const expiringRows = ingredientBatches.filter((batch) => batch.expiryDate).slice(0, 8);
   const wasteRows = inventoryMovements.filter((item) => item.movementType === "waste" || item.note?.toLowerCase().includes("spoil") || item.note?.toLowerCase().includes("waste")).slice(0, 8);
-  const auditRows = (auditFilter === "All" ? auditLogs : auditLogs.filter((entry) => entry.entityType === auditFilter)).filter((entry) => auditSearchText(entry).toLowerCase().includes(auditSearch.toLowerCase()));
+  const auditNameLookup: AuditRecordNameLookup = {
+    ingredients: Object.fromEntries(ingredients.map((item) => [item.id, item.name])),
+    recipes: Object.fromEntries(recipes.map((item) => [item.id, item.name])),
+    orders: Object.fromEntries(orders.map((item) => [item.id, item.customerName])),
+    suppliers: Object.fromEntries(suppliers.map((item) => [item.id, item.name])),
+    conversion_rules: Object.fromEntries(conversionRules.map((rule) => {
+      const ingredientName = ingredients.find((item) => item.id === rule.ingredientId)?.name ?? rule.ingredientId;
+      return [rule.id, `${ingredientName} ${rule.fromUnit} -> ${rule.toUnit}`];
+    })),
+    app_users: Object.fromEntries(appUsers.map((item) => [item.id, item.fullName || item.email])),
+    settings: { default: "Business settings" },
+    notifications: { low_stock_email: "Low-stock email" }
+  };
+  const auditRows = (auditFilter === "All" ? auditLogs : auditLogs.filter((entry) => entry.entityType === auditFilter)).filter((entry) => auditSearchText(entry, auditNameLookup).toLowerCase().includes(auditSearch.toLowerCase()));
   const supplierPerformance = suppliers.map((supplier) => {
     const supplied = ingredients.filter((ingredient) => ingredient.supplierId === supplier.id);
     const low = supplied.filter(isBelowReorder);
@@ -2304,7 +2317,7 @@ function SettingsPage({ user, setPage, notify, reloadData }: { user?: AppUser; s
           cells: [staff.fullName, staff.email, staff.role, staff.active === false ? <Badge tone="warning">Disabled</Badge> : <Badge tone="success">Active</Badge>, <div className="button-row"><Button variant="secondary" onClick={() => setEditingUser(staff)} disabled={!canManageSettings}>Edit</Button><Button variant="secondary" onClick={async () => { await apiAction("user.revokeSessions", { userId: staff.id }); notify(staff.id === user?.id ? "Your sessions were revoked. Sign in again to continue." : "Staff sessions revoked."); await reloadData(); }} disabled={!canManageSettings}>Revoke Sessions</Button><Button variant="danger" onClick={async () => { await apiAction("user.disable", { userId: staff.id }); notify("Staff user disabled."); await reloadData(); }} disabled={!canManageSettings || staff.id === user?.id}>Disable</Button></div>]
         }))} />
       </Section>
-      <Section title="Audit Reports" action={<div className="button-row"><Button variant="secondary" onClick={() => exportCsv("pastry-county-audit-report.csv", ["Entity", "Record", "Action", "Actor", "Date", "Changed Fields", "Before", "After"], auditExportRows(auditRows), notify)}>Export CSV</Button><Button variant="secondary" onClick={() => exportPrintableReport("pastry-county-compliance-report.html", "Pastry County Compliance Report", [["Audit rows", auditRows.length], ["Low-stock items", lowStockRows.length], ["Waste events", wasteRows.length], ["Open shortages", orders.filter((order) => order.stockStatus === "Shortage").length]], notify)}>PDF/Print</Button></div>}>
+      <Section title="Audit Reports" action={<div className="button-row"><Button variant="secondary" onClick={() => exportCsv("pastry-county-audit-report.csv", ["Entity", "Record", "Action", "Actor", "Date", "Changed Fields", "Before", "After"], auditExportRows(auditRows, auditNameLookup), notify)}>Export CSV</Button><Button variant="secondary" onClick={() => exportPrintableReport("pastry-county-compliance-report.html", "Pastry County Compliance Report", [["Audit rows", auditRows.length], ["Low-stock items", lowStockRows.length], ["Waste events", wasteRows.length], ["Open shortages", orders.filter((order) => order.stockStatus === "Shortage").length]], notify)}>PDF/Print</Button></div>}>
         <Toolbar query={auditSearch} setQuery={setAuditSearch} placeholder="Search audit logs" />
         <Chips items={["All", ...Array.from(new Set(auditLogs.map((entry) => entry.entityType))).slice(0, 8)]} active={auditFilter} setActive={setAuditFilter} />
         <PaginatedTable label="audit logs" headers={["Entity", "Record", "Action", "Actor", "Date", "Details"]} rows={auditRows.map((entry) => {
@@ -2313,10 +2326,10 @@ function SettingsPage({ user, setPage, notify, reloadData }: { user?: AppUser; s
             key: entry.id,
             onClick: () => setExpandedAuditId(expanded ? null : entry.id),
             expanded,
-            details: <AuditDetails entry={entry} />,
+            details: <AuditDetails entry={entry} lookup={auditNameLookup} />,
             cells: [
               entry.entityType,
-              entry.entityId,
+              auditRecordLabel(entry, auditNameLookup),
               entry.action,
               entry.actor,
               new Date(entry.createdAt).toLocaleString(),
@@ -2438,12 +2451,12 @@ function useDesktopTable() {
   return isDesktopTable;
 }
 
-function AuditDetails({ entry }: { entry: AuditLog }) {
+function AuditDetails({ entry, lookup }: { entry: AuditLog; lookup: AuditRecordNameLookup }) {
   const changedFields = auditChangedFields(entry);
   return (
     <div className="audit-details">
       <div className="audit-detail-head">
-        <span>Changed fields</span>
+        <span>{auditRecordLabel(entry, lookup)}</span>
         <strong>{auditChangeSummary(entry)}</strong>
       </div>
       {changedFields.length > 0 && <div className="audit-field-list">{changedFields.map((field) => <Badge key={field} tone="neutral">{auditFieldLabel(field)}</Badge>)}</div>}

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { resolveSessionPage } from "./App";
 import { setKitchenSnapshot } from "./data";
-import { auditChangeSummary, auditDataJson, auditExportRows, auditSearchText } from "./lib/audit";
+import { auditChangeSummary, auditDataJson, auditExportRows, auditRecordLabel, auditSearchText } from "./lib/audit";
 import { buildKitchenAssistantResponse, calculateMargin, calculateRecipeCost, checkStockAvailability, convertUnit, dashboardProductionQueue, formatNaira, formatQuantity, generateShoppingList, netSellingPrice, parseRecipeText, roundScaledQuantity, scaleRecipe, stockAdjustmentValidation } from "./lib/kitchen";
 import type { AuditLog } from "./types";
 
@@ -240,6 +240,8 @@ describe("audit report export helpers", () => {
 
   it("summarizes changed audit fields without exposing sensitive keys", () => {
     expect(auditChangeSummary(entry)).toBe("latest unit cost");
+    expect(auditRecordLabel(entry)).toBe("Flour (flour)");
+    expect(auditSearchText(entry)).toContain("Flour");
     expect(auditSearchText(entry)).toContain("latest unit cost");
     expect(auditSearchText(entry)).not.toContain("secret-after");
   });
@@ -252,8 +254,37 @@ describe("audit report export helpers", () => {
 
     const [row] = auditExportRows([entry]);
     expect(row[0]).toBe("ingredients");
+    expect(row[1]).toBe("Flour (flour)");
     expect(row[5]).toBe("latest unit cost");
     expect(String(row[6])).toContain('"password_hash": "[redacted]"');
     expect(String(row[7])).toContain('"sessionToken": "[redacted]"');
+  });
+
+  it("searches and exports audit records by safe display names", () => {
+    const createEntry: AuditLog = {
+      id: "audit-created",
+      entityType: "ingredients",
+      entityId: "ingredient-audit-flour",
+      action: "create",
+      actor: "owner@pastrycounty.com",
+      createdAt: "2026-06-22T12:00:00.000Z",
+      afterData: { name: "AUDIT-Flour", password_hash: "hidden" }
+    };
+    const purchaseEntry: AuditLog = {
+      id: "audit-purchase",
+      entityType: "ingredients",
+      entityId: "ingredient-audit-flour",
+      action: "purchase",
+      actor: "owner@pastrycounty.com",
+      createdAt: "2026-06-22T12:05:00.000Z",
+      afterData: { purchaseId: "purchase-1", quantity: 1, unit: "g", sessionToken: "hidden" }
+    };
+    const lookup = { ingredients: { "ingredient-audit-flour": "AUDIT-Flour" } };
+
+    expect(auditRecordLabel(createEntry)).toBe("AUDIT-Flour (ingredient-audit-flour)");
+    expect(auditSearchText(createEntry).toLowerCase()).toContain("audit-flour");
+    expect(auditSearchText(purchaseEntry, lookup).toLowerCase()).toContain("audit-flour");
+    expect(auditExportRows([purchaseEntry], lookup)[0][1]).toBe("AUDIT-Flour (ingredient-audit-flour)");
+    expect(auditSearchText(purchaseEntry, lookup)).not.toContain("hidden");
   });
 });
