@@ -367,6 +367,10 @@ export function parseRecipeText(text: string) {
       pieces: "pcs",
       piece: "pcs",
       eggs: "egg",
+      "egg yolks": "yolk",
+      "egg yolk": "yolk",
+      "egg whites": "white",
+      "egg white": "white",
       yolks: "yolk",
       whites: "white",
       packs: "pack",
@@ -374,19 +378,60 @@ export function parseRecipeText(text: string) {
     };
     return aliases[unit] ?? unit as Unit;
   };
+  const unitPattern = "egg\\s+yolks?|egg\\s+whites?|cups?|tbsp|tablespoons?|tsp|teaspoons?|grams?|g|kg|kilograms?|ml|milliliters?|millilitres?|liters?|litres?|pcs|pieces?|eggs?|yolks?|whites?|packs?|rolls?";
+  const splitSourceUnit = (source: string) => {
+    const aliases = [
+      "egg yolks", "egg yolk", "egg whites", "egg white", "tablespoons", "tablespoon", "teaspoons", "teaspoon",
+      "millilitres", "milliliters", "kilograms", "kilogram", "litres", "liters", "pieces", "piece",
+      "cups", "cup", "tbsp", "tsp", "grams", "gram", "eggs", "egg", "yolks", "yolk", "whites", "white",
+      "packs", "pack", "rolls", "roll", "kg", "ml", "pcs", "g"
+    ];
+    const lowerSource = source.toLowerCase().trim();
+    const alias = aliases.find((candidate) => lowerSource === candidate || lowerSource.startsWith(`${candidate} `));
+    if (!alias) return { unit: undefined, ingredientName: source.trim() };
+    const ingredientName = lowerSource === alias ? source.trim() : source.slice(alias.length).trim();
+    return { unit: normalizeUnit(alias), ingredientName: ingredientName || source.trim() };
+  };
+  const findIngredient = (name: string) => {
+    const normalizedIngredient = name.toLowerCase().trim();
+    const singularIngredient = normalizedIngredient.replace(/s$/, "");
+    return ingredients.find((candidate) => candidate.name.toLowerCase() === normalizedIngredient)
+      ?? ingredients.find((candidate) => candidate.name.toLowerCase().replace(/s$/, "") === singularIngredient)
+      ?? ingredients.find((candidate) => normalizedIngredient.includes(candidate.name.toLowerCase()))
+      ?? ingredients.find((candidate) => candidate.name.toLowerCase().includes(normalizedIngredient))
+      ?? ingredients.find((candidate) => normalizedIngredient.includes(candidate.name.toLowerCase().split(" ")[0]));
+  };
   return text
     .split(/\n+/)
     .map((line) => line.trim())
     .filter(Boolean)
     .map((line, index) => {
-      const match = line.match(/^(\d+(?:\.\d+)?|\d+\/\d+)\s+(?:(cups?|tbsp|tablespoons?|tsp|teaspoons?|grams?|g|kg|kilograms?|ml|milliliters?|millilitres?|liters?|litres?|pcs|pieces?|eggs?|yolks?|whites?|packs?|rolls?)\s+)?(.+)$/i);
+      const conversionQuestion = line.match(new RegExp(`^(?:convert\\s+)?(\\d+(?:\\.\\d+)?|\\d+\\/\\d+)\\s+(.+?)\\s+(?:to|into|in)\\s+(${unitPattern})$`, "i"));
+      if (conversionQuestion) {
+        const quantityRaw = conversionQuestion[1];
+        const quantity = quantityRaw.includes("/") ? quantityRaw.split("/").map(Number).reduce((a, b) => a / b) : Number(quantityRaw);
+        const { unit, ingredientName } = splitSourceUnit(conversionQuestion[2]);
+        const ingredient = findIngredient(ingredientName);
+        const fromUnit = unit ?? ingredient?.baseUnit ?? "pcs";
+        const toUnit = normalizeUnit(conversionQuestion[3]);
+        const conversion = ingredient ? convertUnit(quantity, fromUnit, toUnit, ingredient.id) : undefined;
+        return {
+          id: `parsed-${index}`,
+          ingredientName: ingredient?.name ?? ingredientName,
+          ingredientId: ingredient?.id,
+          quantity,
+          unit: fromUnit,
+          convertedQuantity: conversion?.convertedQuantity ?? quantity,
+          convertedUnit: toUnit,
+          confidence: conversion?.confidenceLevel ?? "Low",
+          needsReview: !ingredient || conversion?.needsReview
+        };
+      }
+      const match = line.match(new RegExp(`^(\\d+(?:\\.\\d+)?|\\d+\\/\\d+)\\s+(?:(${unitPattern})\\s+)?(.+)$`, "i"));
       const quantityRaw = match?.[1] ?? "1";
       const quantity = quantityRaw.includes("/") ? quantityRaw.split("/").map(Number).reduce((a, b) => a / b) : Number(quantityRaw);
       const ingredientName = (match?.[3] ?? match?.[2] ?? line).trim();
-      const normalizedIngredient = ingredientName.toLowerCase();
-      const ingredient = ingredients.find((candidate) => candidate.name.toLowerCase() === normalizedIngredient)
-        ?? ingredients.find((candidate) => normalizedIngredient.includes(candidate.name.toLowerCase()))
-        ?? ingredients.find((candidate) => normalizedIngredient.includes(candidate.name.toLowerCase().split(" ")[0]));
+      const ingredient = findIngredient(ingredientName);
       const inferredCountUnit = ingredientName.toLowerCase().includes("yolk") ? "yolk" : ingredientName.toLowerCase().includes("white") ? "white" : ingredientName.toLowerCase().includes("egg") ? "egg" : undefined;
       const unit = match?.[2] ? normalizeUnit(match[2]) : inferredCountUnit ?? ingredient?.baseUnit ?? "pcs";
       const conversion = ingredient ? convertUnit(quantity, unit, ingredient.baseUnit, ingredient.id) : undefined;

@@ -18,10 +18,12 @@ Execute Phase 001 of the June 22 live-audit recovery, starting with authenticate
 - Reproduced the live decimal purchase failure with a temporary `AUDIT-Decimal` ingredient, then implemented local schema drift repair for decimal purchase/stock columns and user-safe purchase persistence errors.
 - After the first decimal patch deployed, live fractional purchases returned the new user-safe message but still failed; removed an unnecessary SQL `case when unitCost > 0` comparison that could force integer parameter inference.
 - Pushed `1bd7f3e` and verified live shopping purchases with unit costs `0.5`, `0.64`, `2.75`, and `10`; purchase logs, latest ingredient cost, inventory movements, and FEFO batches all persisted expected values, then cleanup archived the probe ingredient.
+- Reproduced live conversion drift: Flour had two active verified `cup -> g` rules at `125g`; implemented conversion-rule reconciliation to restore audit values and archive duplicate active verified rules.
+- Implemented natural conversion prompt parsing for questions such as `Convert 1 cup sugar to grams`, including flour, sugar, cocoa, egg, yolk, white, and coconut oil audit cases.
 
 ## In Progress
 
-- Phase 001 Step 3: repair conversion rule correctness and AI conversion parsing.
+- Phase 001 Step 3 is implemented and locally verified; production deployment and live conversion/AI verification are pending.
 
 ## Blocked
 
@@ -30,7 +32,7 @@ Execute Phase 001 of the June 22 live-audit recovery, starting with authenticate
 
 ## Next Action
 
-Implement Phase 001 Step 3: reconcile live conversion rules, fix AI conversion parsing, add tests for audit prompts, and verify against production.
+Commit and push Phase 001 Step 3, then run live `schema.ensure`, verify conversion-rule dedupe/correct values, and smoke the audit conversion prompts.
 
 ## Verification Snapshot
 
@@ -60,3 +62,9 @@ Implement Phase 001 Step 3: reconcile live conversion rules, fix AI conversion p
   Result: Passed; TypeScript and Vite production build completed after the SQL parameter-inference follow-up patch.
 - Command/check: Live decimal purchase verification
   Result: Passed; production accepted `0.5`, `0.64`, `2.75`, and `10` unit costs, updated latest cost to `10`, created four purchase movements and four FEFO batches with total remaining quantity `4`, and cleanup archived the probe ingredient.
+- Command/check: Live conversion snapshot
+  Result: Drift reproduced; Flour had two active verified `cup -> g` rules and both were `125g`, while the audit expects a single active `120g` rule.
+- Command/check: `npm.cmd test`
+  Result: Passed; 42 tests, including natural conversion prompt parsing and AI response coverage for audit ingredients.
+- Command/check: `npm.cmd run build`
+  Result: Passed; TypeScript and Vite production build completed after the conversion/AI fix.

@@ -54,6 +54,18 @@
   Result: Passed.
   Notes: Production accepted `0.5`, `0.64`, `2.75`, and `10` unit costs for temporary shopping purchases, updated latest ingredient cost to `10`, created four purchase movements and four FEFO batches with total remaining quantity `4`, and cleanup archived the probe ingredient.
 
+- Command: Live conversion snapshot
+  Result: Drift reproduced.
+  Notes: Flour had two active verified `cup -> g` rules, both at `125g`; the audit expects a single active `120g` rule.
+
+- Command: `npm.cmd test`
+  Result: Passed.
+  Notes: 3 test files, 42 tests. Added natural conversion question coverage for flour, sugar, cocoa, egg, yolk, white, and coconut oil, plus an AI response check for `Convert 1 cup sugar to grams`.
+
+- Command: `npm.cmd run build`
+  Result: Passed.
+  Notes: TypeScript compilation and Vite production build completed after the conversion/AI fix.
+
 ## Manual Checks
 
 - Check: Current progress comparison
@@ -66,8 +78,8 @@
 
 ## Residual Risk
 
-- Risk: Live conversion rules still include audit-invalid values and duplicates.
-  Owner: Phase 001 Step 3.
+- Risk: Conversion/AI fix has passed local tests/build but still needs production deployment verification.
+  Owner: Next implementation pass.
 
 - Risk: Live Vercel deployment/project access in the connector may not include this project.
   Owner: Use GitHub deployment status, Vercel CLI/auth, or live URL checks during implementation.

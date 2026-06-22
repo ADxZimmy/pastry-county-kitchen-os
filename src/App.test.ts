@@ -15,6 +15,7 @@ describe("kitchen calculations", () => {
         { id: "dark-chocolate", name: "Dark Chocolate", category: "Chocolate", baseUnit: "g", currentStock: 450, reorderLevel: 1000, latestUnitCost: 7.8, supplierId: "sup-market" },
         { id: "eggs", name: "Eggs", category: "Dairy", baseUnit: "pcs", currentStock: 8, reorderLevel: 30, latestUnitCost: 160, supplierId: "sup-market" },
         { id: "egg-yolks", name: "Egg Yolks", category: "Dairy", baseUnit: "g", currentStock: 0, reorderLevel: 0, latestUnitCost: 3.2, supplierId: "sup-market" },
+        { id: "egg-whites", name: "Egg Whites", category: "Dairy", baseUnit: "g", currentStock: 0, reorderLevel: 0, latestUnitCost: 2.4, supplierId: "sup-market" },
         { id: "coconut-oil", name: "Coconut Oil", category: "Dairy", baseUnit: "ml", currentStock: 3000, reorderLevel: 1000, latestUnitCost: 2.8, supplierId: "sup-market" },
         { id: "lemon", name: "Lemon", category: "Fruits", baseUnit: "pcs", currentStock: 20, reorderLevel: 12, latestUnitCost: 120, supplierId: "sup-market" },
         { id: "blueberries", name: "Blueberries", category: "Fruits", baseUnit: "g", currentStock: 300, reorderLevel: 500, latestUnitCost: 9.5, supplierId: "sup-market" }
@@ -52,7 +53,12 @@ describe("kitchen calculations", () => {
       inventoryMovements: [],
       conversionRules: [
         { id: "cr-flour", ingredientId: "flour", fromUnit: "cup", toUnit: "g", conversionFactor: 120, conversionType: "ingredient_specific", confidenceLevel: "High", source: "seed rule", verified: true, updatedAt: "2026-05-18" },
-        { id: "cr-yolk", ingredientId: "egg-yolks", fromUnit: "yolk", toUnit: "g", conversionFactor: 18, conversionType: "ingredient_specific", confidenceLevel: "Medium", source: "seed rule", verified: true, updatedAt: "2026-05-18" }
+        { id: "cr-sugar", ingredientId: "sugar", fromUnit: "cup", toUnit: "g", conversionFactor: 200, conversionType: "ingredient_specific", confidenceLevel: "High", source: "seed rule", verified: true, updatedAt: "2026-05-18" },
+        { id: "cr-cocoa", ingredientId: "cocoa", fromUnit: "cup", toUnit: "g", conversionFactor: 85, conversionType: "ingredient_specific", confidenceLevel: "High", source: "seed rule", verified: true, updatedAt: "2026-05-18" },
+        { id: "cr-oil", ingredientId: "coconut-oil", fromUnit: "cup", toUnit: "ml", conversionFactor: 240, conversionType: "ingredient_specific", confidenceLevel: "High", source: "seed rule", verified: true, updatedAt: "2026-05-18" },
+        { id: "cr-egg", ingredientId: "eggs", fromUnit: "egg", toUnit: "g", conversionFactor: 50, conversionType: "ingredient_specific", confidenceLevel: "Medium", source: "seed rule", verified: true, updatedAt: "2026-05-18" },
+        { id: "cr-yolk", ingredientId: "egg-yolks", fromUnit: "yolk", toUnit: "g", conversionFactor: 18, conversionType: "ingredient_specific", confidenceLevel: "Medium", source: "seed rule", verified: true, updatedAt: "2026-05-18" },
+        { id: "cr-white", ingredientId: "egg-whites", fromUnit: "white", toUnit: "g", conversionFactor: 30, conversionType: "ingredient_specific", confidenceLevel: "Medium", source: "seed rule", verified: true, updatedAt: "2026-05-18" }
       ],
       settings: { businessName: "Pastry County", currency: "NGN", defaultDeductionStage: "production_completion", allowNegativeInventory: false, requireAiConversionConfirmation: true, gramRoundingPreference: 5, eggRoundingPreference: "nearest_whole_egg" }
     });
@@ -116,6 +122,28 @@ describe("kitchen calculations", () => {
     expect(parsed.find((item) => item.ingredientName === "eggs")?.unit).toBe("egg");
   });
 
+  it("parses natural conversion questions for audit ingredients", () => {
+    const parsed = parseRecipeText([
+      "Convert 1 cup flour to grams",
+      "Convert 1 cup sugar to grams",
+      "Convert 1 cup cocoa powder to grams",
+      "Convert 1 egg to grams",
+      "Convert 3 egg yolks to grams",
+      "Convert 2 egg whites to grams",
+      "Convert 1 cup coconut oil to millilitres"
+    ].join("\n"));
+
+    expect(parsed.map((item) => [item.ingredientId, item.convertedQuantity, item.convertedUnit, item.needsReview])).toEqual([
+      ["flour", 120, "g", false],
+      ["sugar", 200, "g", false],
+      ["cocoa", 85, "g", false],
+      ["eggs", 50, "g", false],
+      ["egg-yolks", 54, "g", false],
+      ["egg-whites", 60, "g", false],
+      ["coconut-oil", 240, "ml", false]
+    ]);
+  });
+
   it("generates shopping list suggestions", () => {
     const list = generateShoppingList(["ord-chika", "ord-tolu"]);
     expect(list.find((item) => item.ingredientName === "Dark Chocolate")).toBeTruthy();
@@ -147,6 +175,12 @@ describe("kitchen calculations", () => {
     const response = buildKitchenAssistantResponse("2 cups flour");
     expect(response).toContain("I parsed these recipe lines");
     expect(response).toContain("flour: 2 cup -> 240g (High)");
+  });
+
+  it("answers natural AI conversion questions without falling back to direct grams", () => {
+    const response = buildKitchenAssistantResponse("Convert 1 cup sugar to grams");
+    expect(response).toContain("Sugar: 1 cup -> 200g (High)");
+    expect(response).not.toContain("1 g -> 1g");
   });
 
   it("answers AI low-stock questions from current inventory", () => {

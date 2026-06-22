@@ -46,6 +46,16 @@ function convertPurchaseQuantity(quantity, purchaseUnit, baseUnit) {
 
 const movementTypes = new Set(["purchase", "production_use", "reservation", "reservation_release", "adjustment", "waste", "return", "correction"]);
 let decimalOperationalColumnsReady = false;
+let auditConversionRulesReady = false;
+const auditConversionRuleSpecs = [
+  { id: "cr-flour", ingredientId: "flour", fromUnit: "cup", toUnit: "g", conversionFactor: 120, confidenceLevel: "High" },
+  { id: "cr-sugar", ingredientId: "sugar", fromUnit: "cup", toUnit: "g", conversionFactor: 200, confidenceLevel: "High" },
+  { id: "cr-cocoa", ingredientId: "cocoa", fromUnit: "cup", toUnit: "g", conversionFactor: 85, confidenceLevel: "High" },
+  { id: "cr-oil", ingredientId: "coconut-oil", fromUnit: "cup", toUnit: "ml", conversionFactor: 240, confidenceLevel: "High" },
+  { id: "cr-egg", ingredientId: "eggs", fromUnit: "egg", toUnit: "g", conversionFactor: 50, confidenceLevel: "Medium" },
+  { id: "cr-yolk", ingredientId: "egg-yolks", fromUnit: "yolk", toUnit: "g", conversionFactor: 18, confidenceLevel: "Medium" },
+  { id: "cr-white", ingredientId: "egg-whites", fromUnit: "white", toUnit: "g", conversionFactor: 30, confidenceLevel: "Medium" }
+];
 const actionRoles = {
   "archive.list": ["Owner/Admin", "Inventory Manager"],
   "archive.restore": ["Owner/Admin"],
@@ -399,6 +409,7 @@ async function ensureOperationalTables(sql) {
     )
   `;
   await ensureDecimalOperationalColumns(sql);
+  await ensureAuditConversionRules(sql);
 }
 
 async function ensureDecimalOperationalColumns(sql) {
@@ -415,6 +426,52 @@ async function ensureDecimalOperationalColumns(sql) {
   await sql`alter table ingredient_batches alter column quantity_remaining type numeric(14,3) using quantity_remaining::numeric`;
   await sql`alter table inventory_movements alter column quantity_change type numeric(14,3) using quantity_change::numeric`;
   decimalOperationalColumnsReady = true;
+}
+
+function conversionRuleMatches(row, rule) {
+  return row
+    && row.ingredient_id === rule.ingredientId
+    && row.from_unit === rule.fromUnit
+    && row.to_unit === rule.toUnit
+    && Number(row.conversion_factor) === rule.conversionFactor
+    && row.conversion_type === "ingredient_specific"
+    && row.confidence_level === rule.confidenceLevel
+    && row.source === "seed rule"
+    && row.verified === true
+    && row.active === true;
+}
+
+async function ensureAuditConversionRules(sql) {
+  if (auditConversionRulesReady) return;
+  for (const rule of auditConversionRuleSpecs) {
+    const before = await rowById(sql, "conversion_rules", rule.id);
+    await sql`
+      insert into conversion_rules (id, ingredient_id, from_unit, to_unit, conversion_factor, conversion_type, confidence_level, source, verified, active)
+      values (${rule.id}, ${rule.ingredientId}, ${rule.fromUnit}, ${rule.toUnit}, ${rule.conversionFactor}, 'ingredient_specific', ${rule.confidenceLevel}, 'seed rule', true, true)
+      on conflict (id) do update set ingredient_id = excluded.ingredient_id, from_unit = excluded.from_unit, to_unit = excluded.to_unit,
+        conversion_factor = excluded.conversion_factor, conversion_type = excluded.conversion_type, confidence_level = excluded.confidence_level,
+        source = excluded.source, verified = excluded.verified, active = true, updated_at = now()
+    `;
+    if (!conversionRuleMatches(before, rule)) {
+      await audit(sql, "conversion_rules", rule.id, before ? "repair" : "create", before, await rowById(sql, "conversion_rules", rule.id));
+    }
+
+    const duplicates = await sql`
+      select *
+      from conversion_rules
+      where active = true
+        and verified = true
+        and ingredient_id = ${rule.ingredientId}
+        and from_unit = ${rule.fromUnit}
+        and to_unit = ${rule.toUnit}
+        and id <> ${rule.id}
+    `;
+    for (const duplicate of duplicates) {
+      await sql`update conversion_rules set active = false, updated_at = now() where id = ${duplicate.id}`;
+      await audit(sql, "conversion_rules", duplicate.id, "archive_duplicate", duplicate, await rowById(sql, "conversion_rules", duplicate.id));
+    }
+  }
+  auditConversionRulesReady = true;
 }
 
 async function audit(sql, entityType, entityId, action, beforeData, afterData) {
