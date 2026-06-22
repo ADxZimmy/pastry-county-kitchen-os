@@ -1,5 +1,5 @@
-import { conversionRules, ingredients, inventoryMovements, orderItems, orders, recipeItems, recipes, settings, suppliers } from "../data";
-import type { ConversionRule, Ingredient, Order, OrderItem, Recipe, RecipeItem, Unit } from "../types";
+import { conversionRules, ingredients, inventoryMovements, orderItems, orders, products, recipeItems, recipes, settings, suppliers } from "../data";
+import type { ConversionRule, Ingredient, Order, OrderItem, Product, Recipe, RecipeItem, Unit } from "../types";
 
 export interface ScaledIngredient {
   ingredientId: string;
@@ -279,6 +279,49 @@ export function generateShoppingList(orderIds = orders.filter((order) => ["Confi
       unit: ingredient.baseUnit
     };
   }).filter((item) => item.suggestedBuyQuantity > 0);
+}
+
+export type DashboardProductionCard = {
+  id: string;
+  productName: string;
+  quantity: string;
+  dueDate: string;
+  productionStatus: Order["productionStatus"];
+  stockStatus: Order["stockStatus"];
+};
+
+function isActiveProductionOrder(order: Order) {
+  return !["Delivered", "Cancelled"].includes(order.status) && order.productionStatus !== "Completed";
+}
+
+function dashboardProductionCard(order: Order, itemList: OrderItem[], productList: Product[], dueLabel: string): DashboardProductionCard {
+  const line = itemList.find((item) => item.orderId === order.id);
+  const product = productList.find((item) => item.id === line?.productId);
+  return {
+    id: order.id,
+    productName: product?.name ?? "Order item",
+    quantity: line ? `${line.requestedYieldQuantity} ${line.yieldUnit}` : "No items",
+    dueDate: dueLabel,
+    productionStatus: order.productionStatus,
+    stockStatus: order.stockStatus
+  };
+}
+
+export function dashboardProductionQueue(todayIso = new Date().toISOString().slice(0, 10), orderList = orders, itemList = orderItems, productList = products) {
+  const active = orderList.filter(isActiveProductionOrder);
+  const todayOrders = active
+    .filter((order) => order.dueDate === todayIso)
+    .sort((a, b) => a.customerName.localeCompare(b.customerName))
+    .slice(0, 3);
+  const overdueOrders = active
+    .filter((order) => order.dueDate < todayIso)
+    .sort((a, b) => b.dueDate.localeCompare(a.dueDate) || a.customerName.localeCompare(b.customerName))
+    .slice(0, 3);
+
+  return {
+    today: todayOrders.map((order) => dashboardProductionCard(order, itemList, productList, "Due today")),
+    overdue: overdueOrders.map((order) => dashboardProductionCard(order, itemList, productList, `Due ${order.dueDate}`))
+  };
 }
 
 export function buildKitchenAssistantResponse(prompt: string) {

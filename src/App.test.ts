@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it } from "vitest";
+import { resolveSessionPage } from "./App";
 import { setKitchenSnapshot } from "./data";
 import { auditChangeSummary, auditDataJson, auditExportRows, auditSearchText } from "./lib/audit";
-import { buildKitchenAssistantResponse, calculateMargin, calculateRecipeCost, checkStockAvailability, convertUnit, formatNaira, formatQuantity, generateShoppingList, netSellingPrice, parseRecipeText, roundScaledQuantity, scaleRecipe, stockAdjustmentValidation } from "./lib/kitchen";
+import { buildKitchenAssistantResponse, calculateMargin, calculateRecipeCost, checkStockAvailability, convertUnit, dashboardProductionQueue, formatNaira, formatQuantity, generateShoppingList, netSellingPrice, parseRecipeText, roundScaledQuantity, scaleRecipe, stockAdjustmentValidation } from "./lib/kitchen";
 import type { AuditLog } from "./types";
 
 describe("kitchen calculations", () => {
@@ -150,6 +151,15 @@ describe("kitchen calculations", () => {
     expect(list.find((item) => item.ingredientName === "Eggs")).toBeTruthy();
   });
 
+  it("keeps stale orders out of today's dashboard production queue", () => {
+    const queue = dashboardProductionQueue("2026-06-22");
+    expect(queue.today).toEqual([]);
+    expect(queue.overdue.map((card) => [card.id, card.dueDate])).toEqual([
+      ["ord-tolu", "Due 2026-05-19"],
+      ["ord-chika", "Due 2026-05-18"]
+    ]);
+  });
+
   it("answers AI shopping questions from the live kitchen snapshot", () => {
     const response = buildKitchenAssistantResponse("What do I need to buy?");
     expect(response).toContain("current buying priority");
@@ -196,6 +206,23 @@ describe("kitchen calculations", () => {
     expect(stockAdjustmentValidation({ direction: "remove", quantity: 200, currentStock: 500, unit: "g", removalConfirmed: false })).toBe("Confirm this stock removal before saving.");
     expect(stockAdjustmentValidation({ direction: "remove", quantity: 200, currentStock: 500, unit: "g", removalConfirmed: true })).toBe("");
     expect(stockAdjustmentValidation({ direction: "add", quantity: 200, currentStock: 500, unit: "g" })).toBe("");
+  });
+});
+
+describe("route hash resolution", () => {
+  const user = {
+    id: "owner",
+    email: "owner@pastrycounty.ng",
+    fullName: "Owner",
+    role: "Owner/Admin" as const,
+    token: "signed-session"
+  };
+
+  it("falls back safely for unknown hashes instead of preserving stale private pages", () => {
+    expect(resolveSessionPage("#unknown-route", { user, page: "production" })).toBe("dashboard");
+    expect(resolveSessionPage("", { user, page: "production" })).toBe("production");
+    expect(resolveSessionPage("#shopping", { user, page: "production" })).toBe("shopping");
+    expect(resolveSessionPage("#unknown-route", { page: "login" })).toBe("login");
   });
 });
 

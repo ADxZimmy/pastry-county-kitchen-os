@@ -39,6 +39,7 @@ import {
   checkStockAvailability,
   convertUnit,
   buildKitchenAssistantResponse,
+  dashboardProductionQueue,
   formatNaira,
   formatQuantity,
   generateShoppingList,
@@ -50,7 +51,7 @@ import {
   stockAdjustmentValidation
 } from "./lib/kitchen";
 
-type Page =
+export type Page =
   | "welcome"
   | "login"
   | "dashboard"
@@ -160,7 +161,7 @@ const pageIds = new Set<Page>([
   "settings"
 ]);
 
-type AppSession = {
+export type AppSession = {
   page?: Page;
   selectedRecipeId?: string;
   selectedIngredientId?: string;
@@ -168,7 +169,7 @@ type AppSession = {
   user?: AppUser;
 };
 
-type AppUser = {
+export type AppUser = {
   id: string;
   email: string;
   fullName: string;
@@ -204,15 +205,34 @@ function currentSessionToken() {
   }
 }
 
+function hashValue(hash: string) {
+  return hash.replace(/^#\/?/, "");
+}
+
+export function pageFromHash(hash: string): Page | undefined {
+  const candidate = hashValue(hash) as Page;
+  return pageIds.has(candidate) ? candidate : undefined;
+}
+
+function fallbackPageForSession(session: Pick<AppSession, "page" | "user">) {
+  if (session.user) return "dashboard";
+  return session.page === "login" ? "login" : "welcome";
+}
+
+export function resolveSessionPage(hash: string, session: AppSession): Page {
+  const resolvedHashPage = pageFromHash(hash);
+  if (resolvedHashPage) return resolvedHashPage;
+  if (hashValue(hash)) return fallbackPageForSession(session);
+  return pageIds.has(session.page as Page) ? session.page as Page : fallbackPageForSession(session);
+}
+
 function readSession(): AppSession {
   if (typeof window === "undefined") return {};
-  const hashPage = window.location.hash.replace(/^#\/?/, "") as Page;
   try {
     const session = JSON.parse(window.localStorage.getItem("pastry-county-session") ?? "{}") as AppSession;
-    const page = pageIds.has(hashPage) ? hashPage : pageIds.has(session.page as Page) ? session.page : undefined;
-    return { ...session, page };
+    return { ...session, page: resolveSessionPage(window.location.hash, session) };
   } catch {
-    return pageIds.has(hashPage) ? { page: hashPage } : {};
+    return { page: pageFromHash(window.location.hash) ?? "welcome" };
   }
 }
 
@@ -654,12 +674,11 @@ function App() {
 
   useEffect(() => {
     const onPopState = () => {
-      const hashPage = window.location.hash.replace(/^#\/?/, "") as Page;
+      const hashPage = pageFromHash(window.location.hash);
+      const nextPage = hashPage ?? (user ? "dashboard" : "login");
       historyAction.current = "replace";
-      setPage((current) => {
-        if (pageIds.has(hashPage)) return hashPage;
-        return user ? current : "login";
-      });
+      if (!hashPage) window.history.replaceState({ page: nextPage }, "", `#${nextPage}`);
+      setPage(nextPage);
     };
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
@@ -984,8 +1003,9 @@ function Dashboard({ setPage, setSelectedIngredientId, setSelectedOrderId }: any
     if (item.orderId) setSelectedOrderId(item.orderId);
     setPage(item.page);
   };
+  const activeOrders = orders.filter((order) => !["Delivered", "Cancelled"].includes(order.status));
   const producedOrders = orders.filter((order) => ["Produced", "Delivered"].includes(order.status));
-  const activeOrderCost = orders.filter((order) => !["Cancelled"].includes(order.status)).reduce((sum, order) => sum + calculateOrderCost(order.id), 0);
+  const activeOrderCost = activeOrders.reduce((sum, order) => sum + calculateOrderCost(order.id), 0);
   const stockValue = ingredients.reduce((sum, item) => sum + (item.currentStock * item.latestUnitCost), 0);
   const wasteMovements = inventoryMovements.filter((movement) => movement.movementType === "waste");
   const mostUsed = inventoryMovements
@@ -995,24 +1015,13 @@ function Dashboard({ setPage, setSelectedIngredientId, setSelectedOrderId }: any
       return acc;
     }, {});
   const topIngredientId = Object.entries(mostUsed).sort((a, b) => b[1] - a[1])[0]?.[0];
-  const productionCards = orders.slice(0, 3).map((order) => {
-    const line = orderItems.find((item) => item.orderId === order.id);
-    const product = products.find((item) => item.id === line?.productId);
-    return {
-      id: order.id,
-      productName: product?.name ?? "Order item",
-      quantity: line ? `${line.requestedYieldQuantity} ${line.yieldUnit}` : "No items",
-      dueDate: order.dueDate === today ? "Due today" : `Due ${order.dueDate}`,
-      productionStatus: order.productionStatus,
-      stockStatus: order.stockStatus
-    };
-  });
+  const productionQueue = dashboardProductionQueue(today);
   const lowStock = ingredients.filter(isBelowReorder).slice(0, 3);
   const metrics: { label: string; value: React.ReactNode; hint: string }[] = [
     { label: "Total Ingredients", value: ingredients.length, hint: "Active pantry and packaging items" },
     { label: "Low Stock Items", value: ingredients.filter(isBelowReorder).length, hint: "Need attention" },
-    { label: "Orders Due Today", value: orders.filter((order) => order.dueDate === today).length, hint: "Confirmed and draft" },
-    { label: "Pending Production", value: orders.filter((order) => order.productionStatus !== "Completed").length, hint: "Across this week" },
+    { label: "Orders Due Today", value: activeOrders.filter((order) => order.dueDate === today).length, hint: "Active orders only" },
+    { label: "Pending Production", value: activeOrders.filter((order) => order.productionStatus !== "Completed").length, hint: "Active order queue" },
     { label: "Shopping Estimate", value: formatNaira(shopping.reduce((sum, item) => sum + item.estimatedCost, 0)), hint: "Suggested restock cost" },
     { label: "Notifications", value: notifications.length, hint: "Active alerts" }
   ];
@@ -1024,8 +1033,9 @@ function Dashboard({ setPage, setSelectedIngredientId, setSelectedOrderId }: any
         ))}
       </div>
       <Section title="Today's Production" action={<Button variant="secondary" onClick={() => setPage("production")}><ChefHat size={18} /> View Plan</Button>}>
+        {!productionQueue.today.length && <p className="empty-note">No active production orders are due today.</p>}
         <div className="card-list three">
-          {productionCards.map((card) => (
+          {productionQueue.today.map((card) => (
             <article className="item-card" key={card.id}>
               <div className="item-card-head">
                 <Cookie size={20} />
@@ -1037,6 +1047,17 @@ function Dashboard({ setPage, setSelectedIngredientId, setSelectedOrderId }: any
             </article>
           ))}
         </div>
+        {productionQueue.overdue.length > 0 && (
+          <div className="compact-list">
+            <p className="section-note">Overdue or carryover production</p>
+            {productionQueue.overdue.map((card) => (
+              <button className="row-card" key={card.id} onClick={() => { setSelectedOrderId(card.id); setPage("order-detail"); }}>
+                <span><strong>{card.productName}</strong><small>{card.quantity} Â· {card.dueDate}</small></span>
+                <Badge tone={stockTone(card.stockStatus)}>{card.stockStatus}</Badge>
+              </button>
+            ))}
+          </div>
+        )}
       </Section>
       <div className="split">
         <Section title="Notifications" action={<Button variant="secondary" onClick={() => {
