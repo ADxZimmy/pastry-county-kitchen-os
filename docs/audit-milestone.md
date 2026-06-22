@@ -144,8 +144,8 @@ Latest audit source: Codex audit session `019eeee0-894f-7880-b3fa-4a7c002de3ab`,
 | Done | Unknown route fallback | Unknown hash routes keep stale content under an invalid URL. | Unknown hashes redirect to dashboard or show a safe not-found state without stale page content; tests cover direct invalid hashes and back/forward behavior. |
 | Done | Dashboard date freshness | Today's Production shows May 2026 orders on the June 22, 2026 audit date. | Dashboard filters today's production by the actual current date and separates overdue/completed orders from today's queue. |
 | Done | Audit display-name search | Audit search by created ingredient name did not find the human-readable record. | Audit rows/search/export include safe display names and changed-field summaries while preserving sensitive-data redaction. |
-| Todo | User-safe errors | Fractional-cost failure surfaced raw SQL-ish text to the user. | API errors are mapped to operationally clear messages; raw database syntax stays out of toasts and responses. |
-| Todo | Verification gaps | Manual stock adjustment, repeated production deduction idempotency, role-filtered bootstrap, and low-stock email delivery were not fully verified. | Add targeted tests/smoke coverage; avoid sending real external email unless a controlled test inbox is configured. |
+| Done | User-safe errors | Fractional-cost failure surfaced raw SQL-ish text to the user. | API errors are mapped to operationally clear messages; raw database syntax stays out of toasts and responses. |
+| Done | Verification gaps | Manual stock adjustment, repeated production deduction idempotency, role-filtered bootstrap, and low-stock email delivery were not fully verified. | Add targeted tests/smoke coverage; avoid sending real external email unless a controlled test inbox is configured. |
 
 ## Validation Checklist
 
@@ -206,12 +206,14 @@ Latest audit source: Codex audit session `019eeee0-894f-7880-b3fa-4a7c002de3ab`,
 - [x] Phase 001 modal keyboard behavior passed local tests/build and live Playwright verification: Review Batch, View Scaled Recipe, stock adjustment, conversion edit/import, and confirm dialogs close on Escape, trap focus, keep background inert, return focus to the trigger, and restore inert state after close.
 - [x] Phase 001 route/date behavior passed local tests/build and live Playwright verification: unknown hashes normalize to `#dashboard` without stale content, and Dashboard separates true due-today production from overdue/carryover work on the June 22 audit date.
 - [x] Phase 001 audit display-name search passed local tests/build and live Playwright verification: fresh `AUDIT-Display-*` audit rows were searchable/exportable by display label while sensitive keys remained redacted.
+- [x] Phase 001 final verification gaps passed local tests/build and live verification: repeated production is idempotent, signed Viewer bootstrap access is covered, low-stock email delivery guards do not send uncontrolled external email, user-safe purchase error mapping is tested, authenticated regression smoke passed, and manual stock adjustment FEFO behavior is live-verified.
+- [x] Phase 001 full live-audit smoke passed against production with the configured live test account fallback: Milestone 7 smoke passed, regression-audit mutation smoke passed, and child smokes archived their temporary data.
 - [ ] Re-run an external audit after the live audit expansion follow-up is deployed.
 
 ## Next Recommended Work
 
-1. Continue GSD Phase 001 with the remaining verification gaps.
-2. Run `npm run smoke:live-audit` before the next audit cycle, then re-run the external audit against the live deployment.
+1. Re-run the external audit against the live deployment.
+2. Use the latest verification notes in `.planning/phases/001-live-audit-production-readiness/VERIFICATION.md` as the retest checklist.
 3. Restore durable `LIVE_TEST_EMAIL` and `LIVE_TEST_PASSWORD` in the ignored local env file only if routine non-temporary smoke accounts are preferred.
 4. Watch the first few Resend deliveries from the verified domain for spam placement and DMARC aggregate reports.
 5. Consider moving conversion/audit pagination server-side only if production data grows beyond the current client snapshot model.

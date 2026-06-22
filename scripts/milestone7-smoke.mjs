@@ -25,6 +25,17 @@ async function loadPlaywright() {
   }
 }
 
+async function login() {
+  const response = await fetch(new URL("/api/auth/login", baseURL), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ email, password })
+  });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(result.error || `Login failed with ${response.status}.`);
+  return result;
+}
+
 async function clickVisible(locator, label) {
   const count = await locator.count();
   for (let index = 0; index < count; index += 1) {
@@ -94,12 +105,13 @@ async function main() {
   const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
 
   try {
-    await page.goto(baseURL, { waitUntil: "networkidle" });
-    await safeClickByText(page, "I already have an account");
-    await page.getByPlaceholder("owner@pastrycounty.ng").fill(email);
-    await page.getByPlaceholder("Password").fill(password);
-    await page.getByRole("button", { name: /login/i }).click();
-    await page.getByText("Pastry County Kitchen OS").first().waitFor({ state: "visible" });
+    const user = await login();
+    await page.addInitScript((session) => {
+      window.localStorage.setItem("pastry-county-session", JSON.stringify(session));
+    }, { page: "dashboard", user });
+    await page.goto(`${baseURL}/#dashboard`, { waitUntil: "networkidle" });
+    await page.locator(".app-shell").waitFor({ state: "visible", timeout: 30000 });
+    await page.getByRole("heading", { name: "Kitchen Command Center" }).first().waitFor({ state: "visible", timeout: 30000 });
 
     await openPage(page, "Inventory");
     await assertNoHorizontalOverflow(page, "Inventory");

@@ -10,14 +10,15 @@ config();
 
 const baseURL = process.env.LIVE_AUDIT_SMOKE_BASE_URL ?? process.env.LIVE_BASE_URL ?? "https://pastry-county-kitchen-os.vercel.app";
 const databaseUrl = process.env.LIVE_AUDIT_DATABASE_URL ?? process.env.DATABASE_URL;
-const smokeEmail = `codex-smoke-${Date.now()}@pastrycounty.com`;
-const smokePassword = `${crypto.randomBytes(24).toString("base64url")}Aa1!`;
+const useTemporaryUser = Boolean(databaseUrl);
+const smokeEmail = useTemporaryUser ? `codex-smoke-${Date.now()}@pastrycounty.com` : process.env.LIVE_TEST_EMAIL;
+const smokePassword = useTemporaryUser ? `${crypto.randomBytes(24).toString("base64url")}Aa1!` : process.env.LIVE_TEST_PASSWORD;
 
-if (!databaseUrl) {
-  throw new Error("DATABASE_URL is required. This runner loads .env.production.local by default; set LIVE_AUDIT_DATABASE_URL to override.");
+if (!smokeEmail || !smokePassword) {
+  throw new Error("LIVE_TEST_EMAIL and LIVE_TEST_PASSWORD are required when LIVE_AUDIT_DATABASE_URL or DATABASE_URL is not configured.");
 }
 
-const sql = neon(databaseUrl);
+const sql = databaseUrl ? neon(databaseUrl) : null;
 
 function childEnv(extraEnv = {}) {
   const cleaned = Object.fromEntries(
@@ -50,6 +51,7 @@ function runNpmScript(script, extraEnv = {}) {
 }
 
 async function createSmokeUser() {
+  if (!sql) return;
   const passwordHash = bcrypt.hashSync(smokePassword, 10);
   await sql`
     insert into app_users (id, email, full_name, role, password_hash, active, session_revoked_at)
@@ -61,11 +63,16 @@ async function createSmokeUser() {
 }
 
 async function removeSmokeUser() {
+  if (!sql) return;
   await sql`delete from app_users where lower(email) = lower(${smokeEmail})`;
   console.log("Temporary smoke user removed.");
 }
 
 async function assertCleanup() {
+  if (!sql) {
+    console.log("Database cleanup check skipped because LIVE_AUDIT_DATABASE_URL/DATABASE_URL is not configured; child smokes archive their own temporary data.");
+    return;
+  }
   const [smokeUsers, activeSmokeIngredients, fefoOverstatements] = await Promise.all([
     sql`select count(*)::int as count from app_users where lower(email) like 'codex-smoke-%'`,
     sql`select count(*)::int as count from ingredients where active = true and lower(name) like 'audit-smoke%'`,
@@ -94,11 +101,12 @@ async function assertCleanup() {
 }
 
 try {
-  await createSmokeUser();
+  if (useTemporaryUser) await createSmokeUser();
+  else console.log("Using configured live test user because LIVE_AUDIT_DATABASE_URL/DATABASE_URL is not configured.");
   await runNpmScript("smoke:milestone7");
   await runNpmScript("smoke:regression-audit", { REGRESSION_AUDIT_SMOKE_MUTATE: "1" });
 } finally {
-  await removeSmokeUser().catch((error) => console.warn(`Temporary smoke user cleanup failed: ${error.message}`));
+  if (useTemporaryUser) await removeSmokeUser().catch((error) => console.warn(`Temporary smoke user cleanup failed: ${error.message}`));
 }
 
 await assertCleanup();

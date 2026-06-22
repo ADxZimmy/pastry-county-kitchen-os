@@ -34,19 +34,23 @@ Execute Phase 001 of the June 22 live-audit recovery, starting with authenticate
 - Implemented Phase 001 Step 7: audit search, table rows, expanded details, and CSV export now use safe human-readable record labels with ID fallback while preserving sensitive-value redaction.
 - Pushed `6e8f716`; production now serves `assets/index-D3DM9y2d.js`.
 - Verified live audit display-name behavior with a temporary archived `AUDIT-Display-*` ingredient: Audit Reports search found the display label, CSV export included the display label, and no sensitive keys were exposed.
+- Implemented Phase 001 Step 8: added explicit tests for repeated production idempotency, signed Viewer bootstrap access, low-stock email no-send guards, low-stock email role boundaries, and retained user-safe purchase persistence error coverage.
+- Pushed `eb2a1ab` for final verification coverage and `eb8afe4` to authenticate the regression smoke's bootstrap reads.
+- Verified live Step 8 behavior: unauthenticated bootstrap remains 401, authenticated bootstrap remains available, repeated `order.produce` on already-produced `ord-chika` returned `{ produced: false, alreadyProduced: true }`, and `$env:REGRESSION_AUDIT_SMOKE_MUTATE='1'; npm.cmd run smoke:regression-audit` passed against production with temporary ingredients archived.
+- Updated `scripts/live-audit-smoke.mjs` to support the configured live test account when a database URL is not present, updated smoke scripts to seed authenticated sessions/bootstrap tokens, and verified `npm.cmd run smoke:live-audit` passed against production.
 
 ## In Progress
 
-- Phase 001 Step 8: close remaining verification gaps.
+- Phase 001 complete; awaiting external re-audit.
 
 ## Blocked
 
 - Item: Final production-ready claim.
-  Reason: Live audit found public bootstrap data exposure, decimal purchase failure, conversion/AI regressions, mobile/a11y issues, routing/date issues, audit search gaps, and verification gaps.
+  Reason: Phase 001 fixes are implemented and live-verified, but the external audit has not yet been rerun.
 
 ## Next Action
 
-Implement Phase 001 Step 8: add targeted verification for manual stock adjustment, repeated production deduction idempotency, role-filtered bootstrap, and low-stock email delivery without sending uncontrolled external email.
+Re-run the external audit against the live deployment.
 
 ## Verification Snapshot
 
@@ -110,3 +114,13 @@ Implement Phase 001 Step 8: add targeted verification for manual stock adjustmen
   Result: Passed; TypeScript and Vite production build completed after the audit display-name fix, producing `assets/index-D3DM9y2d.js`.
 - Command/check: Live audit display-name smoke
   Result: Passed; production served `assets/index-D3DM9y2d.js`, a temporary `AUDIT-Display-*` ingredient was created and archived, Audit Reports search found its display label, CSV export included the display label, and no sensitive keys were exposed.
+- Command/check: `npm.cmd test`
+  Result: Passed; 50 tests, including repeated production idempotency, signed Viewer bootstrap access, low-stock notification role/no-send guards, and user-safe purchase persistence error mapping.
+- Command/check: `npm.cmd run build`
+  Result: Passed; TypeScript and Vite production build completed after the final verification coverage.
+- Command/check: Live verification-gap API smoke
+  Result: Passed; unauthenticated bootstrap returned 401, authenticated bootstrap returned 200, and repeated production on `ord-chika` returned `alreadyProduced: true` without another deduction.
+- Command/check: `$env:REGRESSION_AUDIT_SMOKE_MUTATE='1'; npm.cmd run smoke:regression-audit`
+  Result: Passed against production after updating the script to send the authenticated bootstrap bearer token.
+- Command/check: `npm.cmd run smoke:live-audit`
+  Result: Passed against production using the configured live test account fallback; Milestone 7 smoke passed, regression-audit mutation smoke passed, and child smokes archived their temporary data.

@@ -122,6 +122,26 @@
   Result: Passed.
   Notes: Production served `assets/index-D3DM9y2d.js`. A temporary `AUDIT-Display-*` ingredient was created and archived through the live API; Audit Reports search found its display label, CSV export included the display label, and sensitive keys were not exposed.
 
+- Command: `npm.cmd test`
+  Result: Passed.
+  Notes: 3 test files, 50 tests after adding repeated production idempotency, signed Viewer bootstrap access, low-stock notification role/no-send guards, and user-safe purchase persistence error coverage.
+
+- Command: `npm.cmd run build`
+  Result: Passed.
+  Notes: TypeScript compilation and Vite production build completed after the final verification coverage.
+
+- Command: Live verification-gap API smoke
+  Result: Passed.
+  Notes: Unauthenticated bootstrap returned 401, authenticated bootstrap returned 200, and repeated `order.produce` on already-produced `ord-chika` returned `{ produced: false, alreadyProduced: true }`.
+
+- Command: `$env:REGRESSION_AUDIT_SMOKE_MUTATE='1'; npm.cmd run smoke:regression-audit`
+  Result: Passed.
+  Notes: Production smoke verified regression paths including fractional costs, purchase-unit selection, manual stock adjustment FEFO decrement, oversized-removal rejection, mobile stock modal fit, and cleanup of temporary ingredients. The script was updated to send the authenticated bootstrap bearer token.
+
+- Command: `npm.cmd run smoke:live-audit`
+  Result: Passed.
+  Notes: Full live-audit smoke now supports the configured live test account when database credentials are unavailable. Milestone 7 smoke passed, regression-audit mutation smoke passed, and child smokes archived their temporary data.
+
 ## Manual Checks
 
 - Check: Current progress comparison
@@ -134,8 +154,8 @@
 
 ## Residual Risk
 
-- Risk: Targeted verification gaps still need implementation and live verification.
-  Owner: Phase 001 Step 8.
+- Risk: External audit has not yet been rerun after the Phase 001 recovery series.
+  Owner: Rerun the external audit against production.
 
 - Risk: Live Vercel deployment/project access in the connector may not include this project.
   Owner: Use GitHub deployment status, Vercel CLI/auth, or live URL checks during implementation.
