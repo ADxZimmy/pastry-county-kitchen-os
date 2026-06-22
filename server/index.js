@@ -4,9 +4,9 @@ import { neon } from "@neondatabase/serverless";
 import bcrypt from "bcryptjs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { loadKitchenSnapshot } from "../api/_db.js";
 import { handleAction, produceOrder } from "../api/_actions.js";
 import { actorFromRequest, createSessionToken } from "../api/_auth.js";
+import { loadAuthenticatedKitchenSnapshot } from "../api/bootstrap.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, "..");
@@ -68,9 +68,9 @@ app.post("/api/auth/login", requireDatabase, async (req, res, next) => {
   }
 });
 
-app.get("/api/bootstrap", requireDatabase, async (_req, res, next) => {
+app.get("/api/bootstrap", requireDatabase, async (req, res, next) => {
   try {
-    res.json(await loadKitchenSnapshot());
+    res.json(await loadAuthenticatedKitchenSnapshot(req));
   } catch (error) {
     next(error);
   }

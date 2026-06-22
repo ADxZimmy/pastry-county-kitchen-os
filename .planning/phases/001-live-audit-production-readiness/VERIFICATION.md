@@ -10,6 +10,14 @@
   Result: Passed.
   Notes: `.planning/` artifacts created and populated.
 
+- Command: `npm.cmd test`
+  Result: Passed.
+  Notes: 3 test files, 38 tests. New `api/bootstrap.test.js` covers unauthenticated bootstrap rejection and signed-session access.
+
+- Command: `npm.cmd run build`
+  Result: Passed.
+  Notes: TypeScript compilation and Vite production build completed.
+
 ## Manual Checks
 
 - Check: Current progress comparison
@@ -22,7 +30,7 @@
 
 ## Residual Risk
 
-- Risk: No fixes have been implemented yet.
+- Risk: Bootstrap fix has passed local tests/build but still needs production deployment verification.
   Owner: Next implementation pass.
 
 - Risk: Live Vercel deployment/project access in the connector may not include this project.

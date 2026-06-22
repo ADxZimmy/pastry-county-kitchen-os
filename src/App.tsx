@@ -445,12 +445,40 @@ function App() {
   }, [dataStatus]);
 
   const loadKitchenData = useCallback(async (cancelled?: () => boolean) => {
+      const token = currentSessionToken();
+      if (!token) {
+        if (!cancelled?.()) {
+          setUser(undefined);
+          setPage("login");
+          setDataError("");
+          setDataStatus("loading");
+          setIsRefreshing(false);
+          notify("Session expired. Sign in again to continue.");
+        }
+        return;
+      }
       const wasReady = dataStatusRef.current === "ready";
       if (wasReady) setIsRefreshing(true);
       try {
-        const response = await fetch(`${apiBaseUrl}/api/bootstrap`);
-        if (!response.ok) throw new Error(`Kitchen API returned ${response.status}`);
-        const snapshot = await response.json();
+        const response = await fetch(`${apiBaseUrl}/api/bootstrap`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          if (response.status === 401) {
+            if (!cancelled?.()) {
+              const message = result.error || "Session expired. Sign in again to continue.";
+              setUser(undefined);
+              setPage("login");
+              setDataError("");
+              setDataStatus("loading");
+              notify(message);
+            }
+            return;
+          }
+          throw new Error(result.error || `Kitchen API returned ${response.status}`);
+        }
+        const snapshot = result;
         if (!cancelled?.()) {
           setKitchenSnapshot(snapshot);
           setSelectedRecipeId((current) => snapshot.recipes.some((item: Recipe) => item.id === current) ? current : snapshot.recipes[0]?.id ?? "");
@@ -482,12 +510,13 @@ function App() {
   }, []);
 
   useEffect(() => {
+    if (!user) return;
     let cancelled = false;
     loadKitchenData(() => cancelled);
     return () => {
       cancelled = true;
     };
-  }, [loadKitchenData]);
+  }, [loadKitchenData, user]);
 
   useEffect(() => {
     window.localStorage.setItem("pastry-county-session", JSON.stringify({ page, selectedRecipeId, selectedIngredientId, selectedOrderId, user }));
@@ -571,9 +600,23 @@ function App() {
     }
   }, [page, selectedIngredientId, selectedOrderId, selectedRecipeId, query, notify, askConfirm, loadKitchenData, dataVersion, user]);
 
-  if (page === "welcome" || page === "login") return <>{content}</>;
+  if (page === "welcome" || page === "login") {
+    return (
+      <>
+        {content}
+        {toast && <div className="toast" role="status" aria-live="polite">{toast}</div>}
+      </>
+    );
+  }
 
-  if (!user) return <Login setPage={navigate} setUser={setUser} notify={notify} />;
+  if (!user) {
+    return (
+      <>
+        <Login setPage={navigate} setUser={setUser} notify={notify} />
+        {toast && <div className="toast" role="status" aria-live="polite">{toast}</div>}
+      </>
+    );
+  }
 
   if (dataStatus === "loading") {
     return <LoadingScreen />;
