@@ -3,16 +3,16 @@
 Date: 2026-06-16
 Last verified: 2026-06-22
 Live URL: https://pastry-county-kitchen-os.vercel.app
-Verification baseline commit: latest pushed `main` after the final live-audit smoke-runner update
+Verification baseline commit: stale after the 76/100 external audit rerun
 Verification baseline deployment: latest Vercel deployment for `main`
 
 ## Current Status
 
-All known code and live-data findings from the June 22 live audit session `019eeee0-894f-7880-b3fa-4a7c002de3ab` have been addressed in the app and verified against production. The remaining milestone item is to rerun the external audit against the live deployment.
+The June 22 external audit rerun from session `019eeee0-894f-7880-b3fa-4a7c002de3ab` scored `76/100` and found remaining production-readiness blockers. Phase 002 is now planned to address those blockers before requesting another external audit.
 
 ## Fresh Verification
 
-These checks passed during the Phase 001 recovery series:
+These checks passed during the Phase 001 recovery series, but the later 76/100 rerun supersedes the previous "ready for re-audit" handoff:
 
 - `npm test`: 50/50 tests passed after the Phase 001 recovery.
 - `npm run build`: production build passed.
@@ -30,7 +30,16 @@ When a live database URL is configured, the live audit smoke runner creates a te
 
 ## External Audit Focus
 
-Ask the external audit to retest the former 72/100 June 22 live-audit cases:
+Ask the next external audit to retest the Phase 002 blocker cases first:
+
+- Revoked low-privilege tokens cannot call authenticated `/api/bootstrap`; the response is 401 and contains no kitchen snapshot.
+- Viewer or other low-privilege bootstrap responses do not include admin-only staff/session/audit data.
+- Fresh browser login from empty local storage reaches Dashboard and persists `pastry-county-session.user.token` before the first bootstrap read.
+- AI chat conversion prompts with punctuation return verified rule quantities and never fall back to `1 g -> 1g`.
+- Production has no horizontal overflow at 320x568.
+- Mobile table cards use valid semantic list markup or valid ARIA ownership, and Production heading order is valid.
+
+Also retest the former 72/100 June 22 live-audit cases:
 
 - Unauthenticated `/api/bootstrap` returns 401 with no private data; authenticated signed users can load the app.
 - Shopping purchases accept decimal unit costs such as `0.5`, `0.64`, `2.75`, and whole values without raw SQL errors.
@@ -53,4 +62,4 @@ Ask the external audit to retest the former 72/100 June 22 live-audit cases:
 
 ## Known Remaining Action
 
-Run the external audit on the live deployment. If it returns new findings, add them to `docs/audit-milestone.md` under a new milestone before implementing fixes.
+Implement and verify Phase 002 before requesting another external audit.

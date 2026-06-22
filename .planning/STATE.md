@@ -4,7 +4,7 @@ Last updated: 2026-06-22
 
 ## Current Focus
 
-Execute Phase 001 of the June 22 live-audit recovery, starting with authenticated bootstrap reads.
+Plan Phase 002 from the June 22 external audit rerun: fix the remaining 76/100 blockers before another production-readiness claim.
 
 ## Completed
 
@@ -38,19 +38,21 @@ Execute Phase 001 of the June 22 live-audit recovery, starting with authenticate
 - Pushed `eb2a1ab` for final verification coverage and `eb8afe4` to authenticate the regression smoke's bootstrap reads.
 - Verified live Step 8 behavior: unauthenticated bootstrap remains 401, authenticated bootstrap remains available, repeated `order.produce` on already-produced `ord-chika` returned `{ produced: false, alreadyProduced: true }`, and `$env:REGRESSION_AUDIT_SMOKE_MUTATE='1'; npm.cmd run smoke:regression-audit` passed against production with temporary ingredients archived.
 - Updated `scripts/live-audit-smoke.mjs` to support the configured live test account when a database URL is not present, updated smoke scripts to seed authenticated sessions/bootstrap tokens, and verified `npm.cmd run smoke:live-audit` passed against production.
+- Reviewed the external audit rerun from session `019eeee0-894f-7880-b3fa-4a7c002de3ab`: score `76/100`, not ready for 95+ release.
+- Created GSD Hybrid Phase 002 under `.planning/phases/002-rerun-blocker-fixes/` for revoked bootstrap sessions, fresh UI login persistence, AI conversion prompts, Production 320px overflow, and mobile structural accessibility.
 
 ## In Progress
 
-- Phase 001 complete; awaiting external re-audit.
+- Phase 002 planned; implementation not started.
 
 ## Blocked
 
 - Item: Final production-ready claim.
-  Reason: Phase 001 fixes are implemented and live-verified, but the external audit has not yet been rerun.
+  Reason: The external audit rerun scored 76/100 and found remaining Critical/High blockers.
 
 ## Next Action
 
-Re-run the external audit against the live deployment.
+Implement Phase 002 Step 1: reproduce and pin revoked bootstrap access, fresh login persistence, exact AI conversion prompts, and mobile Production overflow/structure checks.
 
 ## Verification Snapshot
 
@@ -124,3 +126,5 @@ Re-run the external audit against the live deployment.
   Result: Passed against production after updating the script to send the authenticated bootstrap bearer token.
 - Command/check: `npm.cmd run smoke:live-audit`
   Result: Passed against production using the configured live test account fallback; Milestone 7 smoke passed, regression-audit mutation smoke passed, and child smokes archived their temporary data.
+- Command/check: External audit rerun review
+  Result: Failed production-readiness gate; latest score is 76/100 with Critical revoked-token bootstrap access, High fresh-login persistence failure, High AI conversion prompt failure, Medium Production 320px overflow, and Medium mobile structural accessibility findings.
