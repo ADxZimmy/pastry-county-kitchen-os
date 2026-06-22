@@ -147,7 +147,7 @@ async function assertFreshLoginAndMobile() {
     ];
     for (const [prompt, expected] of prompts) {
       await page.locator(".chat-composer textarea").fill(prompt);
-      await page.getByRole("button", { name: /^Ask$/ }).click();
+      await page.getByRole("button", { name: /send/i }).click();
       await page.getByText(expected, { exact: false }).last().waitFor({ state: "visible", timeout: 10000 });
       assert(!await page.getByText(/1 g -> 1g/i).isVisible().catch(() => false), `AI prompt fell back to direct grams for ${prompt}`);
     }
