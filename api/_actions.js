@@ -1,5 +1,8 @@
 import bcrypt from "bcryptjs";
 import { Resend } from "resend";
+import { ensureSessionColumns, sessionAccessError } from "./_auth.js";
+
+export { sessionAccessError } from "./_auth.js";
 
 export function id(prefix) {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -93,14 +96,6 @@ export function canRolePerformAction(role, action) {
   return action === "schema.ensure" || allowedRolesForAction(action).includes(role);
 }
 
-export function sessionAccessError(actor, userRow) {
-  if (!actor) return { message: "Sign in again to continue.", statusCode: 401 };
-  if (!userRow || userRow.active === false) return { message: "This user session is no longer active.", statusCode: 401 };
-  const revokedAt = Number(userRow.revoked_at ?? userRow.revokedAt ?? 0);
-  if (revokedAt && Number(actor.iat ?? 0) <= revokedAt) return { message: "This session was revoked. Sign in again.", statusCode: 401 };
-  return null;
-}
-
 async function requirePermission(sql, action, actor) {
   if (action === "schema.ensure") return;
   const missingActorError = sessionAccessError(actor, { active: true });
@@ -108,6 +103,7 @@ async function requirePermission(sql, action, actor) {
   if (!canRolePerformAction(actor.role, action)) {
     throw Object.assign(new Error(`${actor.role} cannot perform ${action}.`), { statusCode: 403 });
   }
+  await ensureSessionColumns(sql);
   const rows = await sql`
     select active, extract(epoch from session_revoked_at)::bigint as revoked_at
     from app_users

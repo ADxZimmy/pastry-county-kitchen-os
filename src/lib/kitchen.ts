@@ -392,7 +392,7 @@ export function convertUnit(quantity: number, fromUnit: Unit, toUnit: Unit, ingr
 
 export function parseRecipeText(text: string) {
   const normalizeUnit = (value: string): Unit => {
-    const unit = value.toLowerCase();
+    const unit = value.toLowerCase().trim().replace(/[.?!,;:]+$/g, "");
     const aliases: Record<string, Unit> = {
       cups: "cup",
       tbsp: "tablespoon",
@@ -429,7 +429,12 @@ export function parseRecipeText(text: string) {
       "cups", "cup", "tbsp", "tsp", "grams", "gram", "eggs", "egg", "yolks", "yolk", "whites", "white",
       "packs", "pack", "rolls", "roll", "kg", "ml", "pcs", "g"
     ];
-    const lowerSource = source.toLowerCase().trim();
+    const lowerSource = source.toLowerCase().trim().replace(/[.?!,;:]+$/g, "");
+    const sizedEgg = lowerSource.match(/^(?:large|medium|small)\s+(eggs?|egg\s+yolks?|egg\s+whites?)$/);
+    if (sizedEgg) {
+      const eggName = sizedEgg[1];
+      return { unit: normalizeUnit(eggName), ingredientName: eggName };
+    }
     const alias = aliases.find((candidate) => lowerSource === candidate || lowerSource.startsWith(`${candidate} `));
     if (!alias) return { unit: undefined, ingredientName: source.trim() };
     const ingredientName = lowerSource === alias ? source.trim() : source.slice(alias.length).trim();
@@ -449,7 +454,8 @@ export function parseRecipeText(text: string) {
     .map((line) => line.trim())
     .filter(Boolean)
     .map((line, index) => {
-      const conversionQuestion = line.match(new RegExp(`^(?:convert\\s+)?(\\d+(?:\\.\\d+)?|\\d+\\/\\d+)\\s+(.+?)\\s+(?:to|into|in)\\s+(${unitPattern})$`, "i"));
+      const cleanLine = line.replace(/[.?!]+$/g, "").trim();
+      const conversionQuestion = cleanLine.match(new RegExp(`^(?:convert\\s+)?(\\d+(?:\\.\\d+)?|\\d+\\/\\d+)\\s+(.+?)\\s+(?:to|into|in)\\s+(${unitPattern})$`, "i"));
       if (conversionQuestion) {
         const quantityRaw = conversionQuestion[1];
         const quantity = quantityRaw.includes("/") ? quantityRaw.split("/").map(Number).reduce((a, b) => a / b) : Number(quantityRaw);

@@ -1,21 +1,27 @@
-import { actorFromRequest } from "./_auth.js";
-import { loadKitchenSnapshot, sendError } from "./_db.js";
+import { actorFromRequest, requireActiveSession, sessionAccessError } from "./_auth.js";
+import { getSql, loadKitchenSnapshot, sendError } from "./_db.js";
 
-export function bootstrapAccessError(actor) {
-  if (actor) return null;
+export function bootstrapAccessError(actor, userRow = { active: true }) {
+  return sessionAccessError(actor, userRow);
+}
+
+export function filterKitchenSnapshotForActor(snapshot, actor) {
+  if (actor?.role === "Owner/Admin") return snapshot;
   return {
-    message: "Sign in again to continue.",
-    statusCode: 401
+    ...snapshot,
+    appUsers: [],
+    auditLogs: [],
+    settings: {
+      ...snapshot.settings,
+      lowStockNotificationEmail: ""
+    }
   };
 }
 
 export async function loadAuthenticatedKitchenSnapshot(req) {
-  const actor = actorFromRequest(req);
-  const accessError = bootstrapAccessError(actor);
-  if (accessError) {
-    throw Object.assign(new Error(accessError.message), { statusCode: accessError.statusCode });
-  }
-  return loadKitchenSnapshot();
+  const sql = getSql();
+  const actor = await requireActiveSession(sql, actorFromRequest(req));
+  return filterKitchenSnapshotForActor(await loadKitchenSnapshot(sql), actor);
 }
 
 export default async function handler(req, res) {

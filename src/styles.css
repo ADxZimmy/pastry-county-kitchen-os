@@ -208,8 +208,9 @@ input:focus, select:focus, textarea:focus, button:focus-visible { outline: 3px s
 .card-list, .card-grid { display: grid; gap: 12px; }
 .item-card { padding: 18px; display: grid; gap: 12px; transition: transform .18s ease, box-shadow .18s ease; }
 .item-card:hover { transform: translateY(-1px); box-shadow: var(--shadow); }
-.item-card h3 { margin: 0; font-size: 18px; }
+.item-card h3 { margin: 0; font-size: 18px; overflow-wrap: anywhere; }
 .item-card p { margin: 0; color: var(--muted); }
+.item-card p, .item-card small { overflow-wrap: anywhere; }
 .item-card-head, .button-row, .mini-stats { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; min-width: 0; max-width: 100%; }
 .button-row > * { min-width: 0; }
 .item-card-head { justify-content: space-between; }
@@ -232,6 +233,7 @@ input:focus, select:focus, textarea:focus, button:focus-visible { outline: 3px s
 .row-card small, .row-card span { display: block; color: var(--muted); }
 .ai-card, .warning-card { padding: 18px; display: flex; align-items: center; gap: 14px; }
 .ai-card { background: linear-gradient(135deg, #fff4dd, #fffaf1 55%, #f0e2d0); }
+.ai-card h2, .ai-card h3 { margin: 0; font-size: 18px; }
 .warning-card { background: #fff4df; color: #693300; border-color: #e5b56d; font-weight: 700; }
 .badge {
   display: inline-flex;
@@ -277,7 +279,7 @@ tbody tr:hover { background: #fff4e6; }
 tbody tr.is-expanded { background: #edf7f5; }
 .table-details-row td { padding: 0 14px 16px; background: #edf7f5; }
 .table-details-row:hover { background: #edf7f5; }
-.mobile-table-cards { display: grid; gap: 12px; }
+.mobile-table-cards { display: grid; gap: 12px; list-style: none; margin: 0; padding: 0; }
 .mobile-row { display: flex; justify-content: space-between; gap: 16px; align-items: center; }
 .mobile-row strong { text-align: right; overflow-wrap: anywhere; }
 .mobile-row-details { min-width: 0; }
@@ -555,6 +557,18 @@ tbody tr.is-expanded { background: #edf7f5; }
   .chat-composer { grid-template-columns: 1fr; }
   .chat-composer .btn { width: 100%; }
   .item-card-head { align-items: flex-start; }
+  .ai-card {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    align-items: flex-start;
+  }
+  .ai-card .btn { width: 100%; }
+  .page-grid,
+  .card-grid,
+  .section,
+  .item-card {
+    max-width: 100%;
+  }
   .mobile-row {
     width: 100%;
     min-width: 0;

@@ -103,6 +103,7 @@ async function assertCleanup() {
 try {
   if (useTemporaryUser) await createSmokeUser();
   else console.log("Using configured live test user because LIVE_AUDIT_DATABASE_URL/DATABASE_URL is not configured.");
+  await runNpmScript("smoke:phase2-rerun");
   await runNpmScript("smoke:milestone7");
   await runNpmScript("smoke:regression-audit", { REGRESSION_AUDIT_SMOKE_MUTATE: "1" });
 } finally {

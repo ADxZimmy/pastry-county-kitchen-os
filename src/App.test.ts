@@ -125,20 +125,20 @@ describe("kitchen calculations", () => {
 
   it("parses natural conversion questions for audit ingredients", () => {
     const parsed = parseRecipeText([
-      "Convert 1 cup flour to grams",
-      "Convert 1 cup sugar to grams",
-      "Convert 1 cup cocoa powder to grams",
-      "Convert 1 egg to grams",
+      "Convert 4 cups flour to grams.",
+      "Convert 1 cup sugar to grams.",
+      "Convert 1 cup cocoa powder to grams.",
+      "Convert 4 large eggs to grams.",
       "Convert 3 egg yolks to grams",
       "Convert 2 egg whites to grams",
-      "Convert 1 cup coconut oil to millilitres"
+      "Convert 1 cup coconut oil to ml."
     ].join("\n"));
 
     expect(parsed.map((item) => [item.ingredientId, item.convertedQuantity, item.convertedUnit, item.needsReview])).toEqual([
-      ["flour", 120, "g", false],
+      ["flour", 480, "g", false],
       ["sugar", 200, "g", false],
       ["cocoa", 85, "g", false],
-      ["eggs", 50, "g", false],
+      ["eggs", 200, "g", false],
       ["egg-yolks", 54, "g", false],
       ["egg-whites", 60, "g", false],
       ["coconut-oil", 240, "ml", false]
@@ -188,8 +188,25 @@ describe("kitchen calculations", () => {
   });
 
   it("answers natural AI conversion questions without falling back to direct grams", () => {
-    const response = buildKitchenAssistantResponse("Convert 1 cup sugar to grams");
+    const response = buildKitchenAssistantResponse("Convert 4 large eggs to grams.");
+    expect(response).toContain("Eggs: 4 egg -> 200g (Medium)");
+    expect(response).not.toContain("1 g -> 1g");
+  });
+
+  it("answers exact audit AI conversion prompts with verified conversion rules", () => {
+    const response = buildKitchenAssistantResponse([
+      "Convert 4 cups flour to grams.",
+      "Convert 1 cup sugar to grams.",
+      "Convert 1 cup cocoa powder to grams.",
+      "Convert 4 large eggs to grams.",
+      "Convert 1 cup coconut oil to ml."
+    ].join("\n"));
+
+    expect(response).toContain("Flour: 4 cup -> 480g (High)");
     expect(response).toContain("Sugar: 1 cup -> 200g (High)");
+    expect(response).toContain("Cocoa Powder: 1 cup -> 85g (High)");
+    expect(response).toContain("Eggs: 4 egg -> 200g (Medium)");
+    expect(response).toContain("Coconut Oil: 1 cup -> 240ml (High)");
     expect(response).not.toContain("1 g -> 1g");
   });
 

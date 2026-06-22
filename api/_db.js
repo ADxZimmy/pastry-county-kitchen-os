@@ -14,8 +14,7 @@ export function sendError(res, error) {
 
 export const first = (rows) => rows[0];
 
-export async function loadKitchenSnapshot() {
-  const sql = getSql();
+export async function loadKitchenSnapshot(sql = getSql()) {
   await sql`alter table orders add column if not exists archived boolean not null default false`;
   await sql`alter table suppliers add column if not exists default_currency text not null default 'NGN'`;
   await sql`alter table suppliers add column if not exists lead_time_days integer not null default 2`;

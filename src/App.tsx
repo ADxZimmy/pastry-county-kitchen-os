@@ -198,11 +198,18 @@ function canUser(user: AppUser | undefined, permission: Permission) {
 
 function currentSessionToken() {
   try {
-    const session = JSON.parse(window.localStorage.getItem("pastry-county-session") ?? "{}") as AppSession;
+    const session = JSON.parse(window.localStorage.getItem(sessionStorageKey) ?? "{}") as AppSession;
     return session.user?.token;
   } catch {
     return undefined;
   }
+}
+
+const sessionStorageKey = "pastry-county-session";
+
+function writeSession(session: AppSession) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(sessionStorageKey, JSON.stringify(session));
 }
 
 function hashValue(hash: string) {
@@ -229,7 +236,7 @@ export function resolveSessionPage(hash: string, session: AppSession): Page {
 function readSession(): AppSession {
   if (typeof window === "undefined") return {};
   try {
-    const session = JSON.parse(window.localStorage.getItem("pastry-county-session") ?? "{}") as AppSession;
+    const session = JSON.parse(window.localStorage.getItem(sessionStorageKey) ?? "{}") as AppSession;
     return { ...session, page: resolveSessionPage(window.location.hash, session) };
   } catch {
     return { page: pageFromHash(window.location.hash) ?? "welcome" };
@@ -585,8 +592,8 @@ function App() {
     dataStatusRef.current = dataStatus;
   }, [dataStatus]);
 
-  const loadKitchenData = useCallback(async (cancelled?: () => boolean) => {
-      const token = currentSessionToken();
+  const loadKitchenData = useCallback(async (cancelled?: () => boolean, tokenOverride?: string) => {
+      const token = tokenOverride ?? currentSessionToken();
       if (!token) {
         if (!cancelled?.()) {
           setUser(undefined);
@@ -660,7 +667,7 @@ function App() {
   }, [loadKitchenData, user]);
 
   useEffect(() => {
-    window.localStorage.setItem("pastry-county-session", JSON.stringify({ page, selectedRecipeId, selectedIngredientId, selectedOrderId, user }));
+    writeSession({ page, selectedRecipeId, selectedIngredientId, selectedOrderId, user });
     const nextHash = `#${page}`;
     const state = { page };
     if (window.location.hash !== nextHash) {
@@ -794,7 +801,7 @@ function App() {
             <Button variant="secondary" onClick={() => navigate("ai")}>
               <Bot size={18} /> Ask AI
             </Button>
-            <Button variant="ghost" onClick={() => { setUser(undefined); setPage("login"); notify("Logged out."); }}>Logout</Button>
+            <Button variant="ghost" onClick={() => { writeSession({ ...readSession(), page: "login", user: undefined }); setUser(undefined); setPage("login"); notify("Logged out."); }}>Logout</Button>
           </div>
         </header>
         {(isRefreshing || activeRequests > 0) && (
@@ -920,8 +927,10 @@ function Login({ setPage, setUser, notify }: { setPage: (page: Page) => void; se
           });
           const result = await response.json().catch(() => ({}));
           if (!response.ok) throw new Error(result.error || "Login failed.");
-          setUser(result as AppUser);
-          notify(`Signed in as ${(result as AppUser).role}.`);
+          const signedInUser = result as AppUser;
+          writeSession({ ...readSession(), page: "dashboard", user: signedInUser });
+          setUser(signedInUser);
+          notify(`Signed in as ${signedInUser.role}.`);
           setPage("dashboard");
         } catch (error) {
           notify(error instanceof Error ? error.message : "Login failed.");
@@ -1700,7 +1709,7 @@ function Production({ user, setPage, setSelectedOrderId, notify, reloadData }: a
   };
   return (
     <div className="page-grid">
-      <article className="ai-card"><ChefHat size={24} /><div><h3>Batch production mode</h3><p>{groupedRecipe ? `Next batch: ${groupedRecipe.name}, ${topGroup?.totalYield} ${groupedRecipe.yieldUnit}, across ${topGroup?.orderIds.length} order${topGroup?.orderIds.length === 1 ? "" : "s"}.` : "Group similar recipes once orders are available."}</p></div><Button variant="secondary" onClick={() => notify(groupedRecipe ? `${groupedRecipe.name} batch is grouped for ${topGroup?.totalYield} ${groupedRecipe.yieldUnit}.` : "No recipes to group yet.")}>Group similar recipes</Button></article>
+      <article className="ai-card"><ChefHat size={24} /><div><h2>Batch production mode</h2><p>{groupedRecipe ? `Next batch: ${groupedRecipe.name}, ${topGroup?.totalYield} ${groupedRecipe.yieldUnit}, across ${topGroup?.orderIds.length} order${topGroup?.orderIds.length === 1 ? "" : "s"}.` : "Group similar recipes once orders are available."}</p></div><Button variant="secondary" onClick={() => notify(groupedRecipe ? `${groupedRecipe.name} batch is grouped for ${topGroup?.totalYield} ${groupedRecipe.yieldUnit}.` : "No recipes to group yet.")}>Group similar recipes</Button></article>
       <Section title="Grouped Batches">
         <div className="card-grid">
           {batches.map((batch) => {
@@ -2430,7 +2439,7 @@ function ResponsiveTable({ headers, rows }: { headers: string[]; rows: TableRow[
             <tr className={row.expanded ? "is-expanded" : undefined} onClick={(event) => activateRow(event, row.onClick)}>{row.cells.map((cell, index) => <td key={index} data-label={headers[index]}>{cell}</td>)}</tr>
             {row.expanded && row.details && <tr className="table-details-row"><td colSpan={headers.length}>{row.details}</td></tr>}
           </Fragment>
-        ))}</tbody></table> : <div className="mobile-table-cards" role="list">{rows.map((row) => <article key={row.key} role="listitem" className={`item-card${row.expanded ? " is-expanded" : ""}`} onClick={(event) => activateRow(event, row.onClick)}>{row.cells.map((cell, index) => <div className="mobile-row" key={index}><span>{headers[index]}</span><strong>{cell}</strong></div>)}{row.expanded && row.details && <div className="mobile-row-details">{row.details}</div>}</article>)}</div>}
+        ))}</tbody></table> : <ul className="mobile-table-cards">{rows.map((row) => <li key={row.key} className={`item-card${row.expanded ? " is-expanded" : ""}`} onClick={(event) => activateRow(event, row.onClick)}>{row.cells.map((cell, index) => <div className="mobile-row" key={index}><span>{headers[index]}</span><strong>{cell}</strong></div>)}{row.expanded && row.details && <div className="mobile-row-details">{row.details}</div>}</li>)}</ul>}
       </>}
     </div>
   );
