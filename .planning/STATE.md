@@ -31,10 +31,13 @@ Execute Phase 001 of the June 22 live-audit recovery, starting with authenticate
 - Implemented Phase 001 Step 6: invalid hashes now resolve to a safe fallback instead of preserving stale content, and Dashboard production cards are split into true due-today work plus overdue/carryover work.
 - Pushed `25533f9`; production now serves `assets/index-BjJDLwTr.js`.
 - Verified live route/date behavior: direct invalid hash and popstate invalid hash both normalized to `#dashboard`, and Dashboard showed no May 2026 orders in the today's production card list on the June 22 audit date.
+- Implemented Phase 001 Step 7: audit search, table rows, expanded details, and CSV export now use safe human-readable record labels with ID fallback while preserving sensitive-value redaction.
+- Pushed `6e8f716`; production now serves `assets/index-D3DM9y2d.js`.
+- Verified live audit display-name behavior with a temporary archived `AUDIT-Display-*` ingredient: Audit Reports search found the display label, CSV export included the display label, and no sensitive keys were exposed.
 
 ## In Progress
 
-- Phase 001 Step 7: audit display-name search.
+- Phase 001 Step 8: close remaining verification gaps.
 
 ## Blocked
 
@@ -43,7 +46,7 @@ Execute Phase 001 of the June 22 live-audit recovery, starting with authenticate
 
 ## Next Action
 
-Implement Phase 001 Step 7: include safe display names in audit rows, search text, and exports.
+Implement Phase 001 Step 8: add targeted verification for manual stock adjustment, repeated production deduction idempotency, role-filtered bootstrap, and low-stock email delivery without sending uncontrolled external email.
 
 ## Verification Snapshot
 
@@ -101,3 +104,9 @@ Implement Phase 001 Step 7: include safe display names in audit rows, search tex
   Result: Passed; TypeScript and Vite production build completed after the route/date fix, producing `assets/index-BjJDLwTr.js`.
 - Command/check: Live route/dashboard smoke
   Result: Passed; production served `assets/index-BjJDLwTr.js`, direct invalid hashes and popstate invalid hashes normalized to `#dashboard`, stale Production content was not shown, and Dashboard displayed an explicit no-orders-due-today empty state with overdue/carryover work separated.
+- Command/check: `npm.cmd test`
+  Result: Passed; 45 tests, including safe audit display-name search/export coverage.
+- Command/check: `npm.cmd run build`
+  Result: Passed; TypeScript and Vite production build completed after the audit display-name fix, producing `assets/index-D3DM9y2d.js`.
+- Command/check: Live audit display-name smoke
+  Result: Passed; production served `assets/index-D3DM9y2d.js`, a temporary `AUDIT-Display-*` ingredient was created and archived, Audit Reports search found its display label, CSV export included the display label, and no sensitive keys were exposed.

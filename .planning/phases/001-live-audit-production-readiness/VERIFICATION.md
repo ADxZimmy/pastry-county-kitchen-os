@@ -110,6 +110,18 @@
   Result: Passed.
   Notes: Production served `assets/index-BjJDLwTr.js`. Playwright verified direct invalid hashes and popstate invalid hashes normalize to `#dashboard`, stale Production content is not shown, and Dashboard's today's production section has no May 2026 cards on the June 22 audit date while overdue/carryover work is separated.
 
+- Command: `npm.cmd test`
+  Result: Passed.
+  Notes: 3 test files, 45 tests after adding safe audit display-name search/export coverage.
+
+- Command: `npm.cmd run build`
+  Result: Passed.
+  Notes: TypeScript compilation and Vite production build completed after the audit display-name fix, producing `assets/index-D3DM9y2d.js`.
+
+- Command: Live audit display-name smoke
+  Result: Passed.
+  Notes: Production served `assets/index-D3DM9y2d.js`. A temporary `AUDIT-Display-*` ingredient was created and archived through the live API; Audit Reports search found its display label, CSV export included the display label, and sensitive keys were not exposed.
+
 ## Manual Checks
 
 - Check: Current progress comparison
@@ -122,8 +134,8 @@
 
 ## Residual Risk
 
-- Risk: Audit display-name search and targeted verification gaps still need implementation and live verification.
-  Owner: Phase 001 Steps 7-8.
+- Risk: Targeted verification gaps still need implementation and live verification.
+  Owner: Phase 001 Step 8.
 
 - Risk: Live Vercel deployment/project access in the connector may not include this project.
   Owner: Use GitHub deployment status, Vercel CLI/auth, or live URL checks during implementation.
