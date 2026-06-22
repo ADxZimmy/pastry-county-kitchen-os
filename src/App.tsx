@@ -250,6 +250,127 @@ function Field({ label, children, helper }: { label: string; children: React.Rea
   );
 }
 
+const dialogFocusableSelector = [
+  "a[href]",
+  "button:not([disabled])",
+  "input:not([disabled]):not([type='hidden'])",
+  "select:not([disabled])",
+  "textarea:not([disabled])",
+  "[tabindex]:not([tabindex='-1'])"
+].join(",");
+
+type BackgroundInertSnapshot = {
+  element: HTMLElement;
+  inert: boolean;
+  ariaHidden: string | null;
+};
+
+function isVisibleFocusable(element: HTMLElement) {
+  const style = window.getComputedStyle(element);
+  return style.display !== "none" && style.visibility !== "hidden" && element.getAttribute("aria-hidden") !== "true" && element.getAttribute("aria-disabled") !== "true";
+}
+
+function dialogFocusableElements(dialog: HTMLElement) {
+  return Array.from(dialog.querySelectorAll<HTMLElement>(dialogFocusableSelector)).filter(isVisibleFocusable);
+}
+
+function setDialogBackgroundInert(dialog: HTMLElement) {
+  const backdrop = dialog.closest(".modal-backdrop");
+  const snapshots = new Map<HTMLElement, BackgroundInertSnapshot>();
+  let protectedNode = backdrop instanceof HTMLElement ? backdrop : dialog;
+  let parent = protectedNode.parentElement;
+
+  while (parent && parent !== document.documentElement) {
+    Array.from(parent.children).forEach((child) => {
+      if (child === protectedNode || !(child instanceof HTMLElement)) return;
+      if (!snapshots.has(child)) {
+        snapshots.set(child, { element: child, inert: child.inert, ariaHidden: child.getAttribute("aria-hidden") });
+      }
+      child.inert = true;
+      child.setAttribute("aria-hidden", "true");
+    });
+    protectedNode = parent;
+    parent = protectedNode.parentElement;
+  }
+
+  return Array.from(snapshots.values());
+}
+
+function restoreDialogBackground(snapshots: BackgroundInertSnapshot[]) {
+  snapshots.forEach(({ element, inert, ariaHidden }) => {
+    element.inert = inert;
+    if (ariaHidden === null) element.removeAttribute("aria-hidden");
+    else element.setAttribute("aria-hidden", ariaHidden);
+  });
+}
+
+function focusDialogStart(dialog: HTMLElement) {
+  const focusTarget = dialog.querySelector<HTMLElement>("[data-autofocus]") ?? dialogFocusableElements(dialog)[0] ?? dialog;
+  focusTarget.focus({ preventScroll: true });
+}
+
+function useDialogA11y<T extends HTMLElement>(isOpen: boolean, onClose: () => void) {
+  const dialogRef = useRef<T | null>(null);
+  const returnFocusRef = useRef<HTMLElement | null>(null);
+  const closeRef = useRef(onClose);
+
+  useEffect(() => {
+    closeRef.current = onClose;
+  }, [onClose]);
+
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    const dialog = dialogRef.current;
+    if (!dialog) return undefined;
+
+    returnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const inertSnapshots = setDialogBackgroundInert(dialog);
+    const focusTimer = window.setTimeout(() => focusDialogStart(dialog), 0);
+
+    return () => {
+      window.clearTimeout(focusTimer);
+      restoreDialogBackground(inertSnapshots);
+      const returnFocus = returnFocusRef.current;
+      if (returnFocus?.isConnected) returnFocus.focus({ preventScroll: true });
+    };
+  }, [isOpen]);
+
+  const onDialogKeyDown = useCallback((event: React.KeyboardEvent<T>) => {
+    if (event.defaultPrevented) return;
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeRef.current();
+      return;
+    }
+    if (event.key !== "Tab") return;
+
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    const focusable = dialogFocusableElements(dialog);
+    if (!focusable.length) {
+      event.preventDefault();
+      dialog.focus({ preventScroll: true });
+      return;
+    }
+
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    const activeElement = document.activeElement;
+    if (event.shiftKey && activeElement === first) {
+      event.preventDefault();
+      last.focus({ preventScroll: true });
+    } else if (!event.shiftKey && activeElement === last) {
+      event.preventDefault();
+      first.focus({ preventScroll: true });
+    } else if (!dialog.contains(activeElement)) {
+      event.preventDefault();
+      first.focus({ preventScroll: true });
+    }
+  }, []);
+
+  return { dialogRef, onDialogKeyDown };
+}
+
 function stockTone(status: StockStatus | string) {
   if (status.includes("Enough") || status === "In Stock" || status === "Ready" || status === "Completed") return "success";
   if (status.includes("Short") || status === "Out of Stock" || status === "Cancelled") return "danger";
@@ -810,6 +931,7 @@ function Login({ setPage, setUser, notify }: { setPage: (page: Page) => void; se
 function ConfirmDialog({ request, onClose }: { request: ConfirmRequest; onClose: () => void }) {
   const [working, setWorking] = useState(false);
   const [error, setError] = useState("");
+  const { dialogRef, onDialogKeyDown } = useDialogA11y<HTMLElement>(true, onClose);
   const runConfirm = async () => {
     setWorking(true);
     setError("");
@@ -823,7 +945,7 @@ function ConfirmDialog({ request, onClose }: { request: ConfirmRequest; onClose:
   };
   return (
     <div className="modal-backdrop" role="presentation">
-      <section className="confirm-modal" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
+      <section ref={dialogRef} className="confirm-modal" role="dialog" aria-modal="true" aria-labelledby="confirm-title" tabIndex={-1} onKeyDown={onDialogKeyDown}>
         <div>
           <p className="eyebrow">{request.tone === "danger" ? "Destructive action" : "Please confirm"}</p>
           <h2 id="confirm-title">{request.title}</h2>
@@ -1074,6 +1196,7 @@ function IngredientDetail({ ingredientId, user, setPage, notify, askConfirm, rel
 
 function UsageHistoryModal({ ingredient, movements, onClose, notify }: { ingredient: Ingredient; movements: typeof inventoryMovements; onClose: () => void; notify: (message: string) => void }) {
   const [range, setRange] = useState("All");
+  const { dialogRef, onDialogKeyDown } = useDialogA11y<HTMLElement>(true, onClose);
   const now = Date.now();
   const filtered = movements.filter((movement) => {
     if (range === "All") return true;
@@ -1083,8 +1206,8 @@ function UsageHistoryModal({ ingredient, movements, onClose, notify }: { ingredi
   const used = filtered.filter((movement) => movement.quantityChange < 0).reduce((sum, movement) => sum + Math.abs(movement.quantityChange), 0);
   const addedBack = filtered.filter((movement) => movement.quantityChange > 0).reduce((sum, movement) => sum + movement.quantityChange, 0);
   return (
-    <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="usage-history-title">
-      <article className="confirm-modal wide">
+    <div className="modal-backdrop" role="presentation">
+      <article ref={dialogRef} className="confirm-modal wide" role="dialog" aria-modal="true" aria-labelledby="usage-history-title" tabIndex={-1} onKeyDown={onDialogKeyDown}>
         <div className="section-head">
           <div><p className="eyebrow">Usage history</p><h2 id="usage-history-title">{ingredient.name}</h2></div>
           <div className="button-row"><Button variant="secondary" onClick={() => exportCsv(`usage-${ingredient.id}.csv`, ["Date", "Type", "Quantity", "Note"], filtered.map((movement) => [movement.createdAt, movement.movementType, movement.quantityChange, movement.note]), notify)}>Export CSV</Button><Button variant="secondary" onClick={onClose}>Close</Button></div>
@@ -1103,11 +1226,12 @@ function StockAdjustmentModal({ ingredient, mode, onClose, notify, reloadData }:
   const [quantity, setQuantity] = useState(0);
   const [removalConfirmed, setRemovalConfirmed] = useState(false);
   const [error, setError] = useState("");
+  const { dialogRef, onDialogKeyDown } = useDialogA11y<HTMLFormElement>(true, onClose);
   const clientValidationError = stockAdjustmentValidation({ direction, quantity, currentStock: ingredient.currentStock, unit: ingredient.baseUnit, removalConfirmed });
   const validationError = quantity > 0 || error ? clientValidationError || error : "";
   return (
-    <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="stock-adjustment-title">
-      <form className="confirm-modal wide" onSubmit={async (event) => {
+    <div className="modal-backdrop" role="presentation">
+      <form ref={dialogRef} className="confirm-modal wide" role="dialog" aria-modal="true" aria-labelledby="stock-adjustment-title" tabIndex={-1} onKeyDown={onDialogKeyDown} onSubmit={async (event) => {
         event.preventDefault();
         setError("");
         const form = event.currentTarget;
@@ -1545,6 +1669,7 @@ function Production({ user, setPage, setSelectedOrderId, notify, reloadData }: a
   const reviewRecipe = recipes.find((recipe) => recipe.id === reviewBatch?.recipeId);
   const reviewRequirements = reviewRecipe && reviewBatch ? scaleRecipe(reviewRecipe.id, reviewBatch.totalYield) : [];
   const reviewAvailability = checkStockAvailability(reviewRequirements);
+  const batchReviewDialog = useDialogA11y<HTMLElement>(Boolean(reviewBatch), () => setReviewBatchKey(""));
   const batchStage = (batch: { orderIds: string[] }, hasShortage: boolean) => {
     const batchOrders = batch.orderIds.map((id) => orders.find((order) => order.id === id)).filter(Boolean) as Order[];
     if (hasShortage) return "Shortage";
@@ -1607,8 +1732,8 @@ function Production({ user, setPage, setSelectedOrderId, notify, reloadData }: a
         </Section>
       ))}
       {reviewBatch && (
-        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="batch-review-title">
-          <article className="confirm-modal wide">
+        <div className="modal-backdrop" role="presentation">
+          <article ref={batchReviewDialog.dialogRef} className="confirm-modal wide" role="dialog" aria-modal="true" aria-labelledby="batch-review-title" tabIndex={-1} onKeyDown={batchReviewDialog.onDialogKeyDown}>
             <div className="section-head">
               <div><p className="eyebrow">Production review</p><h2 id="batch-review-title">{reviewRecipe?.name ?? "Batch"}</h2></div>
               <Button variant="secondary" onClick={() => setReviewBatchKey("")}>Close</Button>
@@ -1631,10 +1756,11 @@ function Production({ user, setPage, setSelectedOrderId, notify, reloadData }: a
 function ProductionScaledRecipeModal({ orderId, onClose }: { orderId: string; onClose: () => void }) {
   const order = orders.find((item) => item.id === orderId);
   const lines = orderItems.filter((item) => item.orderId === orderId);
+  const { dialogRef, onDialogKeyDown } = useDialogA11y<HTMLElement>(true, onClose);
   if (!order) return null;
   return (
-    <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="scaled-recipe-title">
-      <article className="confirm-modal wide">
+    <div className="modal-backdrop" role="presentation">
+      <article ref={dialogRef} className="confirm-modal wide" role="dialog" aria-modal="true" aria-labelledby="scaled-recipe-title" tabIndex={-1} onKeyDown={onDialogKeyDown}>
         <div className="section-head">
           <div><p className="eyebrow">Scaled recipe</p><h2 id="scaled-recipe-title">{order.customerName}</h2></div>
           <Button variant="secondary" onClick={onClose}>Close</Button>
@@ -1859,12 +1985,12 @@ function ConversionLibrary({ user, notify, askConfirm, reloadData }: { user?: Ap
   return (
     <div className="page-grid">
       {editingRule && (
-        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="conversion-form-title">
+        <div className="modal-backdrop" role="presentation">
           <ConversionRuleForm rule={editingRule} onCancel={() => setEditingRule(null)} notify={notify} reloadData={reloadData} />
         </div>
       )}
       {importOpen && (
-        <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="conversion-import-title">
+        <div className="modal-backdrop" role="presentation">
           <ConversionImportModal onCancel={() => setImportOpen(false)} notify={notify} reloadData={reloadData} />
         </div>
       )}
@@ -1883,9 +2009,10 @@ function ConversionLibrary({ user, notify, askConfirm, reloadData }: { user?: Ap
 
 function ConversionImportModal({ onCancel, notify, reloadData }: { onCancel: () => void; notify: (message: string) => void; reloadData: () => Promise<void> }) {
   const [saving, setSaving] = useState(false);
+  const { dialogRef, onDialogKeyDown } = useDialogA11y<HTMLFormElement>(true, onCancel);
   const parseCsvLine = (line: string) => line.split(",").map((value) => value.trim().replace(/^"|"$/g, ""));
   return (
-    <form className="section conversion-modal" onSubmit={async (event) => {
+    <form ref={dialogRef} className="section conversion-modal" role="dialog" aria-modal="true" aria-labelledby="conversion-import-title" tabIndex={-1} onKeyDown={onDialogKeyDown} onSubmit={async (event) => {
       event.preventDefault();
       const form = event.currentTarget;
       const text = formValue(form, "rules");
@@ -1930,8 +2057,9 @@ function ConversionImportModal({ onCancel, notify, reloadData }: { onCancel: () 
 
 function ConversionRuleForm({ rule, onCancel, notify, reloadData }: { rule: Partial<ConversionRule>; onCancel: () => void; notify: (message: string) => void; reloadData: () => Promise<void> }) {
   const unitOptions: Unit[] = ["g", "kg", "ml", "litre", "pcs", "cup", "tablespoon", "teaspoon", "pack", "roll", "egg", "yolk", "white"];
+  const { dialogRef, onDialogKeyDown } = useDialogA11y<HTMLFormElement>(true, onCancel);
   return (
-    <form className="section conversion-modal" onSubmit={async (event) => {
+    <form ref={dialogRef} className="section conversion-modal" role="dialog" aria-modal="true" aria-labelledby="conversion-form-title" tabIndex={-1} onKeyDown={onDialogKeyDown} onSubmit={async (event) => {
       event.preventDefault();
       const form = event.currentTarget;
       await apiAction("conversion.save", {
