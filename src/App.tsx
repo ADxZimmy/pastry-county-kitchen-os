@@ -1725,7 +1725,7 @@ function ShoppingList({ user, notify, reloadData }: { user?: AppUser; notify: (m
           return {
             key: item.ingredientId,
             cells: [
-              <input aria-label={`Purchase ${item.ingredientName}`} type="checkbox" checked={selectedIds.includes(item.ingredientId)} onChange={(event) => setSelectedIds((ids) => event.target.checked ? [...new Set([...ids, item.ingredientId])] : ids.filter((id) => id !== item.ingredientId))} />,
+              <label className="touch-checkbox"><input aria-label={`Purchase ${item.ingredientName}`} type="checkbox" checked={selectedIds.includes(item.ingredientId)} onChange={(event) => setSelectedIds((ids) => event.target.checked ? [...new Set([...ids, item.ingredientId])] : ids.filter((id) => id !== item.ingredientId))} /><span aria-hidden="true" /></label>,
               item.ingredientName,
               `${item.availableStock}${item.unit}`,
               `${item.requiredQuantity}${item.unit}`,
@@ -2254,24 +2254,39 @@ function PaginatedTable({ headers, rows, label, pageSize = 25 }: { headers: stri
 }
 
 function ResponsiveTable({ headers, rows }: { headers: string[]; rows: TableRow[] }) {
+  const isDesktopTable = useDesktopTable();
   const activateRow = (event: React.MouseEvent, onClick?: () => void) => {
     const target = event.target as HTMLElement;
-    if (target.closest("button,input,select,textarea,a")) return;
+    if (target.closest("button,input,select,textarea,a,label")) return;
     onClick?.();
   };
   return (
     <div className="responsive-table">
       {rows.length === 0 ? <p className="empty-note">No rows to show.</p> : <>
-        <table><thead><tr>{headers.map((header) => <th key={header} scope="col">{header}</th>)}</tr></thead><tbody>{rows.map((row) => (
+        {isDesktopTable ? <table className="desktop-table"><thead><tr>{headers.map((header) => <th key={header} scope="col">{header}</th>)}</tr></thead><tbody>{rows.map((row) => (
           <Fragment key={row.key}>
             <tr className={row.expanded ? "is-expanded" : undefined} onClick={(event) => activateRow(event, row.onClick)}>{row.cells.map((cell, index) => <td key={index} data-label={headers[index]}>{cell}</td>)}</tr>
             {row.expanded && row.details && <tr className="table-details-row"><td colSpan={headers.length}>{row.details}</td></tr>}
           </Fragment>
-        ))}</tbody></table>
-        <div className="mobile-table-cards">{rows.map((row) => <article key={row.key} className={`item-card${row.expanded ? " is-expanded" : ""}`} onClick={(event) => activateRow(event, row.onClick)}>{row.cells.map((cell, index) => <div className="mobile-row" key={index}><span>{headers[index]}</span><strong>{cell}</strong></div>)}{row.expanded && row.details && <div className="mobile-row-details">{row.details}</div>}</article>)}</div>
+        ))}</tbody></table> : <div className="mobile-table-cards" role="list">{rows.map((row) => <article key={row.key} role="listitem" className={`item-card${row.expanded ? " is-expanded" : ""}`} onClick={(event) => activateRow(event, row.onClick)}>{row.cells.map((cell, index) => <div className="mobile-row" key={index}><span>{headers[index]}</span><strong>{cell}</strong></div>)}{row.expanded && row.details && <div className="mobile-row-details">{row.details}</div>}</article>)}</div>}
       </>}
     </div>
   );
+}
+
+function useDesktopTable() {
+  const query = "(min-width: 1180px)";
+  const getMatch = () => typeof window !== "undefined" && window.matchMedia?.(query).matches;
+  const [isDesktopTable, setIsDesktopTable] = useState(getMatch);
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.matchMedia) return;
+    const media = window.matchMedia(query);
+    const update = () => setIsDesktopTable(media.matches);
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
+  return isDesktopTable;
 }
 
 function AuditDetails({ entry }: { entry: AuditLog }) {
