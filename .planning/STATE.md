@@ -28,10 +28,13 @@ Execute Phase 001 of the June 22 live-audit recovery, starting with authenticate
 - Implemented Phase 001 Step 5: shared modal keyboard behavior now gives dialog panels Escape close handling, focus trapping, trigger focus return, and inert background state.
 - Pushed `53b5e49`; production now serves `assets/index-BfoHVrrm.js`.
 - Verified live modal behavior for Review Batch, View Scaled Recipe, stock adjustment, conversion edit, conversion import, and confirm dialogs: each kept focus inside, made background shell elements inert, closed on Escape, restored trigger focus, and restored inert state after close.
+- Implemented Phase 001 Step 6: invalid hashes now resolve to a safe fallback instead of preserving stale content, and Dashboard production cards are split into true due-today work plus overdue/carryover work.
+- Pushed `25533f9`; production now serves `assets/index-BjJDLwTr.js`.
+- Verified live route/date behavior: direct invalid hash and popstate invalid hash both normalized to `#dashboard`, and Dashboard showed no May 2026 orders in the today's production card list on the June 22 audit date.
 
 ## In Progress
 
-- Phase 001 Step 6: unknown route fallback and dashboard date behavior.
+- Phase 001 Step 7: audit display-name search.
 
 ## Blocked
 
@@ -40,7 +43,7 @@ Execute Phase 001 of the June 22 live-audit recovery, starting with authenticate
 
 ## Next Action
 
-Implement Phase 001 Step 6: route unknown hashes safely and fix Dashboard "Today's Production" date freshness.
+Implement Phase 001 Step 7: include safe display names in audit rows, search text, and exports.
 
 ## Verification Snapshot
 
@@ -92,3 +95,9 @@ Implement Phase 001 Step 6: route unknown hashes safely and fix Dashboard "Today
   Result: Passed; TypeScript and Vite production build completed after the modal keyboard accessibility fix, producing `assets/index-BfoHVrrm.js`.
 - Command/check: Live modal keyboard smoke
   Result: Passed; production served `assets/index-BfoHVrrm.js`, and Playwright verified Review Batch, View Scaled Recipe, stock adjustment, conversion edit/import, and confirm dialogs for Escape close, focus trap, trigger focus return, inert background state, and inert restoration.
+- Command/check: `npm.cmd test`
+  Result: Passed; 44 tests, including dashboard production-date and invalid-hash fallback coverage.
+- Command/check: `npm.cmd run build`
+  Result: Passed; TypeScript and Vite production build completed after the route/date fix, producing `assets/index-BjJDLwTr.js`.
+- Command/check: Live route/dashboard smoke
+  Result: Passed; production served `assets/index-BjJDLwTr.js`, direct invalid hashes and popstate invalid hashes normalized to `#dashboard`, stale Production content was not shown, and Dashboard displayed an explicit no-orders-due-today empty state with overdue/carryover work separated.

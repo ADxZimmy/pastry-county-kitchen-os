@@ -141,8 +141,8 @@ Latest audit source: Codex audit session `019eeee0-894f-7880-b3fa-4a7c002de3ab`,
 | Done | AI conversion parsing | Natural prompts like `Convert 1 cup sugar to grams` parsed into nonsensical `1 g -> 1g` answers. | AI parser recognizes conversion questions with quantity, unit, ingredient, and target unit; tests cover all audit prompts, and production serves the deployed bundle that includes the parser fix. |
 | Done | Mobile shopping accessibility | Shopping checkboxes were 22px and desktop/mobile duplicate controls were both exposed to assistive technology. | Shopping controls meet 44px touch targets at 320-430px, only the active responsive representation is rendered, and Playwright checks cover unique purchase labels, mobile card exposure, and no horizontal overflow. |
 | Done | Modal keyboard behavior | Production review modal does not close on Escape. | Review Batch, View Scaled Recipe, conversion, stock adjustment, and confirm dialogs close on Escape, trap focus, keep background inert, and return focus to the trigger. |
-| Todo | Unknown route fallback | Unknown hash routes keep stale content under an invalid URL. | Unknown hashes redirect to dashboard or show a safe not-found state without stale page content; tests cover direct invalid hashes and back/forward behavior. |
-| Todo | Dashboard date freshness | Today's Production shows May 2026 orders on the June 22, 2026 audit date. | Dashboard filters today's production by the actual current date and separates overdue/completed orders from today's queue. |
+| Done | Unknown route fallback | Unknown hash routes keep stale content under an invalid URL. | Unknown hashes redirect to dashboard or show a safe not-found state without stale page content; tests cover direct invalid hashes and back/forward behavior. |
+| Done | Dashboard date freshness | Today's Production shows May 2026 orders on the June 22, 2026 audit date. | Dashboard filters today's production by the actual current date and separates overdue/completed orders from today's queue. |
 | Todo | Audit display-name search | Audit search by created ingredient name did not find the human-readable record. | Audit rows/search/export include safe display names and changed-field summaries while preserving sensitive-data redaction. |
 | Todo | User-safe errors | Fractional-cost failure surfaced raw SQL-ish text to the user. | API errors are mapped to operationally clear messages; raw database syntax stays out of toasts and responses. |
 | Todo | Verification gaps | Manual stock adjustment, repeated production deduction idempotency, role-filtered bootstrap, and low-stock email delivery were not fully verified. | Add targeted tests/smoke coverage; avoid sending real external email unless a controlled test inbox is configured. |
@@ -204,11 +204,12 @@ Latest audit source: Codex audit session `019eeee0-894f-7880-b3fa-4a7c002de3ab`,
 - [x] Phase 001 conversion/AI fix passed live verification: `schema.ensure` repaired and deduped production conversion rules, and production serves the parser-fix frontend bundle.
 - [x] Phase 001 mobile shopping accessibility passed live Playwright verification at 320/360/390/414/430px: unique purchase labels, 44x44 checkbox hit targets, mobile cards only, and no horizontal overflow.
 - [x] Phase 001 modal keyboard behavior passed local tests/build and live Playwright verification: Review Batch, View Scaled Recipe, stock adjustment, conversion edit/import, and confirm dialogs close on Escape, trap focus, keep background inert, return focus to the trigger, and restore inert state after close.
+- [x] Phase 001 route/date behavior passed local tests/build and live Playwright verification: unknown hashes normalize to `#dashboard` without stale content, and Dashboard separates true due-today production from overdue/carryover work on the June 22 audit date.
 - [ ] Re-run an external audit after the live audit expansion follow-up is deployed.
 
 ## Next Recommended Work
 
-1. Continue GSD Phase 001 with unknown-route fallback, dashboard date freshness, audit display-name search, and remaining verification gaps.
+1. Continue GSD Phase 001 with audit display-name search and remaining verification gaps.
 2. Run `npm run smoke:live-audit` before the next audit cycle, then re-run the external audit against the live deployment.
 3. Restore durable `LIVE_TEST_EMAIL` and `LIVE_TEST_PASSWORD` in the ignored local env file only if routine non-temporary smoke accounts are preferred.
 4. Watch the first few Resend deliveries from the verified domain for spam placement and DMARC aggregate reports.

@@ -98,6 +98,18 @@
   Result: Passed.
   Notes: Production served `assets/index-BfoHVrrm.js`. Playwright verified Review Batch, View Scaled Recipe, stock adjustment, conversion edit, conversion import, and confirm dialogs all focus inside the dialog, keep background shell elements inert, trap Tab, close on Escape, return focus to the trigger, and restore inert state after close.
 
+- Command: `npm.cmd test`
+  Result: Passed.
+  Notes: 3 test files, 44 tests after adding dashboard production-date and invalid-hash fallback coverage.
+
+- Command: `npm.cmd run build`
+  Result: Passed.
+  Notes: TypeScript compilation and Vite production build completed after the route/date fix, producing `assets/index-BjJDLwTr.js`.
+
+- Command: Live route/dashboard smoke
+  Result: Passed.
+  Notes: Production served `assets/index-BjJDLwTr.js`. Playwright verified direct invalid hashes and popstate invalid hashes normalize to `#dashboard`, stale Production content is not shown, and Dashboard's today's production section has no May 2026 cards on the June 22 audit date while overdue/carryover work is separated.
+
 ## Manual Checks
 
 - Check: Current progress comparison
@@ -110,8 +122,8 @@
 
 ## Residual Risk
 
-- Risk: Unknown hash routes, dashboard date freshness, audit display-name search, and targeted verification gaps still need implementation and live verification.
-  Owner: Phase 001 Steps 6-8.
+- Risk: Audit display-name search and targeted verification gaps still need implementation and live verification.
+  Owner: Phase 001 Steps 7-8.
 
 - Risk: Live Vercel deployment/project access in the connector may not include this project.
   Owner: Use GitHub deployment status, Vercel CLI/auth, or live URL checks during implementation.
