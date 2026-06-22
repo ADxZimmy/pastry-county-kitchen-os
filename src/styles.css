@@ -557,6 +557,7 @@ tbody tr.is-expanded { background: #edf7f5; }
   .item-card-head { align-items: flex-start; }
   .mobile-row { align-items: flex-start; }
   .mobile-row span { min-width: 96px; }
+  .mobile-row .touch-checkbox span { min-width: 0; }
   .mobile-row strong { max-width: 62%; }
   .bar-chart > div { grid-template-columns: 1fr; gap: 8px; }
   .summary-card div { align-items: flex-start; }
