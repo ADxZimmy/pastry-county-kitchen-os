@@ -129,6 +129,24 @@ Latest audit source: `Audit report.pdf` / `audit.txt`, score 63/100 on June 12, 
 | Done | Archive and audit export verification | Archive/recovery and audit export were marked untested in the audit matrix. | Archive restore now validates every recoverable entity type through a tested API mapper; audit report export/search/detail helpers are shared and tested for changed-field summaries plus redaction of passwords, tokens, hashes, sessions, and API keys. |
 | Done | Staff session enforcement verification | Staff management and disabled-user behavior were marked untested. | API permission tests now cover Owner-only staff save/disable/session revocation, missing actors, disabled users, missing users, revoked sessions, and active sessions issued after revocation. |
 
+## Milestone 9 - June 22 Live Audit Production Readiness Recovery
+
+Latest audit source: Codex audit session `019eeee0-894f-7880-b3fa-4a7c002de3ab`, saved report `pastry-county-kitchen-os-live-audit-2026-06-22.md`, score 72/100 on June 22, 2026. Root cause: prior milestone claims were stronger than live production behavior; the new audit verified core bakery math but found security, live-schema, conversion, mobile accessibility, and verification gaps.
+
+| Status | Area | Audit Finding | Completion Criteria |
+| --- | --- | --- | --- |
+| Todo | Bootstrap API security | Unauthenticated `GET /api/bootstrap` exposes suppliers, staff records, orders, movements, batches, audit logs, conversion rules, and settings. | `/api/bootstrap` requires a valid signed session, unauthenticated requests return 401 with no private data, authenticated app loading still works, and tests cover unauthenticated plus authenticated bootstrap behavior. |
+| Todo | Decimal shopping costs | Shopping purchase with `unitCost: 0.5` fails on live with an integer parsing error. | Decimal unit costs `0.5`, `0.64`, `2.75`, and whole values persist end-to-end in purchase logs, latest ingredient cost, inventory movement, and FEFO lots; live schema drift is reconciled. |
+| Todo | Conversion rule correctness | Flour has duplicate verified `1 cup = 125g` rules while audit expects `1 cup = 120g`. | Active verified rules are unique by ingredient/from/to, flour/sugar/cocoa/egg/yolk/white/coconut oil audit conversions match expected values, and duplicate live rules are archived with audit history. |
+| Todo | AI conversion parsing | Natural prompts like `Convert 1 cup sugar to grams` parse into nonsensical `1 g -> 1g` answers. | AI parser recognizes conversion questions with quantity, unit, ingredient, and target unit; low-confidence prompts ask for clarification instead of returning fake precision; tests cover all audit prompts. |
+| Todo | Mobile shopping accessibility | Shopping checkboxes are 22px and desktop/mobile duplicate controls are both exposed to assistive technology. | Shopping controls meet 44px touch targets at 320-430px, only the active responsive representation is exposed to the accessibility tree, and axe/Playwright checks cover duplicate labels. |
+| Todo | Modal keyboard behavior | Production review modal does not close on Escape. | Review Batch, View Scaled Recipe, conversion, stock adjustment, and confirm dialogs close on Escape, trap focus, keep background inert, and return focus to the trigger. |
+| Todo | Unknown route fallback | Unknown hash routes keep stale content under an invalid URL. | Unknown hashes redirect to dashboard or show a safe not-found state without stale page content; tests cover direct invalid hashes and back/forward behavior. |
+| Todo | Dashboard date freshness | Today's Production shows May 2026 orders on the June 22, 2026 audit date. | Dashboard filters today's production by the actual current date and separates overdue/completed orders from today's queue. |
+| Todo | Audit display-name search | Audit search by created ingredient name did not find the human-readable record. | Audit rows/search/export include safe display names and changed-field summaries while preserving sensitive-data redaction. |
+| Todo | User-safe errors | Fractional-cost failure surfaced raw SQL-ish text to the user. | API errors are mapped to operationally clear messages; raw database syntax stays out of toasts and responses. |
+| Todo | Verification gaps | Manual stock adjustment, repeated production deduction idempotency, role-filtered bootstrap, and low-stock email delivery were not fully verified. | Add targeted tests/smoke coverage; avoid sending real external email unless a controlled test inbox is configured. |
+
 ## Validation Checklist
 
 - [x] Unit tests passed with `npm test`.
@@ -177,11 +195,13 @@ Latest audit source: `Audit report.pdf` / `audit.txt`, score 63/100 on June 12, 
 - [x] `npm run smoke:live-audit` passed against production and verified cleanup: zero temporary smoke users, zero active AUDIT-Smoke ingredients, and zero FEFO overstatements.
 - [x] External audit handoff captured in `docs/audit-handoff.md` with current commit, live URL, passed checks, and retest focus areas.
 - [x] Production verification baseline confirmed as `READY` on Vercel for commit `b3cc35a011078f2d95a67d8ab9c275cd43d2142a`; GitHub reported the Vercel deployment status as successful and live `/api/health` returned 200.
+- [x] June 22 live audit reviewed and mapped into GSD Hybrid Phase 001 plus Milestone 9 production-readiness recovery plan.
 - [ ] Re-run an external audit after the live audit expansion follow-up is deployed.
 
 ## Next Recommended Work
 
-1. Run `npm run smoke:live-audit` before any new audit cycle, then re-run the external audit against the live deployment.
-2. Restore durable `LIVE_TEST_EMAIL` and `LIVE_TEST_PASSWORD` in the ignored local env file only if routine non-temporary smoke accounts are preferred.
-3. Watch the first few Resend deliveries from the verified domain for spam placement and DMARC aggregate reports.
-4. Consider moving conversion/audit pagination server-side only if production data grows beyond the current client snapshot model.
+1. Execute GSD Phase 001: close Milestone 9 production-readiness findings, starting with `/api/bootstrap` authentication.
+2. Run `npm run smoke:live-audit` before the next audit cycle, then re-run the external audit against the live deployment.
+3. Restore durable `LIVE_TEST_EMAIL` and `LIVE_TEST_PASSWORD` in the ignored local env file only if routine non-temporary smoke accounts are preferred.
+4. Watch the first few Resend deliveries from the verified domain for spam placement and DMARC aggregate reports.
+5. Consider moving conversion/audit pagination server-side only if production data grows beyond the current client snapshot model.
