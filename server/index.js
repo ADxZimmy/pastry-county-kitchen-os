@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { handleAction, produceOrder } from "../api/_actions.js";
 import { actorFromRequest, createSessionToken } from "../api/_auth.js";
 import { loadAuthenticatedKitchenSnapshot } from "../api/bootstrap.js";
+import { rateLimit, rateLimitKey, sendRateLimit } from "../api/_rateLimit.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, "..");
@@ -50,6 +51,15 @@ app.get("/api/health", (_req, res) => {
 app.post("/api/auth/login", requireDatabase, async (req, res, next) => {
   try {
     const { email, password } = req.body;
+    const loginLimit = rateLimit({
+      key: rateLimitKey(req, "auth.login", email || "missing-email"),
+      limit: 5,
+      windowMs: 60 * 1000
+    });
+    if (loginLimit.limited) {
+      sendRateLimit(res, loginLimit);
+      return;
+    }
     await sql`alter table app_users add column if not exists active boolean not null default true`;
     await sql`alter table app_users add column if not exists session_revoked_at timestamptz`;
     const user = first(await sql`
@@ -78,7 +88,18 @@ app.get("/api/bootstrap", requireDatabase, async (req, res, next) => {
 
 app.post("/api/actions", requireDatabase, async (req, res, next) => {
   try {
-    res.json(await handleAction(sql, req.body ?? {}, actorFromRequest(req)));
+    const actor = actorFromRequest(req);
+    const actionName = req.body?.action || "unknown";
+    const actionLimit = rateLimit({
+      key: rateLimitKey(req, actor ? "api.actions.authenticated" : "api.actions.unauthenticated", actor?.sub || actionName),
+      limit: actor ? 120 : 20,
+      windowMs: 60 * 1000
+    });
+    if (actionLimit.limited) {
+      sendRateLimit(res, actionLimit);
+      return;
+    }
+    res.json(await handleAction(sql, req.body ?? {}, actor));
   } catch (error) {
     next(error);
   }

@@ -1,6 +1,7 @@
 import bcrypt from "bcryptjs";
 import { createSessionToken } from "../_auth.js";
 import { first, getSql, sendError } from "../_db.js";
+import { rateLimit, rateLimitKey, sendRateLimit } from "../_rateLimit.js";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
@@ -12,6 +13,15 @@ export default async function handler(req, res) {
   try {
     const sql = getSql();
     const { email, password } = req.body;
+    const loginLimit = rateLimit({
+      key: rateLimitKey(req, "auth.login", email || "missing-email"),
+      limit: 5,
+      windowMs: 60 * 1000
+    });
+    if (loginLimit.limited) {
+      sendRateLimit(res, loginLimit);
+      return;
+    }
     await sql`alter table app_users add column if not exists active boolean not null default true`;
     await sql`alter table app_users add column if not exists session_revoked_at timestamptz`;
     const user = first(await sql`

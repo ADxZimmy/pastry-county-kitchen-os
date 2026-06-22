@@ -9,6 +9,8 @@ Standard: OWASP ASVS 5.0.0 readiness coverage for this MVP production surface.
 - Unauthenticated `/api/actions` returns 401.
 - Malformed bearer token returns 401.
 - Bad login returns 401 without a token.
+- Repeated bad login attempts are rate limited.
+- Repeated unauthenticated mutation attempts are rate limited.
 - Owner login returns a signed bearer token.
 - Owner bootstrap omits password hashes.
 - Viewer bootstrap omits populated `appUsers` and `auditLogs`.
