@@ -153,11 +153,11 @@ Latest audit source: Codex audit session `019eeee0-894f-7880-b3fa-4a7c002de3ab`,
 
 | Status | Area | Audit Finding | Completion Criteria |
 | --- | --- | --- | --- |
-| Todo | Revoked bootstrap sessions | Revoked Viewer tokens can still call authenticated `/api/bootstrap` and receive the full kitchen snapshot. | `/api/bootstrap` uses DB-backed active/revoked-session validation in serverless and Express routes; old revoked tokens return 401 with no snapshot; low-privilege snapshots omit admin-only staff/session/audit data. |
-| Todo | Fresh login persistence | Fresh browser login succeeds at the API layer but returns to `#login` with `Session expired` because no user/token is stored. | Login writes the returned user/token synchronously before first bootstrap, Dashboard loads from empty browser storage, and `pastry-county-session.user.token` exists after login. |
-| Todo | AI chat conversion prompts | Natural prompts like `Convert 1 cup sugar to grams.` still return `1 g -> 1g` style answers in production. | AI chat routes natural conversion questions through verified conversion rules, handles punctuation/plurals/large eggs, and live prompts return expected audit quantities. |
-| Todo | Production 320px overflow | Production still has `htmlOverflow` and `bodyOverflow` at 320x568. | Production has no horizontal overflow at 320/360/390/414/430px while preserving 44px action targets. |
-| Todo | Mobile structural accessibility | Axe flags `aria-allowed-role` on mobile cards and heading-order issues on Production. | Mobile table cards use semantic list markup or valid ARIA ownership, and Production headings follow a valid hierarchy across mobile widths. |
+| Done | Revoked bootstrap sessions | Revoked Viewer tokens can still call authenticated `/api/bootstrap` and receive the full kitchen snapshot. | `/api/bootstrap` uses DB-backed active/revoked-session validation in serverless and Express routes; old revoked tokens return 401 with no snapshot; low-privilege snapshots omit admin-only staff/session/audit data. |
+| Done | Fresh login persistence | Fresh browser login succeeds at the API layer but returns to `#login` with `Session expired` because no user/token is stored. | Login writes the returned user/token synchronously before first bootstrap, Dashboard loads from empty browser storage, and `pastry-county-session.user.token` exists after login. |
+| Done | AI chat conversion prompts | Natural prompts like `Convert 1 cup sugar to grams.` still return `1 g -> 1g` style answers in production. | AI chat routes natural conversion questions through verified conversion rules, handles punctuation/plurals/large eggs, and live prompts return expected audit quantities. |
+| Done | Production 320px overflow | Production still has `htmlOverflow` and `bodyOverflow` at 320x568. | Production has no horizontal overflow at 320/360/390/414/430px while preserving 44px action targets. |
+| Done | Mobile structural accessibility | Axe flags `aria-allowed-role` on mobile cards and heading-order issues on Production. | Mobile table cards use semantic list markup or valid ARIA ownership, and Production headings follow a valid hierarchy across mobile widths. |
 
 ## Validation Checklist
 
@@ -221,16 +221,17 @@ Latest audit source: Codex audit session `019eeee0-894f-7880-b3fa-4a7c002de3ab`,
 - [x] Phase 001 final verification gaps passed local tests/build and live verification: repeated production is idempotent, signed Viewer bootstrap access is covered, low-stock email delivery guards do not send uncontrolled external email, user-safe purchase error mapping is tested, authenticated regression smoke passed, and manual stock adjustment FEFO behavior is live-verified.
 - [x] Phase 001 full live-audit smoke passed against production with the configured live test account fallback: Milestone 7 smoke passed, regression-audit mutation smoke passed, and child smokes archived their temporary data.
 - [x] External audit rerun reviewed: latest score is 76/100 with remaining revoked bootstrap, fresh login, AI conversion, Production overflow, and mobile structural accessibility blockers.
-- [ ] Phase 002 revoked bootstrap session validation implemented and live-verified.
-- [ ] Phase 002 fresh login persistence implemented and live-verified.
-- [ ] Phase 002 AI conversion prompt repair implemented and live-verified.
-- [ ] Phase 002 Production 320px overflow and mobile structural accessibility fixes implemented and live-verified.
+- [x] Phase 002 revoked bootstrap session validation implemented and live-verified.
+- [x] Phase 002 fresh login persistence implemented and live-verified.
+- [x] Phase 002 AI conversion prompt repair implemented and live-verified.
+- [x] Phase 002 Production 320px overflow and mobile structural accessibility fixes implemented and live-verified.
+- [x] Phase 002 full live-audit smoke passed against production with Phase 002, Milestone 7, and regression-audit checks.
 - [ ] Re-run an external audit after Phase 002 is deployed.
 
 ## Next Recommended Work
 
-1. Execute GSD Phase 002 from `.planning/phases/002-rerun-blocker-fixes/PLAN.md`.
-2. Run `npm run smoke:live-audit` after Phase 002 is deployed and update `docs/audit-handoff.md` with the new baseline.
-3. Re-run the external audit against the live deployment.
+1. Re-run the external audit against the live deployment.
+2. Use `docs/audit-handoff.md` and `.planning/phases/002-rerun-blocker-fixes/VERIFICATION.md` as the retest checklist.
+3. If the audit returns new findings, add them under a new milestone before implementation.
 4. Restore durable `LIVE_TEST_EMAIL` and `LIVE_TEST_PASSWORD` in the ignored local env file only if routine non-temporary smoke accounts are preferred.
 5. Watch the first few Resend deliveries from the verified domain for spam placement and DMARC aggregate reports.

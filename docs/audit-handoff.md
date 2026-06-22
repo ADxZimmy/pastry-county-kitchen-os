@@ -3,23 +3,25 @@
 Date: 2026-06-16
 Last verified: 2026-06-22
 Live URL: https://pastry-county-kitchen-os.vercel.app
-Verification baseline commit: stale after the 76/100 external audit rerun
+Verification baseline commit: `d9d85b1`
 Verification baseline deployment: latest Vercel deployment for `main`
 
 ## Current Status
 
-The June 22 external audit rerun from session `019eeee0-894f-7880-b3fa-4a7c002de3ab` scored `76/100` and found remaining production-readiness blockers. Phase 002 is now planned to address those blockers before requesting another external audit.
+The June 22 external audit rerun from session `019eeee0-894f-7880-b3fa-4a7c002de3ab` scored `76/100`. Phase 002 has now addressed the rerun blockers and passed local plus production verification. The remaining action is to request another external audit against the live deployment.
 
 ## Fresh Verification
 
-These checks passed during the Phase 001 recovery series, but the later 76/100 rerun supersedes the previous "ready for re-audit" handoff:
+These checks passed after the Phase 002 recovery:
 
-- `npm test`: 50/50 tests passed after the Phase 001 recovery.
+- `npm test`: 54/54 tests passed.
 - `npm run build`: production build passed.
+- Live bundle check: production served `assets/index-Cvb2sp8C.js` and `assets/index-DrJx3I71.css`.
+- `npm run smoke:phase2-rerun`: passed against production, covering revoked Viewer bootstrap, Viewer snapshot filtering, fresh UI login persistence, exact AI conversion prompts, Production 320px no-overflow, and mobile structural checks.
+- `npm run smoke:live-audit`: passed against production after adding the Phase 002 gate.
 - `npm run audit:reconcile-fefo`: no FEFO lot overstatements found.
 - Live health: `/api/health` returned `{"ok":true,"database":"neon"}`.
-- `npm run smoke:live-audit`: passed against production after the Phase 001 recovery; when database credentials are unavailable, it uses the configured live test account and relies on child smokes to archive temporary data.
-- Targeted June 22 recovery smokes passed against production: bootstrap auth, decimal shopping purchases, conversion rule repair, AI conversion parsing, mobile shopping accessibility, modal keyboard behavior, invalid-route fallback, dashboard date freshness, audit display-name search/export, repeated production idempotency, and regression audit mutation checks.
+- Targeted June 22 recovery smokes passed against production: bootstrap auth, decimal shopping purchases, conversion rule repair, AI conversion parsing, mobile shopping accessibility, modal keyboard behavior, invalid-route fallback, dashboard date freshness, audit display-name search/export, repeated production idempotency, revoked-session bootstrap blocking, fresh login persistence, and regression audit mutation checks.
 - Documentation-only handoff commits may create newer Vercel deployments; use GitHub/Vercel status as the source of truth for the current latest deployment.
 
 When a live database URL is configured, the live audit smoke runner creates a temporary Owner/Admin user, runs authenticated Milestone 7 and regression-audit smoke suites, removes the user, and verifies cleanup:
@@ -62,4 +64,4 @@ Also retest the former 72/100 June 22 live-audit cases:
 
 ## Known Remaining Action
 
-Implement and verify Phase 002 before requesting another external audit.
+Run the external audit on the live deployment. If it returns new findings, add them to `docs/audit-milestone.md` under a new milestone before implementing fixes.
