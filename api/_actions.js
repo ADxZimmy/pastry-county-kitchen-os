@@ -977,7 +977,7 @@ export async function handleAction(sql, body, actor) {
           txn`
             update ingredients
             set current_stock = current_stock + ${item.quantity},
-              latest_unit_cost = case when ${item.unitCost} > 0 then ${item.unitCost} else latest_unit_cost end,
+              latest_unit_cost = ${item.unitCost},
               updated_at = now()
             where id = ${item.ingredientId}
           `,

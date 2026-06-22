@@ -16,6 +16,7 @@ Execute Phase 001 of the June 22 live-audit recovery, starting with authenticate
 - Added bootstrap auth unit coverage for unauthenticated and authenticated reads.
 - Pushed `13c5008` and verified the live deployment: unauthenticated `/api/bootstrap` returns 401, while authenticated owner login plus bootstrap returns 200.
 - Reproduced the live decimal purchase failure with a temporary `AUDIT-Decimal` ingredient, then implemented local schema drift repair for decimal purchase/stock columns and user-safe purchase persistence errors.
+- After the first decimal patch deployed, live fractional purchases returned the new user-safe message but still failed; removed an unnecessary SQL `case when unitCost > 0` comparison that could force integer parameter inference.
 
 ## In Progress
 
@@ -50,3 +51,9 @@ Commit and push Phase 001 Step 2, then verify live `shopping.purchaseSuggested` 
   Result: Passed; 40 tests, including fractional shopping-cost normalization and safe purchase-error mapping.
 - Command/check: `npm.cmd run build`
   Result: Passed; TypeScript and Vite production build completed after the decimal purchase fix.
+- Command/check: Live decimal purchase post-deploy probe
+  Result: Partial; raw SQL error is no longer exposed, but `unitCost: 0.5` still failed with the user-safe purchase message before the SQL parameter-inference follow-up patch.
+- Command/check: `npm.cmd test`
+  Result: Passed; 40 tests after replacing the latest-cost SQL branch with direct decimal assignment.
+- Command/check: `npm.cmd run build`
+  Result: Passed; TypeScript and Vite production build completed after the SQL parameter-inference follow-up patch.

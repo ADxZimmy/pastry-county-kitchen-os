@@ -38,6 +38,18 @@
   Result: Passed.
   Notes: TypeScript compilation and Vite production build completed after the decimal purchase fix.
 
+- Command: Live decimal purchase post-deploy probe
+  Result: Partial.
+  Notes: Production no longer exposed the raw integer syntax error, but `unitCost: 0.5` still failed with the user-safe purchase message. Follow-up changed the latest-cost update from a decimal-vs-integer `case when` branch to direct decimal assignment.
+
+- Command: `npm.cmd test`
+  Result: Passed.
+  Notes: 3 test files, 40 tests after the SQL parameter-inference follow-up.
+
+- Command: `npm.cmd run build`
+  Result: Passed.
+  Notes: TypeScript compilation and Vite production build completed after the SQL parameter-inference follow-up.
+
 ## Manual Checks
 
 - Check: Current progress comparison
