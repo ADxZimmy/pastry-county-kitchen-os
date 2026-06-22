@@ -21,4 +21,16 @@ describe("bootstrap authentication", () => {
       headers: { authorization: `Bearer ${token}` }
     }))).toBeNull();
   });
+
+  it("allows authenticated bootstrap reads with a signed viewer session", () => {
+    const token = createSessionToken({
+      id: "viewer-1",
+      email: "viewer@example.com",
+      role: "Viewer"
+    });
+
+    expect(bootstrapAccessError(actorFromRequest({
+      headers: { authorization: `Bearer ${token}` }
+    }))).toBeNull();
+  });
 });

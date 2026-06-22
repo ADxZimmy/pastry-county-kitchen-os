@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { allowedRolesForAction, archiveTableForEntity, canRolePerformAction, normalizeShoppingPurchaseInput, planBatchDeductions, productionShortageForRequirement, safePurchasePersistenceError, sessionAccessError } from "./_actions.js";
+import { allowedRolesForAction, archiveTableForEntity, canRolePerformAction, normalizeShoppingPurchaseInput, planBatchDeductions, productionCompletionPreflight, productionShortageForRequirement, safePurchasePersistenceError, sendResendEmail, sessionAccessError } from "./_actions.js";
 
 describe("FEFO batch deduction planning", () => {
   it("deducts stock removals or production use across lots in the provided FEFO order", () => {
@@ -57,6 +57,13 @@ describe("production shortage guardrails", () => {
       shortageQuantity: 300
     });
   });
+
+  it("short-circuits repeated production deduction once an order is already produced", () => {
+    expect(productionCompletionPreflight("Produced")).toEqual({ produced: false, alreadyProduced: true });
+    expect(productionCompletionPreflight("Stock Reserved")).toBeNull();
+    expect(productionCompletionPreflight("In Production")).toBeNull();
+    expect(() => productionCompletionPreflight("Confirmed")).toThrow("Start production before marking this order as produced.");
+  });
 });
 
 describe("API role permissions", () => {
@@ -84,6 +91,30 @@ describe("API role permissions", () => {
     expect(canRolePerformAction("Baker", "user.save")).toBe(false);
     expect(canRolePerformAction("Inventory Manager", "user.disable")).toBe(false);
     expect(canRolePerformAction("Baker", "user.revokeSessions")).toBe(false);
+  });
+
+  it("keeps low-stock notification delivery limited to inventory roles", () => {
+    expect(canRolePerformAction("Owner/Admin", "notification.lowStockEmail")).toBe(true);
+    expect(canRolePerformAction("Inventory Manager", "notification.lowStockEmail")).toBe(true);
+    expect(canRolePerformAction("Baker", "notification.lowStockEmail")).toBe(false);
+    expect(canRolePerformAction("Viewer", "notification.lowStockEmail")).toBe(false);
+  });
+});
+
+describe("low-stock notification delivery guards", () => {
+  it("logs missing recipients instead of attempting an external email", async () => {
+    await expect(sendResendEmail({ to: null, subject: "Low stock", text: "Flour" })).resolves.toEqual({ status: "missing_recipient" });
+  });
+
+  it("logs configured recipients when Resend is not configured", async () => {
+    const previousKey = process.env.RESEND_API_KEY;
+    delete process.env.RESEND_API_KEY;
+    try {
+      await expect(sendResendEmail({ to: "ops@example.com", subject: "Low stock", text: "Flour" })).resolves.toEqual({ status: "logged_missing_resend_key" });
+    } finally {
+      if (previousKey === undefined) delete process.env.RESEND_API_KEY;
+      else process.env.RESEND_API_KEY = previousKey;
+    }
   });
 });
 

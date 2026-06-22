@@ -126,7 +126,7 @@ function escapeHtml(value) {
     .replace(/"/g, "&quot;");
 }
 
-async function sendResendEmail({ to, subject, text }) {
+export async function sendResendEmail({ to, subject, text }) {
   if (!process.env.RESEND_API_KEY || !to) return { status: to ? "logged_missing_resend_key" : "missing_recipient" };
   const from = process.env.RESEND_FROM_EMAIL || "Pastry County Kitchen OS <onboarding@resend.dev>";
   const resend = new Resend(process.env.RESEND_API_KEY);
@@ -618,16 +618,22 @@ async function shortagesForProduction(sql, orderId, requirements) {
   })).then((rows) => rows.filter(Boolean));
 }
 
+export function productionCompletionPreflight(status) {
+  if (status === "Produced") return { produced: false, alreadyProduced: true };
+  if (!["Stock Reserved", "In Production"].includes(status)) {
+    throw Object.assign(new Error("Start production before marking this order as produced."), { statusCode: 409 });
+  }
+  return null;
+}
+
 export async function produceOrder(sql, orderId, actor) {
   await ensureOperationalTables(sql);
   await requirePermission(sql, "order.produce", actor);
   const orderRows = await sql`select status from orders where id = ${orderId}`;
   if (!orderRows.length) throw Object.assign(new Error("Order not found."), { statusCode: 404 });
   const status = orderRows[0].status;
-  if (status === "Produced") return { produced: false, alreadyProduced: true };
-  if (!["Stock Reserved", "In Production"].includes(status)) {
-    throw Object.assign(new Error("Start production before marking this order as produced."), { statusCode: 409 });
-  }
+  const preflightResult = productionCompletionPreflight(status);
+  if (preflightResult) return preflightResult;
 
   const requirements = await requirementsForOrder(sql, orderId);
   const shortages = await shortagesForProduction(sql, orderId, requirements);
