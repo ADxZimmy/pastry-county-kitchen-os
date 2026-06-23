@@ -2338,10 +2338,18 @@ function confidenceTone(confidence?: string): "success" | "warning" | "danger" |
   return "neutral";
 }
 
+function importStatusLabel(confidence?: string) {
+  if (confidence === "High") return "Ready";
+  if (confidence === "Medium") return "Check";
+  if (confidence === "Low") return "Needs help";
+  return "Review";
+}
+
 function sourceEvidenceLabel(source?: { sourceName?: string; sheet?: string; row?: number; line?: number; page?: number; text?: string }) {
-  if (!source) return "No source evidence";
+  if (!source) return "Original line not shown";
   const location = [source.sheet ? `sheet ${source.sheet}` : "", source.page ? `page ${source.page}` : "", source.row ? `row ${source.row}` : "", source.line ? `line ${source.line}` : ""].filter(Boolean).join(", ");
-  return [source.sourceName, location, source.text].filter(Boolean).join(" | ") || "Source captured";
+  const label = [source.sourceName, location, source.text].filter(Boolean).join(" | ");
+  return label ? `Original: ${label}` : "Original line saved";
 }
 
 function ImportWorkbench({ user, currentRoute, setPage, notify, reloadData }: { user?: AppUser; currentRoute: AppRoute; setPage: Navigate; notify: Notify; reloadData: () => Promise<void> }) {
@@ -2370,15 +2378,15 @@ function ImportWorkbench({ user, currentRoute, setPage, notify, reloadData }: { 
           ? { name: file.name, type: "file", mimeType: file.type, extension: file.name.split(".").pop()?.toLowerCase(), base64: await fileToBase64(file) }
           : null;
       if (!source || (mode === "text" && !text.trim())) {
-        notify("Add text or choose a file before extracting.");
+        notify("Add text or choose a file before continuing.");
         return;
       }
       const result = await apiAction("import.extract", { source }) as ImportDraft;
       setDraft(result);
       setPage({ name: "imports", mode: "review", returnTo: currentRoute.name === "imports" ? currentRoute.returnTo : currentRoute });
-      notify(`Import draft ready: ${result.counts.recipes} recipe${result.counts.recipes === 1 ? "" : "s"}, ${result.counts.ingredients} ingredient${result.counts.ingredients === 1 ? "" : "s"}.`);
+      notify(`Ready to review: ${result.counts.recipes} recipe${result.counts.recipes === 1 ? "" : "s"}, ${result.counts.ingredients} ingredient${result.counts.ingredients === 1 ? "" : "s"}.`);
     } catch (error) {
-      notify(error instanceof Error ? error.message : "Import extraction failed.");
+      notify(error instanceof Error ? error.message : "We could not read that import.");
     } finally {
       setExtracting(false);
     }
@@ -2388,13 +2396,13 @@ function ImportWorkbench({ user, currentRoute, setPage, notify, reloadData }: { 
     setCommitting(true);
     try {
       const result = await apiAction("import.commit", { draft }) as { createdRecipes?: { id: string; name: string }[]; createdIngredients?: unknown[]; skipped?: { reason: string }[] };
-      notify(`Imported ${(result.createdRecipes ?? []).length} recipe${(result.createdRecipes ?? []).length === 1 ? "" : "s"} and ${(result.createdIngredients ?? []).length} ingredient${(result.createdIngredients ?? []).length === 1 ? "" : "s"}.`);
+      notify(`Saved ${(result.createdRecipes ?? []).length} recipe${(result.createdRecipes ?? []).length === 1 ? "" : "s"} and ${(result.createdIngredients ?? []).length} ingredient${(result.createdIngredients ?? []).length === 1 ? "" : "s"}.`);
       await reloadData();
       const firstRecipe = result.createdRecipes?.[0];
       if (firstRecipe?.id) setPage({ name: "recipes", recipeId: firstRecipe.id, mode: "detail" });
       else setPage({ name: "imports" });
     } catch (error) {
-      notify(error instanceof Error ? error.message : "Import commit failed.");
+      notify(error instanceof Error ? error.message : "We could not save the selected items.");
     } finally {
       setCommitting(false);
     }
@@ -2417,9 +2425,9 @@ function ImportWorkbench({ user, currentRoute, setPage, notify, reloadData }: { 
     <div className="page-grid import-workbench">
       <section className="import-hero">
         <div>
-          <p className="eyebrow">Onboarding import</p>
+          <p className="eyebrow">Import setup</p>
           <h2>Bring existing recipes and costing into Kitchen OS</h2>
-          <p>Upload a spreadsheet, PDF, Word document, image, or paste recipe text. The app extracts a draft first, then you review and commit only the records you trust.</p>
+          <p>Upload a spreadsheet, PDF, Word document, photo, or paste recipe text. Kitchen OS reads it first and shows everything for review before anything is saved.</p>
         </div>
         <div className="button-row">
           <Button variant="secondary" onClick={() => downloadText("pastry-county-import-template.csv", importTemplateCsv())}><FileSpreadsheet size={18} /> CSV Template</Button>
@@ -2429,17 +2437,17 @@ function ImportWorkbench({ user, currentRoute, setPage, notify, reloadData }: { 
       <div className="import-mode-grid">
         <button className={mode === "text" ? "import-mode active" : "import-mode"} onClick={() => setMode("text")} aria-pressed={mode === "text"}>
           <FileText size={24} />
-          <span><strong>Paste text</strong><small>Fastest path for typed recipes, OCR transcripts, and copied notes.</small></span>
+          <span><strong>Paste text</strong><small>Fastest path for typed recipes and copied notes.</small></span>
         </button>
         <button className={mode === "file" ? "import-mode active" : "import-mode"} onClick={() => setMode("file")} aria-pressed={mode === "file"}>
           <Camera size={24} />
-          <span><strong>Upload or snap</strong><small>CSV, TSV, TXT, MD, XLSX, DOCX, PDF, and images up to 4MB.</small></span>
+          <span><strong>Upload file or photo</strong><small>Spreadsheets, PDFs, Word docs, text files, and photos up to 4MB.</small></span>
         </button>
       </div>
-      <Section title="Extract Import Draft" action={<Button onClick={extract} disabled={!canImport || extracting}>{extracting ? "Extracting..." : "Extract Draft"}</Button>}>
+      <Section title="Choose What to Import" action={<Button onClick={extract} disabled={!canImport || extracting}>{extracting ? "Reading..." : "Review Import"}</Button>}>
         {mode === "text" ? (
-          <Field label="Recipe, costing, or onboarding text">
-            <textarea value={text} onChange={(event) => setText(event.target.value)} rows={10} placeholder={"Recipe: Chocolate Cake\nCategory: Cakes\nYield: 1 cake\nIngredients:\n500 g flour | package quantity: 1000 | package price: 750 | line amount: 375\n4 pcs eggs\nInstructions:\nMix gently.\nBake until set."} />
+          <Field label="Paste recipe or costing text">
+            <textarea value={text} onChange={(event) => setText(event.target.value)} rows={10} placeholder={"Recipe: Chocolate Cake\nCategory: Cakes\nYield: 1 cake\nIngredients:\n500 g flour | pack size: 1000 | pack price: 750 | cost: 375\n4 pcs eggs\nInstructions:\nMix gently.\nBake until set."} />
           </Field>
         ) : (
           <div className="import-drop">
@@ -2447,10 +2455,10 @@ function ImportWorkbench({ user, currentRoute, setPage, notify, reloadData }: { 
             <Field label="Import file">
               <input type="file" accept=".csv,.tsv,.txt,.md,.xlsx,.docx,.pdf,.jpg,.jpeg,.png,.webp,.heic,.xls,.doc" onChange={(event) => setFile(event.target.files?.[0] ?? null)} />
             </Field>
-            <small>{file ? `${file.name} | ${(file.size / 1024).toFixed(1)} KB` : "Choose a workbook, document, PDF, or image. Scanned images use the configured OCR/vision provider when available."}</small>
+            <small>{file ? `${file.name} | ${(file.size / 1024).toFixed(1)} KB` : "Choose a spreadsheet, document, PDF, or photo. Photos and scanned pages can be read when photo reading is turned on for this workspace."}</small>
           </div>
         )}
-        {!canImport && <article className="warning-card"><AlertTriangle size={22} /> Your current role can view imports but cannot extract or commit them.</article>}
+        {!canImport && <article className="warning-card"><AlertTriangle size={22} /> Your current role can view imports but cannot add or save imported data.</article>}
       </Section>
       {draft && (
         <>
@@ -2458,18 +2466,18 @@ function ImportWorkbench({ user, currentRoute, setPage, notify, reloadData }: { 
             <Metric label="Recipes" value={String(draft.counts.recipes)} />
             <Metric label="Ingredients" value={String(draft.counts.ingredients)} />
             <Metric label="Conversions" value={String(draft.counts.conversionRules)} />
-            <Metric label="Templates" value={String((draft.counts.customerTemplates ?? 0) + (draft.counts.orderTemplates ?? 0))} />
-            <Metric label="Review flags" value={String(draft.counts.reviewItems)} />
+            <Metric label="Customers and Orders" value={String((draft.counts.customerTemplates ?? 0) + (draft.counts.orderTemplates ?? 0))} />
+            <Metric label="Needs attention" value={String(draft.counts.reviewItems)} />
           </div>
-          {draft.warnings.length > 0 && <Section title="Import Warnings"><div className="compact-list">{draft.warnings.map((warning) => <div className="row-card" key={warning}><span>{warning}</span><Badge tone="warning">Review</Badge></div>)}</div></Section>}
-          <Section title="Recipe Drafts" action={<Button onClick={commit} disabled={committing || !canCommitImport || savableDraftCount === 0}>{committing ? "Importing..." : "Commit Selected"}</Button>}>
-            {draft.recipes.length === 0 ? <EmptyState title="No recipes detected" message="Try the CSV template, paste clearer recipe text, or use a source with recipe headings." /> : (
+          {draft.warnings.length > 0 && <Section title="Things To Check"><div className="compact-list">{draft.warnings.map((warning) => <div className="row-card" key={warning}><span>{warning}</span><Badge tone="warning">Check</Badge></div>)}</div></Section>}
+          <Section title="Recipes To Review" action={<Button onClick={commit} disabled={committing || !canCommitImport || savableDraftCount === 0}>{committing ? "Saving..." : "Save Selected"}</Button>}>
+            {draft.recipes.length === 0 ? <EmptyState title="No recipes found" message="Try the CSV template, paste clearer recipe text, or use headings like Recipe, Ingredients, and Instructions." /> : (
               <div className="import-review-list">
                 {draft.recipes.map((recipe, recipeIndex) => (
                   <article className="summary-card import-review-card" key={recipe.id}>
                     <div className="item-card-head">
                       <label className="checkline"><input type="checkbox" checked={recipe.selected !== false} onChange={(event) => updateRecipe(recipeIndex, { selected: event.target.checked })} /> Include</label>
-                      <Badge tone={confidenceTone(recipe.confidence)}>{recipe.confidence}</Badge>
+                      <Badge tone={confidenceTone(recipe.confidence)}>{importStatusLabel(recipe.confidence)}</Badge>
                     </div>
                     <div className="form-grid">
                       <Field label="Recipe name"><input value={recipe.name} onChange={(event) => updateRecipe(recipeIndex, { name: event.target.value })} /></Field>
@@ -2478,27 +2486,27 @@ function ImportWorkbench({ user, currentRoute, setPage, notify, reloadData }: { 
                       <Field label="Yield unit"><input value={recipe.yieldUnit} onChange={(event) => updateRecipe(recipeIndex, { yieldUnit: event.target.value })} /></Field>
                     </div>
                     {Boolean(recipe.duplicateCandidates?.length) && (
-                      <article className="warning-card"><AlertTriangle size={20} /> {recipe.name} matches an existing recipe. Rename it or check "Import duplicate".
-                        <label className="checkline"><input type="checkbox" checked={Boolean(recipe.allowDuplicate)} onChange={(event) => updateRecipe(recipeIndex, { allowDuplicate: event.target.checked })} /> Import duplicate</label>
+                      <article className="warning-card"><AlertTriangle size={20} /> {recipe.name} matches an existing recipe. Rename it or choose to save another copy.
+                        <label className="checkline"><input type="checkbox" checked={Boolean(recipe.allowDuplicate)} onChange={(event) => updateRecipe(recipeIndex, { allowDuplicate: event.target.checked })} /> Save another copy</label>
                       </article>
                     )}
                     <ResponsiveTable
-                      headers={["Use", "Ingredient", "Quantity", "Unit", "Cost evidence", "Status"]}
+                      headers={["Use", "Ingredient", "Quantity", "Unit", "Cost from file", "Status"]}
                       rows={recipe.items.map((item, itemIndex) => ({
                         key: `${recipe.id}-${item.id}`,
                         cells: [
                           <input aria-label={`Include ${item.ingredientName}`} type="checkbox" checked={item.selected !== false} onChange={(event) => updateItem(recipeIndex, itemIndex, { selected: event.target.checked })} />,
                           <div className="stacked-cell">
                             <select value={item.ingredientId ?? ""} onChange={(event) => updateItem(recipeIndex, itemIndex, { ingredientId: event.target.value || undefined, needsReview: !event.target.value })}>
-                              <option value="">Create or resolve: {item.ingredientName}</option>
+                              <option value="">Choose ingredient: {item.ingredientName}</option>
                               {ingredients.map((ingredient) => <option key={ingredient.id} value={ingredient.id}>{ingredient.name}</option>)}
                             </select>
                             <small>{sourceEvidenceLabel(item.source)}</small>
                           </div>,
                           <input aria-label={`${item.ingredientName} quantity`} type="number" min="0" step="0.001" value={item.quantity || ""} onChange={(event) => updateItem(recipeIndex, itemIndex, { quantity: Number(event.target.value), needsReview: Number(event.target.value) <= 0 || !item.ingredientId })} />,
                           <select value={item.unit} onChange={(event) => updateItem(recipeIndex, itemIndex, { unit: event.target.value as Unit })}>{unitOptions.map((unit) => <option key={unit}>{unit}</option>)}</select>,
-                          item.prepState?.sourceLineAmount ? formatNaira(item.prepState.sourceLineAmount) : "No source amount",
-                          <Badge tone={confidenceTone(item.confidence)}>{item.needsReview ? "Needs review" : item.confidence}</Badge>
+                          item.prepState?.sourceLineAmount ? formatNaira(item.prepState.sourceLineAmount) : "No cost shown",
+                          <Badge tone={confidenceTone(item.confidence)}>{item.needsReview ? "Check" : importStatusLabel(item.confidence)}</Badge>
                         ]
                       }))}
                     />
@@ -2508,10 +2516,10 @@ function ImportWorkbench({ user, currentRoute, setPage, notify, reloadData }: { 
             )}
           </Section>
           <div className="split">
-            <Section title="New Ingredient Drafts">
-              {!inventoryImportAllowed && draft.ingredients.length > 0 && <article className="warning-card"><AlertTriangle size={20} /> New ingredients require Owner/Admin or Inventory Manager. Resolve lines to existing ingredients or ask an inventory role to commit.</article>}
+            <Section title="New Ingredients Found">
+              {!inventoryImportAllowed && draft.ingredients.length > 0 && <article className="warning-card"><AlertTriangle size={20} /> New ingredients can be saved by an Owner/Admin or Inventory Manager. Choose existing ingredients or ask an inventory manager to save them.</article>}
               <div className="compact-list">
-                {draft.ingredients.length === 0 && <p>No new ingredient drafts.</p>}
+                {draft.ingredients.length === 0 && <p>No new ingredients found.</p>}
                 {draft.ingredients.map((ingredient, index) => (
                   <div className="row-card import-edit-row" key={ingredient.id}>
                     <label className="checkline"><input type="checkbox" checked={ingredient.selected !== false} onChange={(event) => updateIngredient(index, { selected: event.target.checked })} /> {ingredient.name}</label>
@@ -2521,28 +2529,28 @@ function ImportWorkbench({ user, currentRoute, setPage, notify, reloadData }: { 
                 ))}
               </div>
             </Section>
-            <Section title="Supplier & Conversion Drafts">
+            <Section title="Suppliers and Conversions Found">
               <div className="compact-list">
-                {draft.suppliers.map((supplier) => <div className="row-card" key={supplier.id}><span>{supplier.name}<small>{supplier.email || supplier.phone || "No contact captured"}</small></span><Badge tone={confidenceTone(supplier.confidence)}>{supplier.confidence}</Badge></div>)}
-                {draft.conversionRules.map((rule) => <div className="row-card" key={rule.id}><span>{rule.ingredientName}<small>1 {rule.fromUnit} = {rule.conversionFactor}{rule.toUnit}</small></span><Badge tone={rule.needsReview ? "warning" : "success"}>{rule.needsReview ? "Resolve ingredient" : "Ready"}</Badge></div>)}
-                {draft.suppliers.length === 0 && draft.conversionRules.length === 0 && <p>No supplier or conversion rows detected.</p>}
+                {draft.suppliers.map((supplier) => <div className="row-card" key={supplier.id}><span>{supplier.name}<small>{supplier.email || supplier.phone || "No contact captured"}</small></span><Badge tone={confidenceTone(supplier.confidence)}>{importStatusLabel(supplier.confidence)}</Badge></div>)}
+                {draft.conversionRules.map((rule) => <div className="row-card" key={rule.id}><span>{rule.ingredientName}<small>1 {rule.fromUnit} = {rule.conversionFactor}{rule.toUnit}</small></span><Badge tone={rule.needsReview ? "warning" : "success"}>{rule.needsReview ? "Choose ingredient" : "Ready"}</Badge></div>)}
+                {draft.suppliers.length === 0 && draft.conversionRules.length === 0 && <p>No suppliers or conversions found.</p>}
               </div>
             </Section>
           </div>
           {templateDraftCount > 0 && (
-            <Section title="Customer & Order Templates">
-              <article className="warning-card"><AlertTriangle size={20} /> Customer and order templates are detected for onboarding review. Active order creation stays manual in this phase so imported setup data cannot reserve or deduct stock unexpectedly.</article>
+            <Section title="Customers and Orders Found">
+              <article className="warning-card"><AlertTriangle size={20} /> Customers and order examples were found. They are shown here for review, but live orders are not created from them yet, so stock will not change unexpectedly.</article>
               <div className="compact-list">
                 {draft.customerTemplates?.map((template) => (
                   <div className="row-card" key={template.id}>
                     <span>{template.customerName || "Unnamed customer"}<small>{template.email || template.phone || sourceEvidenceLabel(template.source)}</small></span>
-                    <Badge tone={confidenceTone(template.confidence)}>{template.confidence}</Badge>
+                    <Badge tone={confidenceTone(template.confidence)}>{importStatusLabel(template.confidence)}</Badge>
                   </div>
                 ))}
                 {draft.orderTemplates?.map((template) => (
                   <div className="row-card" key={template.id}>
                     <span>{template.customerName || "Order template"}<small>{[template.productName || template.recipeName, template.dueDate, template.requestedYieldQuantity ? `${template.requestedYieldQuantity} ${template.yieldUnit || "units"}` : ""].filter(Boolean).join(" | ") || sourceEvidenceLabel(template.source)}</small></span>
-                    <Badge tone={confidenceTone(template.confidence)}>{template.confidence}</Badge>
+                    <Badge tone={confidenceTone(template.confidence)}>{importStatusLabel(template.confidence)}</Badge>
                   </div>
                 ))}
               </div>
