@@ -8,7 +8,7 @@ Phase 006 Recipe Import Onboarding is implemented, pushed, deployed, and product
 
 ## Completed
 
-- Local `main` is synced with GitHub `origin/main` through the Phase 006 implementation/deployment commit `a862c50` before final verification-doc updates.
+- Local `main` is synced with GitHub `origin/main` through final Phase 006 verification-doc commit `f448c9d`; the Phase 006 implementation/deployment commit was `a862c50`.
 - Phase 001 Live Audit Production Readiness was implemented and production-smoke verified.
 - Phase 002 Rerun Blocker Fixes was implemented and production-smoke verified; the follow-up external audit rerun scored `96/100`.
 - Phase 003 Pastry Formula Depth was implemented, pushed, deployed, and production-smoke verified.
