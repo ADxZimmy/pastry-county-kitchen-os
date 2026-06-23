@@ -1,10 +1,10 @@
 # Pastry County Kitchen OS - New Chat Context
 
 Last updated: 2026-06-23
-Repo: `F:\Pastry County Kitchen OS`
+Repo: `C:\Users\PC\Documents\Nitech\Personal\Pastry County Kitchen OS`
 Live app: `https://pastry-county-kitchen-os.vercel.app`
 Current local branch at time of this map: `main`
-Current local commit: run `git rev-parse --short HEAD` in the repo; this file is updated through Phase 005 implementation.
+Current local commit: run `git rev-parse --short HEAD`; Phase 006 implementation/deployment commit was `a862c50`.
 
 Use this file when starting a fresh chat context. It maps what the app is, where the important code lives, what has already been verified, and which docs are authoritative when older planning notes disagree.
 
@@ -16,10 +16,11 @@ Start with these files in this order:
 2. `docs/new-chat-context.md` for this whole-codebase map.
 3. `.planning/STATE.md` for the latest work status.
 4. `docs/audit-handoff.md` for the latest external-audit handoff.
-5. `.planning/phases/006-recipe-import-onboarding/PLAN.md` for the planned import/onboarding work.
-6. `.planning/phases/005-navigation-routing-overhaul/VERIFICATION.md` for the completed navigation/routing verification.
-7. `.planning/phases/004-pastry-costing-qc-compliance/VERIFICATION.md` for the latest completed Phase 004 verification.
-8. `docs/certification/README.md` for the separate 100/100 certification evidence track.
+5. `.planning/phases/006-recipe-import-onboarding/VERIFICATION.md` for the completed import/onboarding verification.
+6. `.planning/phases/006-recipe-import-onboarding/PLAN.md` for the import/onboarding requirements.
+7. `.planning/phases/005-navigation-routing-overhaul/VERIFICATION.md` for the completed navigation/routing verification.
+8. `.planning/phases/004-pastry-costing-qc-compliance/VERIFICATION.md` for the latest completed Phase 004 verification.
+9. `docs/certification/README.md` for the separate 100/100 certification evidence track.
 
 Important repository rule: after any local code or documentation change in this repo, commit and push before ending the turn unless the user explicitly says not to. Deployment-triggering commits should use the repo owner identity:
 
@@ -37,9 +38,9 @@ After that, product-depth work continued:
 
 - Phase 003 Pastry Formula Depth was implemented, pushed, deployed, and production-smoke verified.
 - Phase 004 Pastry Costing, QC, and Compliance Depth was implemented, pushed, deployed, and production-smoke verified.
-- The umbrella `npm run smoke:live-audit` was updated to run Phase 002, Milestone 7, regression audit, Phase 003, Phase 004, and navigation-routing smoke coverage, and it passed against production after Phase 005.
+- The umbrella `npm run smoke:live-audit` now runs Phase 002, Milestone 7, regression audit, Phase 003, Phase 004, navigation-routing, and import-onboarding smoke coverage, and it passed against production after Phase 006.
 - Phase 005 Navigation And Routing Overhaul was implemented, pushed, deployed, and production-smoke verified. The former page-per-action risk is now corrected with route-aware hierarchy, direct record links, Back/Breadcrumb controls, contextual form exits, mobile nav cleanup, unsaved-change guards, and navigation smoke coverage.
-- Phase 006 Recipe Import Onboarding is implemented locally and pending production smoke verification. It adds a review-first import pipeline for pasted text, CSV/TSV, XLSX, DOCX, text PDFs, and provider-backed image/scanned/legacy files, with support for recipes, costing rows, ingredient masters, suppliers, conversion rules, and source traceability.
+- Phase 006 Recipe Import Onboarding was implemented, pushed, deployed, and production-smoke verified on commit `a862c50`. It adds a review-first import pipeline for pasted text, CSV/TSV, XLSX, DOCX, text PDFs, and provider-backed image/scanned/legacy files, with support for recipes, costing rows, ingredient masters, suppliers, conversion rules, customer/order-template previews, and source traceability.
 
 The app is not yet claimable as `100/100` because certification evidence still needs external email DNS/operator sign-offs, backup/restore or rollback drills, and other manual evidence. That is a certification evidence gap, not a current product-depth blocker.
 
@@ -83,6 +84,7 @@ Pages in `src/App.tsx`:
 - `welcome`
 - `login`
 - `dashboard`
+- `imports`
 - `recipes`
 - `recipe-detail`
 - `recipe-form`
@@ -139,6 +141,7 @@ Important backend files:
 - `api/_auth.js`: HMAC session token creation/verification, active-session and revocation checks.
 - `api/_db.js`: Neon connection, error response helper, live schema drift repair, snapshot loader.
 - `api/_actions.js`: mutation action router, normalization helpers, permissions, audit writing, production logic, shopping persistence, email guards.
+- `api/_imports.js`: Phase 006 import extraction and normalization for pasted text, CSV/TSV, XLSX, DOCX, text PDF, provider-backed image/scanned/legacy files, customer/order-template previews, confidence/warning/source evidence, and deterministic OCR mock coverage for tests.
 - `api/_rateLimit.js`: in-memory rate-limit buckets for login/actions.
 - `api/bootstrap.js`: authenticated snapshot loader and role-based snapshot filtering.
 - `api/actions.js`: API wrapper around `handleAction`.
@@ -258,6 +261,11 @@ Conversions:
 - `conversion.verify`
 - `conversion.delete`
 
+Imports:
+
+- `import.extract`
+- `import.commit`
+
 Settings/staff/notifications:
 
 - `settings.save`
@@ -294,18 +302,21 @@ Smoke/audit scripts:
 - `npm run smoke:phase3-pastry`: live checks for formula metadata, prep state, egg scaling, exports, reload behavior.
 - `npm run smoke:phase4-pastry-depth`: live checks for allergen/storage/cost/scoped conversion/QC fields and production completion with QC.
 - `npm run smoke:navigation-routing`: live navigation/routing smoke for durable record links, form exits, unsaved-change guard, return context, and five-item mobile nav.
-- `npm run smoke:live-audit`: umbrella live audit smoke. As of Phase 005 it runs Phase 002, Milestone 7, regression audit, Phase 003, Phase 004, and navigation routing smoke suites.
+- `npm run smoke:import-onboarding`: live import smoke for `import.extract`, `import.commit`, source evidence reload, mobile import page overflow, CSV template visibility, and cleanup.
+- `npm run smoke:live-audit`: umbrella live audit smoke. As of Phase 006 it runs Phase 002, Milestone 7, regression audit, Phase 003, Phase 004, navigation routing, and import onboarding smoke suites.
 - `npm run audit:reconcile-fefo`: checks/fixes FEFO overstatements.
 
-Current verified snapshot from `.planning/STATE.md` and Phase 004 verification:
+Current verified snapshot from `.planning/STATE.md` and Phase 006 verification:
 
-- `npm.cmd test`: passed, 65 tests after Phase 004.
+- `npm.cmd test`: passed, 75 tests after Phase 006.
 - `npm.cmd run build`: passed.
 - `node --check scripts/phase4-pastry-depth-smoke.mjs`: passed.
 - `git diff --check`: passed before Phase 004 commits and smoke hardening.
 - `npm.cmd run smoke:phase4-pastry-depth`: passed against production.
-- `npm.cmd run smoke:live-audit`: passed against production after Phase 005.
+- `npm.cmd run smoke:import-onboarding`: passed against production after Phase 006; temporary import recipe was archived.
+- `npm.cmd run smoke:live-audit`: passed against production after Phase 006.
 - Phase 005 navigation routing: implemented under `.planning/phases/005-navigation-routing-overhaul/`, including `NAVIGATION-INVENTORY.md`, and production-smoke verified.
+- Phase 006 import onboarding: implemented under `.planning/phases/006-recipe-import-onboarding/` and production-smoke verified.
 
 Use the live deployment for browser smoke tests when local env vars are unavailable. Read live test credentials only from ignored `.env.local`.
 
@@ -361,11 +372,13 @@ The importer preserves source workbook metadata in recipe item prep state fields
 
 ## Backlog / Next Likely Work
 
-- Run a fresh external audit against the current production deployment if the user wants independent validation of Phase 005.
+- Run a fresh external audit against the current production deployment if the user wants independent validation after Phase 006.
+- Configure and verify the OCR/vision provider for production camera/photo/scanned imports, including cost and data-retention review.
+- Scope a future direct order-import/order-template phase if the owner wants imported order rows to create active orders instead of preview-only onboarding data.
 - Close the separate 100/100 certification evidence pack: email DNS/SPF/DKIM/DMARC proof, controlled email delivery, keyboard and screen-reader sign-off, backup/restore drill, rollback drill, monitoring/incident owner evidence.
 - Resolve stale planning/milestone docs if the user wants docs cleaned up beyond this map.
 - Finish any remaining personal/user-specific changes the owner had pending.
 
 ## Quick Orientation Summary
 
-This is a strong, late-stage bakery operations app. The 95+ release gate has been cleared (`96/100` after Phase 002), Phase 003/004 pastry-depth work is live-smoke verified, and Phase 005 corrected the navigation architecture. Future changes should be conservative, audited, route-aware, role-aware, tested locally, and smoke-tested against production when they touch live workflows.
+This is a strong, late-stage bakery operations app. The 95+ release gate has been cleared (`96/100` after Phase 002), Phase 003/004 pastry-depth work is live-smoke verified, Phase 005 corrected the navigation architecture, and Phase 006 added live-verified import onboarding. Future changes should be conservative, audited, route-aware, role-aware, tested locally, and smoke-tested against production when they touch live workflows.

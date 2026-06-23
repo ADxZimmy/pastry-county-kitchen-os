@@ -20,15 +20,19 @@
 
 - Command: `npm.cmd test`
   Result: Passed.
-  Notes: 73 tests across 5 files, including import parser fixtures, import role checks, route coverage, and source-evidence normalization.
+  Notes: 75 tests across 5 files, including import parser fixtures, mixed onboarding classification, deterministic OCR mock coverage, import role checks, route coverage, and source-evidence normalization.
 
 - Command: `npm.cmd run build`
   Result: Passed.
-  Notes: TypeScript and Vite production build completed with `dist/assets/index-DezPnYrX.js` and `dist/assets/index-FK1uhjW1.css`.
+  Notes: TypeScript and Vite production build completed after the final hardening pass with `dist/assets/index-aGRKWlxT.js` and `dist/assets/index-FK1uhjW1.css`.
 
 - Command: `npm.cmd run smoke:import-onboarding`
-  Result: Not run yet.
-  Notes: Requires the pushed deployment to include the new `import.extract` and `import.commit` actions.
+  Result: Passed.
+  Notes: Passed against `https://pastry-county-kitchen-os.vercel.app` on deployed commit `a862c50`. The smoke imported a safe sample recipe/costing text, verified source-line amount/source-file metadata after bootstrap reload, verified the mobile import page at 390px with no horizontal overflow, then archived temporary recipe `rec-import-1782238366005-qz6wzz`.
+
+- Command: `npm.cmd run smoke:live-audit`
+  Result: Passed.
+  Notes: Passed against production after Phase 006 deployment. The umbrella smoke ran Phase 2 rerun, Milestone 7, regression audit, Phase 3, Phase 4, navigation routing, and import onboarding. The nested import smoke archived temporary recipe `rec-import-1782238524706-q203ib`.
 
 ## Manual Checks
 
@@ -41,16 +45,16 @@
   Notes: Guidance favored operations-oriented, compact, clear-progress flows over marketing-style onboarding screens.
 
 - Check: Implementation scope.
-  Result: Passed locally for the first production-ready slice.
-  Notes: Added import routes, navigation entry points, review UI, deterministic text/CSV/TSV/XLSX/DOCX/text-PDF extraction, optional OCR/vision provider path for image/scanned/legacy files, import commit/audit flow, source metadata preservation, and targeted smoke coverage.
+  Result: Passed and deployed.
+  Notes: Added import routes, page-specific import entry points from Recipes, Inventory, Costing, Conversions, and More/desktop nav, review UI, deterministic text/CSV/TSV/XLSX/DOCX/text-PDF extraction, optional OCR/vision provider path plus deterministic test mock for image/scanned/legacy files, preview detection for customer/order templates, import commit/audit flow, source metadata preservation, and targeted production smoke coverage.
 
 ## Residual Risk
 
 - Risk: OCR/vision provider behavior still needs live environment configuration and cost/data-retention review.
-  Owner: Phase implementation.
-
-- Risk: `npm.cmd run smoke:import-onboarding` must pass against production after deployment before the phase is considered live-verified.
-  Owner: Phase verification.
+  Owner: Product/ops configuration.
 
 - Risk: The local deterministic parser handles `.xlsx`, `.docx`, text PDFs, CSV/TSV, and pasted text. Legacy `.xls`, legacy `.doc`, and camera/image extraction require `OPENAI_API_KEY`/provider configuration or user-provided extracted text.
   Owner: Product/ops configuration.
+
+- Risk: Customer/order template rows are detected and previewed, but active order creation remains manual in this phase to avoid accidental stock reservation or deduction.
+  Owner: Future onboarding/order-template phase if the business wants direct order import.

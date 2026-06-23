@@ -4,7 +4,7 @@
 
 - Phase: 006 Recipe Import Onboarding
   Outcome: Let businesses import existing recipes, costing sheets, ingredient masters, suppliers, and conversion references from text, spreadsheets, PDFs, Word documents, and images through a review-first import pipeline.
-  Status: Implemented locally; pending push, deployment, and production smoke.
+  Status: Complete, pushed, deployed, and production-smoke verified on commit `a862c50`.
 
 ## Next
 
@@ -15,7 +15,7 @@
 ## Later
 
 - Phase: Fresh External Audit Rerun
-  Outcome: Re-run the full external audit against production after Phase 005 and the selected onboarding work, so the 95+ baseline is checked against the current product model.
+  Outcome: Re-run the full external audit against production after Phase 006, so the 95+ baseline is checked against the current product model.
   Status: Pending user request.
 
 - Phase: Post-audit polish

@@ -6,7 +6,7 @@ User pastes a handwritten-style text recipe into Import, reviews parsed ingredie
 
 ## Result
 
-Covered by automated parser tests locally; browser UAT not yet run.
+Passed through automated parser coverage and production smoke. `npm.cmd run smoke:import-onboarding` imported a pasted recipe/costing sample, committed it, verified the recipe detail/source evidence after reload, checked the mobile import page at 390px, and archived the temporary recipe.
 
 ## Notes
 
@@ -18,7 +18,7 @@ User uploads an Excel/CSV costing sheet with recipe names, ingredient lines, pac
 
 ## Result
 
-Covered for CSV-style costing rows by automated parser tests locally; live smoke pending deployment.
+Covered for CSV-style costing rows by automated parser tests and for source-cost preservation by production smoke. The live smoke verified `prepState.sourceLineAmount` and `prepState.sourceFile` after import/reload.
 
 ## Notes
 
@@ -30,7 +30,7 @@ User takes a phone photo of a recipe/costing page, the app extracts text/table s
 
 ## Result
 
-Not run.
+Provider path implemented and deterministic OCR mock covered by automated tests. Live camera OCR quality is not claimed until `OPENAI_API_KEY`/provider configuration and cost/data-retention review are completed.
 
 ## Notes
 
@@ -43,7 +43,7 @@ User uploads a workbook with Ingredients, Suppliers, Recipes, and Conversions sh
 
 ## Result
 
-Covered for mixed CSV classification by automated parser tests locally; full workbook UAT pending live smoke.
+Covered for mixed CSV classification by automated parser tests, including recipes, ingredients, suppliers, conversions, customer templates, and order templates. XLSX/DOCX/text-PDF extraction paths are implemented through parser dependencies; direct live workbook-file smoke remains a useful follow-up demo check, but production import commit smoke has passed.
 
 ## Notes
 

@@ -4,11 +4,11 @@ Last updated: 2026-06-23
 
 ## Current Focus
 
-Phase 006 Recipe Import Onboarding is implemented locally and awaiting production deployment/smoke verification. The app now has a review-first import pipeline for recipes, costing rows, ingredient masters, suppliers, conversions, and source traceability.
+Phase 006 Recipe Import Onboarding is implemented, pushed, deployed, and production-smoke verified. The app now has a review-first import pipeline for recipes, costing rows, ingredient masters, suppliers, conversions, customer/order-template preview data, and source traceability.
 
 ## Completed
 
-- Local `main` is synced with GitHub `origin/main` through Phase 005 verification commit `7ef097d`.
+- Local `main` is synced with GitHub `origin/main` through the Phase 006 implementation/deployment commit `a862c50` before final verification-doc updates.
 - Phase 001 Live Audit Production Readiness was implemented and production-smoke verified.
 - Phase 002 Rerun Blocker Fixes was implemented and production-smoke verified; the follow-up external audit rerun scored `96/100`.
 - Phase 003 Pastry Formula Depth was implemented, pushed, deployed, and production-smoke verified.
@@ -19,10 +19,12 @@ Phase 006 Recipe Import Onboarding is implemented locally and awaiting productio
 - Source-checked parser options: OpenAI file inputs/vision/structured outputs, Azure Document Intelligence, Google Document AI, and Amazon Textract.
 - Implemented Phase 006 local scope: `#imports` route, Import nav entry, paste/file intake, CSV template, draft review UI, deterministic import parser, backend `import.extract`/`import.commit`, import batch audit records, source evidence preservation, tests, and `smoke:import-onboarding`.
 - Added parser dependencies `read-excel-file`, `mammoth`, and `pdf-parse`; `exceljs` was rejected and removed after audit showed a vulnerable transitive `uuid`.
+- Pushed Phase 006 through commits `4ac395f` and `a862c50`; Vercel deployment for `a862c50` succeeded.
+- Production-smoke verified Phase 006 with `npm.cmd run smoke:import-onboarding` and the umbrella `npm.cmd run smoke:live-audit`.
 
 ## In Progress
 
-- Phase 006 needs commit/push and production smoke verification after deployment.
+- No active Phase 006 implementation work remains. The next product track is the separate certification evidence closeout unless the owner wants a deeper OCR/provider or direct order-import phase.
 
 ## Blocked
 
@@ -31,7 +33,7 @@ Phase 006 Recipe Import Onboarding is implemented locally and awaiting productio
 
 ## Next Action
 
-Commit and push Phase 006, wait for deployment, then run `npm.cmd run smoke:import-onboarding` against production.
+Start Certification Evidence Closeout, or scope a follow-up OCR/provider-quality and direct order-template import phase if the business wants active order creation from uploaded files.
 
 ## Verification Snapshot
 
@@ -42,6 +44,12 @@ Commit and push Phase 006, wait for deployment, then run `npm.cmd run smoke:impo
 - Command/check: `npm.cmd audit --audit-level=moderate`
   Result: Passed; zero vulnerabilities.
 - Command/check: `npm.cmd test`
-  Result: Passed; 73 tests across 5 files.
+  Result: Passed; 75 tests across 5 files.
 - Command/check: `npm.cmd run build`
   Result: Passed; TypeScript and Vite production build completed.
+- Command/check: Vercel commit status for `a862c50`
+  Result: Passed; Vercel deployment status was `success`.
+- Command/check: `npm.cmd run smoke:import-onboarding`
+  Result: Passed against production; temporary import recipe `rec-import-1782238366005-qz6wzz` archived.
+- Command/check: `npm.cmd run smoke:live-audit`
+  Result: Passed against production; included the Phase 006 import smoke and archived temporary import recipe `rec-import-1782238524706-q203ib`.
