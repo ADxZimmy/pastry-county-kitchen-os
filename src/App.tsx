@@ -2455,7 +2455,7 @@ function ImportWorkbench({ user, currentRoute, setPage, notify, reloadData }: { 
             <Field label="Import file">
               <input type="file" accept=".csv,.tsv,.txt,.md,.xlsx,.docx,.pdf,.jpg,.jpeg,.png,.webp,.heic,.xls,.doc" onChange={(event) => setFile(event.target.files?.[0] ?? null)} />
             </Field>
-            <small>{file ? `${file.name} | ${(file.size / 1024).toFixed(1)} KB` : "Choose a spreadsheet, document, PDF, or photo. Photos and scanned pages can be read when photo reading is turned on for this workspace."}</small>
+            <small>{file ? `${file.name} | ${(file.size / 1024).toFixed(1)} KB` : "Choose a spreadsheet, document, PDF, or photo. If a photo is hard to read, paste the text instead."}</small>
           </div>
         )}
         {!canImport && <article className="warning-card"><AlertTriangle size={22} /> Your current role can view imports but cannot add or save imported data.</article>}
