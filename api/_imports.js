@@ -137,6 +137,11 @@ function rowsToObjects(rows, source) {
     "ingredient",
     "ingredient name",
     "supplier",
+    "customer",
+    "customer name",
+    "client",
+    "client name",
+    "due date",
     "from unit",
     "to unit",
     "conversion factor"
@@ -226,12 +231,16 @@ function emptyDraft(source) {
     ingredients: [],
     suppliers: [],
     conversionRules: [],
+    customerTemplates: [],
+    orderTemplates: [],
     warnings: [],
     counts: {
       recipes: 0,
       ingredients: 0,
       suppliers: 0,
       conversionRules: 0,
+      customerTemplates: 0,
+      orderTemplates: 0,
       reviewItems: 0
     }
   };
@@ -252,11 +261,13 @@ function finalizeDraft(draft) {
     ingredients: draft.ingredients.length,
     suppliers: draft.suppliers.length,
     conversionRules: draft.conversionRules.length,
+    customerTemplates: draft.customerTemplates.length,
+    orderTemplates: draft.orderTemplates.length,
     reviewItems: draft.recipes.reduce((sum, recipe) => sum + (recipe.reviewCount ?? 0), 0)
       + draft.ingredients.filter((item) => item.confidence !== "High").length
       + draft.conversionRules.filter((item) => item.confidence !== "High").length
   };
-  if (!draft.counts.recipes && !draft.counts.ingredients && !draft.counts.suppliers && !draft.counts.conversionRules) {
+  if (!draft.counts.recipes && !draft.counts.ingredients && !draft.counts.suppliers && !draft.counts.conversionRules && !draft.counts.customerTemplates && !draft.counts.orderTemplates) {
     draft.warnings.push("No importable records were detected. Try a CSV template, clearer headings, or paste the recipe text.");
   }
   return draft;
@@ -360,6 +371,10 @@ function buildDraftFromObjectRows(objectRows, source, context = {}) {
     const toUnit = cleanText(getValue(row, ["to unit", "to"]));
     const factor = parseNumber(getValue(row, ["conversion factor", "factor", "value"]), 0);
     const instruction = cleanText(getValue(row, ["instruction", "instructions", "method step", "step"]));
+    const customerName = cleanText(getValue(row, ["customer", "customer name", "client", "client name"]));
+    const customerEmail = cleanText(getValue(row, ["customer email", "client email", "email"]));
+    const customerPhone = cleanText(getValue(row, ["customer phone", "client phone", "phone", "telephone"]));
+    const dueDate = cleanText(getValue(row, ["due date", "event date", "delivery date", "order date"]));
 
     if (recordType.includes("supplier") || (supplierName && !recipeName && !ingredientName && !fromUnit)) {
       if (!findSupplier(supplierName, context) && !draft.suppliers.some((item) => normalizeKey(item.name) === normalizeKey(supplierName))) {
@@ -377,6 +392,39 @@ function buildDraftFromObjectRows(objectRows, source, context = {}) {
           source: span
         });
       }
+      continue;
+    }
+
+    if (recordType.includes("customer") || (customerName && !recordType.includes("order") && !recipeName && !ingredientName && !supplierName && !fromUnit)) {
+      draft.customerTemplates.push({
+        id: `draft-customer-${draft.customerTemplates.length + 1}`,
+        customerName,
+        email: customerEmail,
+        phone: customerPhone,
+        notes: cleanText(getValue(row, ["notes", "customer notes", "client notes"])),
+        confidence: customerName ? "High" : "Low",
+        source: span
+      });
+      continue;
+    }
+
+    if (recordType.includes("order")) {
+      const productName = cleanText(getValue(row, ["product", "product name", "order item", "item"], recipeName));
+      draft.orderTemplates.push({
+        id: `draft-order-${draft.orderTemplates.length + 1}`,
+        customerName,
+        customerPhone,
+        customerEmail,
+        dueDate,
+        productName,
+        recipeName: recipeName || productName,
+        requestedYieldQuantity: parseNumber(getValue(row, ["requested yield quantity", "order quantity", "quantity", "qty"]), 1),
+        yieldUnit: cleanText(getValue(row, ["yield unit", "unit"], "pieces")) || "pieces",
+        deliveryMethod: cleanText(getValue(row, ["delivery method"], "Pickup")) || "Pickup",
+        notes: cleanText(getValue(row, ["notes", "order notes"])),
+        confidence: customerName && (recipeName || productName) ? "Medium" : "Low",
+        source: span
+      });
       continue;
     }
 
@@ -531,6 +579,11 @@ async function parsePdf(buffer, source, context) {
 }
 
 async function parseWithOpenAiProvider({ buffer, base64, source, context }) {
+  if (process.env.IMPORT_MOCK_PROVIDER_TEXT) {
+    const draft = parsePlainText(process.env.IMPORT_MOCK_PROVIDER_TEXT, source, context);
+    draft.warnings.push("OCR/vision mock provider used for deterministic import verification.");
+    return finalizeDraft(draft);
+  }
   if (!process.env.OPENAI_API_KEY) {
     const draft = emptyDraft(source);
     draft.warnings.push(`${source.extension?.toUpperCase() || "This"} import needs OCR/vision extraction. Configure OPENAI_API_KEY or paste extracted text/CSV for now.`);

@@ -247,6 +247,32 @@ export interface ImportDraftConversionRule {
   source?: ImportSourceSpan;
 }
 
+export interface ImportDraftCustomerTemplate {
+  id: string;
+  customerName: string;
+  email?: string;
+  phone?: string;
+  notes?: string;
+  confidence: "High" | "Medium" | "Low";
+  source?: ImportSourceSpan;
+}
+
+export interface ImportDraftOrderTemplate {
+  id: string;
+  customerName?: string;
+  customerPhone?: string;
+  customerEmail?: string;
+  dueDate?: string;
+  productName?: string;
+  recipeName?: string;
+  requestedYieldQuantity?: number;
+  yieldUnit?: string;
+  deliveryMethod?: string;
+  notes?: string;
+  confidence: "High" | "Medium" | "Low";
+  source?: ImportSourceSpan;
+}
+
 export interface ImportDraft {
   parserVersion: string;
   source: { name: string; type: string; mimeType?: string; extension?: string };
@@ -254,12 +280,16 @@ export interface ImportDraft {
   ingredients: ImportDraftIngredient[];
   suppliers: ImportDraftSupplier[];
   conversionRules: ImportDraftConversionRule[];
+  customerTemplates: ImportDraftCustomerTemplate[];
+  orderTemplates: ImportDraftOrderTemplate[];
   warnings: string[];
   counts: {
     recipes: number;
     ingredients: number;
     suppliers: number;
     conversionRules: number;
+    customerTemplates?: number;
+    orderTemplates?: number;
     reviewItems: number;
   };
 }

@@ -928,12 +928,19 @@ async function commitImportDraft(sql, draft, actor) {
     `);
   }
 
+  const committedCount = createdRecipes.length + createdIngredients.length + createdSuppliers.length + createdConversions.length;
+  const selectedCount = supplierDrafts.length + ingredientDrafts.length + recipeDrafts.length + conversionDrafts.length;
+  if (!selectedCount) throw Object.assign(new Error("No selected import records were ready to commit."), { statusCode: 400 });
+  if (!committedCount) {
+    const reason = skipped[0]?.reason ? ` ${skipped[0].reason}` : "";
+    throw Object.assign(new Error(`No import records were committed.${reason}`), { statusCode: 400, details: skipped });
+  }
+
   statements.push((txn) => txn`
     insert into import_batches (id, source_name, source_type, parser_version, actor, status, summary, warnings)
     values (${importBatchId}, ${sourceName}, ${source.type || "import"}, ${draft.parserVersion || importParserVersion()}, ${actorLabel}, 'committed', ${JSON.stringify({ createdRecipes, createdIngredients, createdSuppliers, createdConversions, skipped })}::jsonb, ${JSON.stringify(warnings)}::jsonb)
   `);
 
-  if (!statements.length) throw Object.assign(new Error("No selected import records were ready to commit."), { statusCode: 400 });
   await sql.transaction((txn) => statements.map((statement) => statement(txn)));
   await audit(sql, "import_batches", importBatchId, "commit", null, { sourceName, createdRecipes, createdIngredients, createdSuppliers, createdConversions, skipped, warnings });
   return { ok: true, importBatchId, createdRecipes, createdIngredients, createdSuppliers, createdConversions, skipped, warnings };

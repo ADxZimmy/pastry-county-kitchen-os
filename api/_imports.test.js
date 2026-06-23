@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseImportText } from "./_imports.js";
+import { extractImportDraft, parseImportText } from "./_imports.js";
 
 const context = {
   ingredients: [
@@ -81,10 +81,53 @@ describe("import draft parser", () => {
     expect(draft.conversionRules[0]).toMatchObject({ ingredientName: "Butter", fromUnit: "cup", toUnit: "g", conversionFactor: 227, needsReview: true });
   });
 
+  it("detects customer and order templates as preview-only onboarding data", () => {
+    const csv = [
+      "record_type,customer_name,customer_phone,email,recipe,product,due_date,quantity,yield_unit,notes",
+      "customer,Ada Bakery,08030000000,ada@example.com,,,,,VIP tasting account",
+      "order,Ada Bakery,08030000000,ada@example.com,Launch Brownies,Brownie Box,2026-07-18,24,pieces,Weekend pickup"
+    ].join("\n");
+
+    const draft = parseImportText(csv, { name: "customer-orders.csv", type: "csv", extension: "csv" }, context);
+
+    expect(draft.counts.customerTemplates).toBe(1);
+    expect(draft.counts.orderTemplates).toBe(1);
+    expect(draft.customerTemplates[0]).toMatchObject({ customerName: "Ada Bakery", email: "ada@example.com" });
+    expect(draft.orderTemplates[0]).toMatchObject({ customerName: "Ada Bakery", recipeName: "Launch Brownies", dueDate: "2026-07-18", requestedYieldQuantity: 24 });
+  });
+
+  it("uses a deterministic OCR mock for image imports", async () => {
+    const previousMock = process.env.IMPORT_MOCK_PROVIDER_TEXT;
+    process.env.IMPORT_MOCK_PROVIDER_TEXT = [
+      "Recipe: Photo Carrot Cake",
+      "Yield: 10 slices",
+      "Ingredients:",
+      "200 g flour",
+      "100 g sugar"
+    ].join("\n");
+    try {
+      const draft = await extractImportDraft({
+        source: {
+          name: "photo-recipe.png",
+          type: "image",
+          extension: "png",
+          mimeType: "image/png",
+          base64: Buffer.from("mock image bytes").toString("base64")
+        }
+      }, context);
+
+      expect(draft.counts.recipes).toBe(1);
+      expect(draft.recipes[0]).toMatchObject({ name: "Photo Carrot Cake", baseYieldQuantity: 10, yieldUnit: "slices" });
+      expect(draft.warnings).toContain("OCR/vision mock provider used for deterministic import verification.");
+    } finally {
+      if (previousMock === undefined) delete process.env.IMPORT_MOCK_PROVIDER_TEXT;
+      else process.env.IMPORT_MOCK_PROVIDER_TEXT = previousMock;
+    }
+  });
+
   it("flags duplicate recipe names for review before commit", () => {
     const draft = parseImportText("Recipe: Classic Brownies\nIngredients:\n300 g flour", { name: "duplicate.txt", type: "text" }, context);
     expect(draft.recipes[0].duplicateCandidates).toEqual([{ id: "recipe-classic", name: "Classic Brownies" }]);
     expect(draft.recipes[0].reviewCount).toBeGreaterThan(0);
   });
 });
-

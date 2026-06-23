@@ -876,11 +876,11 @@ function App() {
       case "imports":
         return <ImportWorkbench user={user} currentRoute={route} setPage={navigate} notify={notify} reloadData={() => loadKitchenData()} />;
       case "costing":
-        return <Costing />;
+        return <Costing setPage={navigate} />;
       case "ai":
         return <AiAssistant setPage={navigate} notify={notify} reloadData={() => loadKitchenData()} />;
       case "conversions":
-        return <ConversionLibrary user={user} notify={notify} askConfirm={askConfirm} reloadData={() => loadKitchenData()} />;
+        return <ConversionLibrary user={user} setPage={navigate} notify={notify} askConfirm={askConfirm} reloadData={() => loadKitchenData()} />;
       case "suppliers":
         return <Suppliers user={user} notify={notify} askConfirm={askConfirm} reloadData={() => loadKitchenData()} />;
       case "settings":
@@ -1307,7 +1307,7 @@ function Inventory({ user, setPage, setSelectedIngredientId, query, setQuery }: 
   });
   return (
     <>
-      <Toolbar query={query} setQuery={setQuery} placeholder="Search ingredients" action={<div className="button-row"><Button variant="secondary" onClick={() => exportCsv("pastry-county-inventory.csv", ["Ingredient", "Category", "Current Stock", "Reorder Level", "Base Unit", "Purchase Unit", "Latest Unit Cost", "Supplier", "Allergens", "Storage"], list.map((item) => [item.name, item.category, item.currentStock, item.reorderLevel, item.baseUnit, item.purchaseUnit ?? item.baseUnit, item.latestUnitCost, suppliers.find((supplier) => supplier.id === item.supplierId)?.name ?? "Unassigned", allergenSummary(item.allergenProfile), storageSummary(item.storageProfile)]))}>Export CSV</Button><Button onClick={() => { setSelectedIngredientId(""); setPage({ name: "inventory", mode: "new" }); }} disabled={!canUser(user, "manageInventory")}><Plus size={18} /> Add Ingredient</Button></div>} />
+      <Toolbar query={query} setQuery={setQuery} placeholder="Search ingredients" action={<div className="button-row"><Button variant="secondary" onClick={() => exportCsv("pastry-county-inventory.csv", ["Ingredient", "Category", "Current Stock", "Reorder Level", "Base Unit", "Purchase Unit", "Latest Unit Cost", "Supplier", "Allergens", "Storage"], list.map((item) => [item.name, item.category, item.currentStock, item.reorderLevel, item.baseUnit, item.purchaseUnit ?? item.baseUnit, item.latestUnitCost, suppliers.find((supplier) => supplier.id === item.supplierId)?.name ?? "Unassigned", allergenSummary(item.allergenProfile), storageSummary(item.storageProfile)]))}>Export CSV</Button><Button variant="secondary" onClick={() => setPage({ name: "imports", returnTo: { name: "inventory" } })} disabled={!canUser(user, "manageImports")}><Upload size={18} /> Import</Button><Button onClick={() => { setSelectedIngredientId(""); setPage({ name: "inventory", mode: "new" }); }} disabled={!canUser(user, "manageInventory")}><Plus size={18} /> Add Ingredient</Button></div>} />
       <Chips items={categories} active={filter} setActive={setFilter} />
       <ResponsiveTable
         headers={["Ingredient", "Category", "Current Stock", "Reorder", "Latest Cost", "Status"]}
@@ -1604,7 +1604,7 @@ function Recipes({ setPage, setSelectedRecipeId, query, setQuery }: any) {
   const list = recipes.filter((recipe) => (filter === "All" || recipe.category === filter) && recipe.name.toLowerCase().includes(query.toLowerCase()));
   return (
     <>
-      <Toolbar query={query} setQuery={setQuery} placeholder="Search recipes" action={<div className="button-row"><Button variant="secondary" onClick={() => exportCsv("pastry-county-recipes.csv", ["Recipe", "Category", "Base Yield", "Yield Unit", "Product Family", "Pan Profile", "Oven", "Bake Time", "Ingredient Subtotal", "Non-Ingredient Cost", "Batch Cost", "Cost Per Unit"], list.map((recipe) => { const cost = calculateRecipeCost(recipe.id, recipe.baseYieldQuantity); const formula = recipe.formulaMetadata ?? {}; return [recipe.name, recipe.category, recipe.baseYieldQuantity, recipe.yieldUnit, formula.productFamily ?? "", formula.panProfile ?? "", formula.ovenTemperature ?? "", formula.bakeTimeRange ?? "", cost.ingredientSubtotal, cost.nonIngredientCost, cost.totalRecipeCost, cost.costPerYieldUnit]; }))}>Export CSV</Button><Button onClick={() => { setSelectedRecipeId(""); setPage({ name: "recipes", mode: "new" }); }}><Plus size={18} /> Add Recipe</Button></div>} />
+      <Toolbar query={query} setQuery={setQuery} placeholder="Search recipes" action={<div className="button-row"><Button variant="secondary" onClick={() => exportCsv("pastry-county-recipes.csv", ["Recipe", "Category", "Base Yield", "Yield Unit", "Product Family", "Pan Profile", "Oven", "Bake Time", "Ingredient Subtotal", "Non-Ingredient Cost", "Batch Cost", "Cost Per Unit"], list.map((recipe) => { const cost = calculateRecipeCost(recipe.id, recipe.baseYieldQuantity); const formula = recipe.formulaMetadata ?? {}; return [recipe.name, recipe.category, recipe.baseYieldQuantity, recipe.yieldUnit, formula.productFamily ?? "", formula.panProfile ?? "", formula.ovenTemperature ?? "", formula.bakeTimeRange ?? "", cost.ingredientSubtotal, cost.nonIngredientCost, cost.totalRecipeCost, cost.costPerYieldUnit]; }))}>Export CSV</Button><Button variant="secondary" onClick={() => setPage({ name: "imports", returnTo: { name: "recipes" } })}><Upload size={18} /> Import</Button><Button onClick={() => { setSelectedRecipeId(""); setPage({ name: "recipes", mode: "new" }); }}><Plus size={18} /> Add Recipe</Button></div>} />
       <Chips items={categories} active={filter} setActive={setFilter} />
       <div className="card-grid">
         {list.map((recipe) => {
@@ -2354,6 +2354,8 @@ function ImportWorkbench({ user, currentRoute, setPage, notify, reloadData }: { 
   const canImport = canUser(user, "manageImports");
   const inventoryImportAllowed = canUser(user, "manageInventory");
   const recipeImportAllowed = canUser(user, "manageRecipes");
+  const conversionImportAllowed = canUser(user, "manageConversions");
+  const canCommitImport = canImport && (inventoryImportAllowed || recipeImportAllowed || conversionImportAllowed);
   const updateDraft = (updater: (draft: ImportDraft) => ImportDraft) => setDraft((current) => current ? updater(structuredClone(current)) : current);
   const extract = async () => {
     if (!canImport) {
@@ -2409,6 +2411,8 @@ function ImportWorkbench({ user, currentRoute, setPage, notify, reloadData }: { 
     copy.ingredients[ingredientIndex] = { ...copy.ingredients[ingredientIndex], ...patch };
     return copy;
   });
+  const savableDraftCount = draft ? draft.recipes.length + draft.ingredients.length + draft.suppliers.length + draft.conversionRules.length : 0;
+  const templateDraftCount = draft ? (draft.customerTemplates?.length ?? 0) + (draft.orderTemplates?.length ?? 0) : 0;
   return (
     <div className="page-grid import-workbench">
       <section className="import-hero">
@@ -2454,10 +2458,11 @@ function ImportWorkbench({ user, currentRoute, setPage, notify, reloadData }: { 
             <Metric label="Recipes" value={String(draft.counts.recipes)} />
             <Metric label="Ingredients" value={String(draft.counts.ingredients)} />
             <Metric label="Conversions" value={String(draft.counts.conversionRules)} />
+            <Metric label="Templates" value={String((draft.counts.customerTemplates ?? 0) + (draft.counts.orderTemplates ?? 0))} />
             <Metric label="Review flags" value={String(draft.counts.reviewItems)} />
           </div>
           {draft.warnings.length > 0 && <Section title="Import Warnings"><div className="compact-list">{draft.warnings.map((warning) => <div className="row-card" key={warning}><span>{warning}</span><Badge tone="warning">Review</Badge></div>)}</div></Section>}
-          <Section title="Recipe Drafts" action={<Button onClick={commit} disabled={committing || !recipeImportAllowed}>{committing ? "Importing..." : "Commit Selected"}</Button>}>
+          <Section title="Recipe Drafts" action={<Button onClick={commit} disabled={committing || !canCommitImport || savableDraftCount === 0}>{committing ? "Importing..." : "Commit Selected"}</Button>}>
             {draft.recipes.length === 0 ? <EmptyState title="No recipes detected" message="Try the CSV template, paste clearer recipe text, or use a source with recipe headings." /> : (
               <div className="import-review-list">
                 {draft.recipes.map((recipe, recipeIndex) => (
@@ -2524,13 +2529,32 @@ function ImportWorkbench({ user, currentRoute, setPage, notify, reloadData }: { 
               </div>
             </Section>
           </div>
+          {templateDraftCount > 0 && (
+            <Section title="Customer & Order Templates">
+              <article className="warning-card"><AlertTriangle size={20} /> Customer and order templates are detected for onboarding review. Active order creation stays manual in this phase so imported setup data cannot reserve or deduct stock unexpectedly.</article>
+              <div className="compact-list">
+                {draft.customerTemplates?.map((template) => (
+                  <div className="row-card" key={template.id}>
+                    <span>{template.customerName || "Unnamed customer"}<small>{template.email || template.phone || sourceEvidenceLabel(template.source)}</small></span>
+                    <Badge tone={confidenceTone(template.confidence)}>{template.confidence}</Badge>
+                  </div>
+                ))}
+                {draft.orderTemplates?.map((template) => (
+                  <div className="row-card" key={template.id}>
+                    <span>{template.customerName || "Order template"}<small>{[template.productName || template.recipeName, template.dueDate, template.requestedYieldQuantity ? `${template.requestedYieldQuantity} ${template.yieldUnit || "units"}` : ""].filter(Boolean).join(" | ") || sourceEvidenceLabel(template.source)}</small></span>
+                    <Badge tone={confidenceTone(template.confidence)}>{template.confidence}</Badge>
+                  </div>
+                ))}
+              </div>
+            </Section>
+          )}
         </>
       )}
     </div>
   );
 }
 
-function Costing() {
+function Costing({ setPage }: { setPage: Navigate }) {
   const [yieldQty, setYieldQty] = useState(12);
   const [selectedRecipeId, setSelectedRecipeId] = useState(recipes[0]?.id ?? "");
   const [sellingPrice, setSellingPrice] = useState(18000);
@@ -2543,7 +2567,7 @@ function Costing() {
   return (
     <div className="page-grid">
       <div className="split">
-        <Section title="Recipe Cost Calculator"><div className="form-grid"><Field label="Recipe"><select value={recipe.id} onChange={(event) => { setSelectedRecipeId(event.target.value); const nextRecipe = recipes.find((item) => item.id === event.target.value); if (nextRecipe) setYieldQty(nextRecipe.baseYieldQuantity); }}>{recipes.map((recipe) => <option key={recipe.id} value={recipe.id}>{recipe.name}</option>)}</select></Field><Field label="Desired yield"><input type="number" min="0.001" step="0.001" value={yieldQty} onChange={(event) => setYieldQty(Number(event.target.value))} /></Field><Metric label="Ingredient subtotal" value={formatNaira(cost.ingredientSubtotal)} /><Metric label="Non-ingredient cost" value={formatNaira(cost.nonIngredientCost)} /><Metric label="Total production cost" value={formatNaira(cost.totalRecipeCost)} /><Metric label={`Cost per ${recipe.yieldUnit}`} value={formatNaira(cost.costPerYieldUnit)} /><Metric label="Effective yield" value={`${Number(cost.effectiveYieldQuantity.toFixed(2))} ${recipe.yieldUnit}`} /></div></Section>
+        <Section title="Recipe Cost Calculator" action={<Button variant="secondary" onClick={() => setPage({ name: "imports", returnTo: { name: "costing", recipeId: recipe.id } })}><Upload size={18} /> Import Costing</Button>}><div className="form-grid"><Field label="Recipe"><select value={recipe.id} onChange={(event) => { setSelectedRecipeId(event.target.value); const nextRecipe = recipes.find((item) => item.id === event.target.value); if (nextRecipe) setYieldQty(nextRecipe.baseYieldQuantity); }}>{recipes.map((recipe) => <option key={recipe.id} value={recipe.id}>{recipe.name}</option>)}</select></Field><Field label="Desired yield"><input type="number" min="0.001" step="0.001" value={yieldQty} onChange={(event) => setYieldQty(Number(event.target.value))} /></Field><Metric label="Ingredient subtotal" value={formatNaira(cost.ingredientSubtotal)} /><Metric label="Non-ingredient cost" value={formatNaira(cost.nonIngredientCost)} /><Metric label="Total production cost" value={formatNaira(cost.totalRecipeCost)} /><Metric label={`Cost per ${recipe.yieldUnit}`} value={formatNaira(cost.costPerYieldUnit)} /><Metric label="Effective yield" value={`${Number(cost.effectiveYieldQuantity.toFixed(2))} ${recipe.yieldUnit}`} /></div></Section>
         <Section title="Margin Calculator"><div className="form-grid"><Field label="Selling price"><input type="number" min="0" step="0.01" value={sellingPrice} onChange={(event) => setSellingPrice(Number(event.target.value))} /></Field><Metric label="Tax setting" value={`${settings.defaultTaxPercentage ?? 0}%`} /><Metric label="Net selling price" value={formatNaira(netPrice)} /><Metric label="Gross profit" value={formatNaira(margin.grossProfit)} /><Metric label="Gross margin" value={`${margin.grossMarginPercentage.toFixed(1)}%`} /></div></Section>
       </div>
       <Section title="Cost Breakdown Chart"><div className="bar-chart">{[...cost.ingredientCostBreakdown.slice(0, 6).map((item) => ({ id: item.ingredientId, label: item.ingredientName, cost: item.cost })), ...cost.nonIngredientCostBreakdown.map((item) => ({ id: item.label, label: item.label, cost: item.cost }))].map((item) => <div key={item.id}><span>{item.label}</span><div><i style={{ width: `${cost.totalRecipeCost > 0 ? Math.min(100, (item.cost / cost.totalRecipeCost) * 220) : 0}%` }} /></div><strong>{formatNaira(item.cost)}</strong></div>)}</div></Section>
@@ -2629,7 +2653,7 @@ function AiAssistant({ setPage, notify, reloadData }: { setPage: Navigate; notif
   );
 }
 
-function ConversionLibrary({ user, notify, askConfirm, reloadData }: { user?: AppUser; notify: (message: string) => void; askConfirm: AskConfirm; reloadData: () => Promise<void> }) {
+function ConversionLibrary({ user, setPage, notify, askConfirm, reloadData }: { user?: AppUser; setPage: Navigate; notify: (message: string) => void; askConfirm: AskConfirm; reloadData: () => Promise<void> }) {
   const [editingRule, setEditingRule] = useState<Partial<ConversionRule> | null>(null);
   const [importOpen, setImportOpen] = useState(false);
   const [conversionSearch, setConversionSearch] = useState("");
@@ -2653,7 +2677,7 @@ function ConversionLibrary({ user, notify, askConfirm, reloadData }: { user?: Ap
           <ConversionImportModal onCancel={() => setImportOpen(false)} notify={notify} reloadData={reloadData} />
         </div>
       )}
-      <Section title="Approved Conversion Rules" action={<div className="button-row"><Button variant="secondary" onClick={() => exportCsv("pastry-county-conversion-rules.csv", ["Ingredient", "From Unit", "To Unit", "Factor", "Ingredient State", "Temperature State", "Formula Context", "Confidence", "Source", "Verified"], filteredRules.map((rule) => [ingredients.find((item) => item.id === rule.ingredientId)?.name ?? rule.ingredientId, rule.fromUnit, rule.toUnit, rule.conversionFactor, rule.ingredientState ?? "", rule.temperatureState ?? "", rule.formulaContext ?? "", rule.confidenceLevel, rule.source, rule.verified ? "Yes" : "No"]), notify)}>Export CSV</Button><Button variant="secondary" onClick={() => setImportOpen(true)} disabled={!canManage}>Import CSV</Button><Button onClick={() => setEditingRule({ ingredientId: ingredients[0]?.id, fromUnit: "cup", toUnit: ingredients[0]?.baseUnit ?? "g", conversionFactor: 1, confidenceLevel: "Medium", source: "manual entry", verified: false })} disabled={!canManage}><Plus size={18} /> Add Conversion Rule</Button></div>}>
+      <Section title="Approved Conversion Rules" action={<div className="button-row"><Button variant="secondary" onClick={() => exportCsv("pastry-county-conversion-rules.csv", ["Ingredient", "From Unit", "To Unit", "Factor", "Ingredient State", "Temperature State", "Formula Context", "Confidence", "Source", "Verified"], filteredRules.map((rule) => [ingredients.find((item) => item.id === rule.ingredientId)?.name ?? rule.ingredientId, rule.fromUnit, rule.toUnit, rule.conversionFactor, rule.ingredientState ?? "", rule.temperatureState ?? "", rule.formulaContext ?? "", rule.confidenceLevel, rule.source, rule.verified ? "Yes" : "No"]), notify)}>Export CSV</Button><Button variant="secondary" onClick={() => setPage({ name: "imports", returnTo: { name: "conversions" } })} disabled={!canManage}>Import Data</Button><Button variant="secondary" onClick={() => setImportOpen(true)} disabled={!canManage}>Import CSV</Button><Button onClick={() => setEditingRule({ ingredientId: ingredients[0]?.id, fromUnit: "cup", toUnit: ingredients[0]?.baseUnit ?? "g", conversionFactor: 1, confidenceLevel: "Medium", source: "manual entry", verified: false })} disabled={!canManage}><Plus size={18} /> Add Conversion Rule</Button></div>}>
         <Toolbar query={conversionSearch} setQuery={setConversionSearch} placeholder="Search conversions" />
         <Chips items={["All", "Verified", "Needs Review"]} active={conversionFilter} setActive={setConversionFilter} />
         <PaginatedTable
