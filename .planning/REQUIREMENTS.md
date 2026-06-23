@@ -2,6 +2,18 @@
 
 ## Functional
 
+- Requirement: Honor pastry-aware egg scaling preferences.
+  Acceptance: `nearest_whole_egg` and `allow_gram_conversion` produce distinct, tested scaling behavior for eggs, yolks, and whites; UI copy explains which mode is being used.
+
+- Requirement: Store production-grade recipe formula metadata.
+  Acceptance: recipes can save and reload structured oven temperature, bake/cook time range, pan profile, mixing method, rest/chill/cool windows, target doneness, sensory checkpoints, and storage/service notes without breaking existing recipes.
+
+- Requirement: Preserve pastry-specific ingredient prep state.
+  Acceptance: recipe item lines can capture state/stage details such as cold cubed butter, melted butter, sifted flour, packed/scooped flour, divided sugar, roasted nuts, and room-temperature eggs; detail and scaling views surface the state clearly.
+
+- Requirement: Prepare a follow-up path for pastry production depth.
+  Acceptance: state-scoped conversions, non-ingredient costing, allergen/storage controls, and production QC logs are sequenced into the roadmap with acceptance criteria before implementation.
+
 - Requirement: Protect private app bootstrap data.
   Acceptance: unauthenticated `GET /api/bootstrap` returns 401 and no suppliers, staff, orders, movements, batches, audit logs, conversion rules, or settings; authenticated Owner/Admin still loads the app; lower roles receive only permitted data if role filtering is introduced.
 
@@ -27,6 +39,9 @@
   Acceptance: SQL/internal errors are logged server-side but surfaced to users as clear operational messages with no raw database syntax.
 
 ## Non-Functional
+
+- Requirement: Pastry-depth changes must preserve the 96/100 release-gate baseline.
+  Acceptance: existing live-audit smoke checks still pass after formula-depth implementation, and existing recipes continue to load, scale, cost, duplicate, and archive.
 
 - Requirement: Production readiness must be proven by repeatable checks.
   Acceptance: unit/API tests, production build, authenticated live smoke, unauthenticated API security checks, mobile/a11y smoke, and cleanup checks pass before another external audit.

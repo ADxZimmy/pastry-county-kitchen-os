@@ -2,18 +2,18 @@
 
 ## Now
 
-- Phase: 002 Rerun Blocker Fixes
-  Outcome: Close the 76/100 audit rerun blockers: revoked bootstrap access, fresh login persistence, AI conversion prompts, Production 320px overflow, and mobile structural accessibility.
+- Phase: 003 Pastry Formula Depth
+  Outcome: Use the Baking and Pastry Arts audit to add pastry-grade recipe formula controls, starting with egg scaling correctness, formula metadata, and recipe-item prep state.
   Status: Planned.
 
 ## Next
 
-- Phase: 003 External Retest Handoff
-  Outcome: Run `npm run smoke:live-audit`, confirm live deployment commit/status, update `docs/audit-handoff.md`, then request a fresh external audit.
-  Status: Pending Phase 002.
+- Phase: 004 Pastry Costing, QC, and Compliance Depth
+  Outcome: Extend costing beyond ingredients, add production QC logs, add structured allergen/storage controls, and deepen state-scoped conversion rules.
+  Status: Pending Phase 003.
 
 ## Later
 
-- Phase: 004 Production Hardening Polish
-  Outcome: Improve first paint, settings mobile grouping, server-side pagination for audit/conversions, and low-stock email test coverage.
+- Phase: 005 Certification Evidence Closeout
+  Outcome: Complete external SPF/DNS, controlled email delivery, and manual operator sign-offs for 100/100 certification evidence.
   Status: Backlog.

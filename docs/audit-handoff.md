@@ -3,12 +3,14 @@
 Date: 2026-06-16
 Last verified: 2026-06-22
 Live URL: https://pastry-county-kitchen-os.vercel.app
-Verification baseline commit: `d9d85b1`
+Verification baseline commit: `23bcd18`
 Verification baseline deployment: latest Vercel deployment for `main`
 
 ## Current Status
 
-The June 22 external audit rerun from session `019eeee0-894f-7880-b3fa-4a7c002de3ab` scored `76/100`. Phase 002 has now addressed the rerun blockers and passed local plus production verification. The remaining action is to request another external audit against the live deployment.
+The June 22 external audit rerun 2 from session `019eeee0-894f-7880-b3fa-4a7c002de3ab` scored `96/100` and cleared the 95+ release gate with zero findings, failing checks, advisory failures, request failures, or console warnings/errors.
+
+After that release-gate pass, the latest Baking and Pastry Arts audit in the same session identified product-depth improvements for ingredient and recipe workflows. Those are now tracked in GSD Hybrid Phase 003, not as emergency production blockers.
 
 ## Fresh Verification
 
@@ -64,4 +66,4 @@ Also retest the former 72/100 June 22 live-audit cases:
 
 ## Known Remaining Action
 
-Run the external audit on the live deployment. If it returns new findings, add them to `docs/audit-milestone.md` under a new milestone before implementing fixes.
+Implement `.planning/phases/003-pastry-formula-depth/PLAN.md` after the user's personal changes. Separately, close the 100/100 certification evidence items by adding external SPF/DNS proof and completing the manual operator sign-offs.

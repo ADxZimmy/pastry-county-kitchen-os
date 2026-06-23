@@ -159,6 +159,20 @@ Latest audit source: Codex audit session `019eeee0-894f-7880-b3fa-4a7c002de3ab`,
 | Done | Production 320px overflow | Production still has `htmlOverflow` and `bodyOverflow` at 320x568. | Production has no horizontal overflow at 320/360/390/414/430px while preserving 44px action targets. |
 | Done | Mobile structural accessibility | Axe flags `aria-allowed-role` on mobile cards and heading-order issues on Production. | Mobile table cards use semantic list markup or valid ARIA ownership, and Production headings follow a valid hierarchy across mobile widths. |
 
+## Milestone 11 - Pastry Formula Depth
+
+Latest source: Codex session `019eeee0-894f-7880-b3fa-4a7c002de3ab`, Baking and Pastry Arts audit on June 23, 2026. Context: the preceding external audit rerun 2 scored `96/100` and cleared the 95+ release gate; this milestone tracks product-depth work needed to make ingredient and recipe workflows behave like professional pastry formula systems.
+
+| Status | Area | Audit Finding | Completion Criteria |
+| --- | --- | --- | --- |
+| Todo | Egg scaling preference | Settings expose egg rounding/gram conversion, but egg/yolk/white scaling always rounds up. | `nearest_whole_egg` and `allow_gram_conversion` produce distinct tested outputs; UI copy explains count vs gram behavior; existing non-egg scaling stays stable. |
+| Todo | Recipe formula metadata | Recipes store yield, instructions, and notes but no structured oven temp, bake time, pan profile, mixing method, rest/chill/cool windows, target doneness, or sensory checkpoints. | Recipes save/load structured formula profile metadata; existing recipes remain compatible; recipe detail/scaling views surface the profile without mobile overflow. |
+| Todo | Recipe ingredient prep state | Recipe items only store ingredient, quantity, unit, waste %, and notes, losing state such as cold cubed butter, melted butter, sifted flour, divided sugar, roasted nuts, or room-temperature eggs. | Recipe item lines can capture component/stage/sequence/prep-state metadata and show it in recipe detail and scaling outputs. |
+| Todo | State-scoped conversions | Conversion rules are ingredient-specific but not state-specific enough for flour, cocoa, powdered sugar, nuts, brown sugar, and chocolate. | Conversion rules can document measured state/standard such as sifted, packed, chopped, melted, brand, sample count, and source confidence. |
+| Todo | Expanded costing | Costing only sums scaled ingredient usage against latest unit cost. | Recipe/order costing can include configurable labor, packaging, oven/fuel overhead, failed-batch allowance, trim loss, and actual yield variance. |
+| Todo | Allergen and storage controls | Ingredient master lacks structured allergen, dietary, cross-contact, storage-zone, shelf-life, and temperature fields. | Ingredients can record common allergen/dietary/storage controls and expose them in recipe/production/shopping contexts. |
+| Todo | Production QC logging | Production completion deducts stock and marks orders produced but does not capture actual yield, temperature, bake time, defects, rework, retained sample, or sensory notes. | Production completion can record a QC log with actual vs expected yield, process temperatures/times, defects/rework, sensory notes, and next adjustment. |
+
 ## Validation Checklist
 
 - [x] Unit tests passed with `npm test`.
@@ -226,12 +240,14 @@ Latest audit source: Codex audit session `019eeee0-894f-7880-b3fa-4a7c002de3ab`,
 - [x] Phase 002 AI conversion prompt repair implemented and live-verified.
 - [x] Phase 002 Production 320px overflow and mobile structural accessibility fixes implemented and live-verified.
 - [x] Phase 002 full live-audit smoke passed against production with Phase 002, Milestone 7, and regression-audit checks.
-- [ ] Re-run an external audit after Phase 002 is deployed.
+- [x] External audit rerun 2 passed after Phase 002: score `96/100`, ready for 95+ release gate, zero findings/failing checks/advisory failures/request failures/console warnings.
+- [x] Baking and Pastry Arts audit reviewed and mapped into Milestone 11 plus GSD Hybrid Phase 003.
+- [ ] Implement Phase 003 Pastry Formula Depth.
 
 ## Next Recommended Work
 
-1. Re-run the external audit against the live deployment.
-2. Use `docs/audit-handoff.md` and `.planning/phases/002-rerun-blocker-fixes/VERIFICATION.md` as the retest checklist.
-3. If the audit returns new findings, add them under a new milestone before implementation.
-4. Restore durable `LIVE_TEST_EMAIL` and `LIVE_TEST_PASSWORD` in the ignored local env file only if routine non-temporary smoke accounts are preferred.
-5. Watch the first few Resend deliveries from the verified domain for spam placement and DMARC aggregate reports.
+1. After the user's personal changes, implement GSD Hybrid Phase 003: egg scaling correctness, recipe formula metadata, and recipe-item prep state.
+2. Sequence the remaining Milestone 11 P2 items into a follow-up phase: state-scoped conversions, expanded costing, allergen/storage controls, and production QC logging.
+3. Keep `npm run smoke:live-audit` green before production handoff.
+4. Close separate 100/100 certification evidence by adding SPF/DNS proof and completing manual operator sign-offs.
+5. Restore durable `LIVE_TEST_EMAIL` and `LIVE_TEST_PASSWORD` in the ignored local env file only if routine non-temporary smoke accounts are preferred.

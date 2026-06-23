@@ -1,10 +1,10 @@
 # State
 
-Last updated: 2026-06-22
+Last updated: 2026-06-23
 
 ## Current Focus
 
-Phase 002 rerun blockers are implemented and live-verified; prepare for the next external audit.
+Phase 003 Pastry Formula Depth is planned; wait for the user's personal changes, then implement the P1 pastry findings.
 
 ## Completed
 
@@ -44,19 +44,22 @@ Phase 002 rerun blockers are implemented and live-verified; prepare for the next
 - Pushed `d292aab` for the Phase 002 implementation and `d9d85b1` for the Phase 002 smoke selector fix.
 - Verified production serves `assets/index-Cvb2sp8C.js` / `assets/index-DrJx3I71.css`.
 - Verified `npm.cmd run smoke:phase2-rerun` and `npm.cmd run smoke:live-audit` both passed against production.
+- Reviewed the follow-up external audit rerun 2 from Codex session `019eeee0-894f-7880-b3fa-4a7c002de3ab`: score `96/100`, ready for the 95+ release gate, with zero findings, failing checks, advisory failures, request failures, or console warnings/errors.
+- Reviewed the latest Baking and Pastry Arts audit from the same session: recipe/ingredient workflows need pastry formula depth, especially settings-aware egg scaling, structured formula metadata, recipe-item prep state, state-scoped conversions, expanded costing, allergen/storage controls, and production QC logging.
+- Created GSD Hybrid Phase 003 under `.planning/phases/003-pastry-formula-depth/`, using the Baking and Pastry Arts skill plus UI UX Pro Max guidance.
 
 ## In Progress
 
-- External audit retest pending.
+- Phase 003 is planned and ready to implement after the user's personal changes.
 
 ## Blocked
 
-- Item: Final production-ready claim.
-  Reason: Phase 002 fixes are implemented and live-verified, but the external audit has not yet rerun after those fixes.
+- Item: 100/100 certification claim.
+  Reason: Separate certification evidence still needs external email DNS/operator sign-offs; this does not block Phase 003 product-depth work.
 
 ## Next Action
 
-Request a fresh external audit against the live deployment using `docs/audit-handoff.md` as the retest checklist.
+After the user's personal changes, start Phase 003 Step 1: pin settings-aware egg scaling and recipe metadata compatibility with tests.
 
 ## Verification Snapshot
 
@@ -140,3 +143,7 @@ Request a fresh external audit against the live deployment using `docs/audit-han
   Result: Passed against production; verified revoked Viewer bootstrap 401, Viewer snapshot filtering, fresh login token persistence, exact AI conversion outputs, Production 320px no-overflow, and mobile structural checks.
 - Command/check: `npm.cmd run smoke:live-audit`
   Result: Passed against production; Phase 002 rerun smoke, Milestone 7 smoke, and regression-audit mutation smoke all passed.
+- Command/check: External audit rerun 2 review
+  Result: Passed release gate; latest scored audit is 96/100 and ready for 95+ release gate.
+- Command/check: Baking and Pastry Arts audit review
+  Result: New product-depth backlog identified and mapped into Phase 003.
