@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { allowedRolesForAction, archiveTableForEntity, canRolePerformAction, normalizeRecipeFormulaMetadata, normalizeRecipeItemPrepState, normalizeShoppingPurchaseInput, planBatchDeductions, productionCompletionPreflight, productionShortageForRequirement, safePurchasePersistenceError, sendResendEmail, sessionAccessError } from "./_actions.js";
+import { allowedRolesForAction, archiveTableForEntity, canRolePerformAction, normalizeConversionScope, normalizeIngredientAllergenProfile, normalizeIngredientStorageProfile, normalizeProductionQcLog, normalizeRecipeCostProfile, normalizeRecipeFormulaMetadata, normalizeRecipeItemPrepState, normalizeShoppingPurchaseInput, planBatchDeductions, productionCompletionPreflight, productionShortageForRequirement, safePurchasePersistenceError, sendResendEmail, sessionAccessError } from "./_actions.js";
 
 describe("FEFO batch deduction planning", () => {
   it("deducts stock removals or production use across lots in the provided FEFO order", () => {
@@ -285,6 +285,87 @@ describe("recipe formula metadata normalization", () => {
       dividedUse: "Half batter, half topping",
       preparationNotes: "Fold gently",
       handlingWarning: "Do not overmix"
+    });
+  });
+});
+
+describe("phase 004 profile normalization", () => {
+  it("keeps structured ingredient allergen and storage profiles", () => {
+    expect(normalizeIngredientAllergenProfile({
+      contains: "gluten, eggs, milk",
+      mayContain: ["peanuts", "tree nuts", ""],
+      dietaryFlags: "halal, alcohol-free",
+      crossContactRisk: "High",
+      labelNotes: "Shared mixer",
+      ignored: "drop"
+    })).toEqual({
+      contains: ["gluten", "eggs", "milk"],
+      mayContain: ["peanuts", "tree nuts"],
+      dietaryFlags: ["halal", "alcohol-free"],
+      crossContactRisk: "high",
+      labelNotes: "Shared mixer"
+    });
+
+    expect(normalizeIngredientStorageProfile({
+      storageTemperature: "cool_dry",
+      storageLocation: "Dry shelf A",
+      humiditySensitive: "Yes",
+      odorSensitive: false,
+      openedShelfLifeDays: "14",
+      handlingNotes: "Keep sealed"
+    })).toEqual({
+      storageTemperature: "cool_dry",
+      storageLocation: "Dry shelf A",
+      humiditySensitive: true,
+      odorSensitive: false,
+      openedShelfLifeDays: 14,
+      handlingNotes: "Keep sealed"
+    });
+  });
+
+  it("keeps recipe costing, conversion scope, and production QC fields", () => {
+    expect(normalizeRecipeCostProfile({
+      laborMinutes: "45",
+      laborRatePerHour: "3000",
+      packagingCost: "500",
+      overheadCost: "250",
+      utilityCost: "150",
+      failureAllowancePercentage: "5",
+      yieldLossPercentage: "2",
+      notes: "Weekend batch"
+    })).toMatchObject({
+      laborMinutes: 45,
+      laborRatePerHour: 3000,
+      packagingCost: 500,
+      overheadCost: 250,
+      utilityCost: 150,
+      failureAllowancePercentage: 5,
+      yieldLossPercentage: 2,
+      notes: "Weekend batch"
+    });
+
+    expect(normalizeConversionScope({ ingredientState: " Sifted ", temperatureState: "Room temp", formulaContext: "Brownie", ignored: "drop" })).toEqual({
+      ingredientState: "Sifted",
+      temperatureState: "Room temp",
+      formulaContext: "Brownie"
+    });
+
+    expect(normalizeProductionQcLog({
+      expectedYieldQuantity: "16",
+      actualYieldQuantity: "15",
+      roomTemperature: "25C",
+      ovenTemperature: "170C",
+      bakeTimeMinutes: "26",
+      passedQc: "No",
+      sensoryNotes: "Moist crumbs"
+    })).toMatchObject({
+      expectedYieldQuantity: 16,
+      actualYieldQuantity: 15,
+      roomTemperature: "25C",
+      ovenTemperature: "170C",
+      bakeTimeMinutes: 26,
+      passedQc: false,
+      sensoryNotes: "Moist crumbs"
     });
   });
 });

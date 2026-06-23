@@ -43,6 +43,25 @@ export interface Ingredient {
   notes?: string;
   reservedStock?: number;
   expiryDate?: string;
+  allergenProfile?: IngredientAllergenProfile;
+  storageProfile?: IngredientStorageProfile;
+}
+
+export interface IngredientAllergenProfile {
+  contains?: string[];
+  mayContain?: string[];
+  dietaryFlags?: string[];
+  crossContactRisk?: "low" | "medium" | "high";
+  labelNotes?: string;
+}
+
+export interface IngredientStorageProfile {
+  storageTemperature?: "ambient" | "cool_dry" | "refrigerated" | "frozen";
+  storageLocation?: string;
+  humiditySensitive?: boolean;
+  odorSensitive?: boolean;
+  openedShelfLifeDays?: number;
+  handlingNotes?: string;
 }
 
 export interface Product {
@@ -93,6 +112,17 @@ export interface RecipeFormulaMetadata {
   testBakeStatus?: "untested" | "test_bake_needed" | "tested" | "production_ready";
 }
 
+export interface RecipeCostProfile {
+  laborMinutes?: number;
+  laborRatePerHour?: number;
+  packagingCost?: number;
+  overheadCost?: number;
+  utilityCost?: number;
+  failureAllowancePercentage?: number;
+  yieldLossPercentage?: number;
+  notes?: string;
+}
+
 export interface Recipe {
   id: string;
   productId: string;
@@ -103,6 +133,7 @@ export interface Recipe {
   instructions: string[];
   notes?: string;
   formulaMetadata?: RecipeFormulaMetadata;
+  costProfile?: RecipeCostProfile;
   active: boolean;
   updatedAt: string;
 }
@@ -178,7 +209,32 @@ export interface ConversionRule {
   verified: boolean;
   notes?: string;
   active?: boolean;
+  ingredientState?: string;
+  temperatureState?: string;
+  formulaContext?: string;
   updatedAt: string;
+}
+
+export interface ProductionQcLog {
+  id: string;
+  orderId: string;
+  recipeId?: string;
+  batchKey?: string;
+  formulaVersion?: string;
+  expectedYieldQuantity?: number;
+  actualYieldQuantity?: number;
+  yieldUnit?: string;
+  roomTemperature?: string;
+  mixTemperature?: string;
+  ovenTemperature?: string;
+  bakeTimeMinutes?: number;
+  restTimeMinutes?: number;
+  sensoryNotes?: string;
+  defects?: string;
+  nextAdjustment?: string;
+  passedQc?: boolean;
+  loggedBy?: string;
+  createdAt: string;
 }
 
 export interface Settings {

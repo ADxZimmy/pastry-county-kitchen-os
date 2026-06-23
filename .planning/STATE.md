@@ -4,7 +4,7 @@ Last updated: 2026-06-23
 
 ## Current Focus
 
-Phase 003 Pastry Formula Depth is implemented, pushed, deployed, and verified against production. Next focus is the Phase 004 P2 pastry blockers.
+Phase 004 Pastry Costing, QC, and Compliance Depth is implemented locally and ready to ship. Live Vercel verification is the remaining gate.
 
 ## Completed
 
@@ -51,10 +51,14 @@ Phase 003 Pastry Formula Depth is implemented, pushed, deployed, and verified ag
 - Verified Phase 003 locally with `npm.cmd test`, `npm.cmd run build`, `node --check scripts\phase3-pastry-smoke.mjs`, and `git diff --check`.
 - Pushed Phase 003 in commit `4c262b4`, confirmed production served `assets/index-B6OWEJUw.js` / `assets/index-DVmOTeuQ.css`, and verified live with `npm.cmd run smoke:phase3-pastry`.
 - Re-ran `npm.cmd run smoke:live-audit` after the Phase 003 deployment; Phase 2 rerun, Milestone 7, and regression audit smokes all passed against production.
+- Created GSD Hybrid Phase 004 under `.planning/phases/004-pastry-costing-qc-compliance/`, using Baking and Pastry Arts plus UI UX Pro Max guidance.
+- Implemented Phase 004 P2 scope locally: state-scoped conversion rules, conversion matching in scaling/costing/production requirements, ingredient allergen/storage profiles, recipe production cost profiles, production QC logs, order/production QC completion UI, and Phase 004 live smoke coverage.
+- Verified Phase 004 locally with `npm.cmd test`, `npm.cmd run build`, and `node --check scripts\phase4-pastry-depth-smoke.mjs`.
+- Updated `scripts/live-audit-smoke.mjs` so the umbrella live audit also runs Phase 003 and Phase 004 pastry smokes.
 
 ## In Progress
 
-- Phase 004 planning: remaining Baking and Pastry Arts findings are state-scoped conversion rules, expanded costing, ingredient allergen/storage controls, and production QC logging.
+- Phase 004 ship gate: commit and push the local implementation, wait for live deployment, then run `npm.cmd run smoke:phase4-pastry-depth` and `npm.cmd run smoke:live-audit`.
 
 ## Blocked
 
@@ -63,7 +67,7 @@ Phase 003 Pastry Formula Depth is implemented, pushed, deployed, and verified ag
 
 ## Next Action
 
-Create the Phase 004 GSD plan for the remaining P2 pastry blockers, then implement in small verifiable slices.
+Run final diff checks, commit and push Phase 004, then verify the live deployment.
 
 ## Verification Snapshot
 

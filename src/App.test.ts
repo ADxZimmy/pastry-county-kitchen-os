@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { resolveSessionPage } from "./App";
-import { setKitchenSnapshot } from "./data";
+import { recipes as kitchenRecipes, setKitchenSnapshot } from "./data";
 import { auditChangeSummary, auditDataJson, auditExportRows, auditRecordLabel, auditSearchText } from "./lib/audit";
 import { buildKitchenAssistantResponse, calculateMargin, calculateRecipeCost, checkStockAvailability, convertUnit, dashboardProductionQueue, formatNaira, formatQuantity, formatScaledIngredientQuantity, generateShoppingList, netSellingPrice, parseRecipeText, roundScaledQuantity, scaleRecipe, stockAdjustmentValidation } from "./lib/kitchen";
-import type { AuditLog, Ingredient, Recipe, RecipeItem } from "./types";
+import type { AuditLog, ConversionRule, Ingredient, Recipe, RecipeItem } from "./types";
 
 describe("kitchen calculations", () => {
   beforeEach(() => {
@@ -129,10 +129,41 @@ describe("kitchen calculations", () => {
     expect(convertUnit(3, "yolk", "g", "egg-yolks").convertedQuantity).toBe(54);
   });
 
+  it("prefers scoped conversion rules when recipe prep state matches", () => {
+    const rules: ConversionRule[] = [
+      { id: "generic-flour", ingredientId: "flour", fromUnit: "cup", toUnit: "g", conversionFactor: 120, conversionType: "ingredient_specific", confidenceLevel: "High", source: "seed rule", verified: true, updatedAt: "2026-06-23" },
+      { id: "sifted-flour", ingredientId: "flour", fromUnit: "cup", toUnit: "g", conversionFactor: 112, conversionType: "ingredient_specific", confidenceLevel: "High", source: "measured in kitchen", verified: true, ingredientState: "Sifted", formulaContext: "Brownie", updatedAt: "2026-06-23" }
+    ];
+
+    expect(convertUnit(1, "cup", "g", "flour", rules).convertedQuantity).toBe(120);
+    expect(convertUnit(1, "cup", "g", "flour", rules, { ingredientState: "Sifted", formulaContext: "Brownie" }).convertedQuantity).toBe(112);
+  });
+
   it("reuses saved conversion rules when costing recipe ingredients", () => {
     const cost = calculateRecipeCost("recipe-cup-test", 1);
     expect(cost.ingredientCostBreakdown[0]).toMatchObject({ ingredientName: "Flour", scaledQuantity: 240, unit: "g" });
     expect(cost.totalRecipeCost).toBeCloseTo(120);
+  });
+
+  it("adds labor, packaging, overhead, failure allowance, and yield-loss basis to recipe costing", () => {
+    const recipe = kitchenRecipes.find((item) => item.id === "recipe-classic");
+    if (!recipe) throw new Error("recipe-classic fixture missing");
+    recipe.costProfile = {
+      laborMinutes: 60,
+      laborRatePerHour: 1200,
+      packagingCost: 1600,
+      overheadCost: 0,
+      utilityCost: 0,
+      failureAllowancePercentage: 10,
+      yieldLossPercentage: 5
+    };
+
+    const cost = calculateRecipeCost("recipe-classic", 12);
+    expect(cost.ingredientSubtotal).toBeCloseTo(3043.5);
+    expect(cost.nonIngredientCost).toBeCloseTo(2614.35);
+    expect(cost.totalRecipeCost).toBeCloseTo(5657.85);
+    expect(cost.effectiveYieldQuantity).toBeCloseTo(11.4);
+    expect(cost.costPerYieldUnit).toBeCloseTo(496.3026, 3);
   });
 
   it("parses plural recipe units and count ingredients", () => {

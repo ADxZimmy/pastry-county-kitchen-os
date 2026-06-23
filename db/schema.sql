@@ -41,6 +41,8 @@ create table if not exists ingredients (
   default_expiry_days integer,
   expiry_date date,
   notes text,
+  allergen_profile jsonb not null default '{}',
+  storage_profile jsonb not null default '{}',
   active boolean not null default true,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -66,6 +68,7 @@ create table if not exists recipes (
   instructions text[] not null default '{}',
   notes text,
   formula_metadata jsonb not null default '{}',
+  cost_profile jsonb not null default '{}',
   active boolean not null default true,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -167,9 +170,34 @@ create table if not exists conversion_rules (
   source text not null check (source in ('AI estimate','manual entry','measured in kitchen','seed rule')),
   verified boolean not null default false,
   notes text,
+  ingredient_state text,
+  temperature_state text,
+  formula_context text,
   active boolean not null default true,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
+);
+
+create table if not exists production_qc_logs (
+  id text primary key,
+  order_id text not null references orders(id),
+  recipe_id text references recipes(id),
+  batch_key text,
+  formula_version text,
+  expected_yield_quantity numeric(14,3),
+  actual_yield_quantity numeric(14,3),
+  yield_unit text,
+  room_temperature text,
+  mix_temperature text,
+  oven_temperature text,
+  bake_time_minutes numeric(8,2),
+  rest_time_minutes numeric(8,2),
+  sensory_notes text,
+  defects text,
+  next_adjustment text,
+  passed_qc boolean not null default true,
+  logged_by text,
+  created_at timestamptz not null default now()
 );
 
 create table if not exists audit_logs (
@@ -217,3 +245,5 @@ create index if not exists audit_logs_entity_idx on audit_logs(entity_type, enti
 create index if not exists order_items_order_idx on order_items(order_id);
 create index if not exists recipe_items_recipe_idx on recipe_items(recipe_id);
 create index if not exists conversion_rules_lookup_idx on conversion_rules(ingredient_id, from_unit, to_unit);
+create index if not exists conversion_rules_scoped_lookup_idx on conversion_rules(ingredient_id, from_unit, to_unit, ingredient_state, temperature_state, formula_context);
+create index if not exists production_qc_logs_order_idx on production_qc_logs(order_id, created_at desc);

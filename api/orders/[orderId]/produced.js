@@ -12,7 +12,7 @@ export default async function handler(req, res) {
   try {
     const sql = getSql();
     const { orderId } = req.query;
-    res.status(200).json(await produceOrder(sql, orderId, actorFromRequest(req)));
+    res.status(200).json(await produceOrder(sql, orderId, actorFromRequest(req), req.body?.qcLog ?? {}));
   } catch (error) {
     sendError(res, error);
   }

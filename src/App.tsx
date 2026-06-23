@@ -29,8 +29,8 @@ import {
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { apiBaseUrl, backendMode } from "./lib/backend";
 import { auditChangedFields, auditChangeSummary, auditDataJson, auditExportRows, auditFieldLabel, auditRecordLabel, auditSearchText, type AuditRecordNameLookup } from "./lib/audit";
-import { appUsers, auditLogs, conversionRules, ingredientBatches, ingredients, inventoryMovements, orderItems, orders, products, recipeItems, recipes, settings, suppliers, setKitchenSnapshot } from "./data";
-import type { AppStaffUser, AuditLog, ConversionRule, Ingredient, Order, Recipe, RecipeFormulaMetadata, RecipeItemPrepState, StockStatus, Supplier, Unit } from "./types";
+import { appUsers, auditLogs, conversionRules, ingredientBatches, ingredients, inventoryMovements, orderItems, orders, products, productionQcLogs, recipeItems, recipes, settings, suppliers, setKitchenSnapshot } from "./data";
+import type { AppStaffUser, AuditLog, ConversionRule, Ingredient, IngredientAllergenProfile, IngredientStorageProfile, Order, Recipe, RecipeCostProfile, RecipeFormulaMetadata, RecipeItemPrepState, StockStatus, Supplier, Unit } from "./types";
 import {
   calculateMargin,
   calculateOrderCost,
@@ -499,6 +499,45 @@ function prepStateSummary(prepState?: RecipeItemPrepState) {
   ].filter(Boolean).join(" | ");
 }
 
+function splitCsv(value: string) {
+  return value.split(",").map((item) => item.trim()).filter(Boolean);
+}
+
+function joinList(value?: string[]) {
+  return value?.length ? value.join(", ") : "None recorded";
+}
+
+function allergenSummary(profile?: IngredientAllergenProfile) {
+  if (!profile) return "No allergen profile";
+  const contains = profile.contains?.length ? `Contains ${profile.contains.join(", ")}` : "";
+  const mayContain = profile.mayContain?.length ? `May contain ${profile.mayContain.join(", ")}` : "";
+  return [contains, mayContain, profile.crossContactRisk ? `${profile.crossContactRisk} cross-contact risk` : ""].filter(Boolean).join(" | ") || "No allergen profile";
+}
+
+function storageSummary(profile?: IngredientStorageProfile) {
+  if (!profile) return "No storage profile";
+  return [
+    profile.storageTemperature?.replace(/_/g, " "),
+    profile.storageLocation,
+    profile.openedShelfLifeDays ? `${profile.openedShelfLifeDays} days after opening` : "",
+    profile.humiditySensitive ? "humidity sensitive" : "",
+    profile.odorSensitive ? "odor sensitive" : ""
+  ].filter(Boolean).join(" | ") || "No storage profile";
+}
+
+function costProfileSummary(profile?: RecipeCostProfile) {
+  if (!profile) return "Ingredient-only costing";
+  const pieces = [
+    profile.laborMinutes ? `${profile.laborMinutes} min labor` : "",
+    profile.packagingCost ? `${formatNaira(profile.packagingCost)} packaging` : "",
+    profile.overheadCost ? `${formatNaira(profile.overheadCost)} overhead` : "",
+    profile.utilityCost ? `${formatNaira(profile.utilityCost)} utilities` : "",
+    profile.failureAllowancePercentage ? `${profile.failureAllowancePercentage}% failure allowance` : "",
+    profile.yieldLossPercentage ? `${profile.yieldLossPercentage}% yield loss` : ""
+  ].filter(Boolean);
+  return pieces.length ? pieces.join(" | ") : "Ingredient-only costing";
+}
+
 async function apiAction(action: string, payload: Record<string, unknown> = {}) {
   const token = currentSessionToken();
   emitKitchenRequest({ phase: "start" });
@@ -516,23 +555,13 @@ async function apiAction(action: string, payload: Record<string, unknown> = {}) 
   }
 }
 
-async function markOrderProduced(orderId: string, notify: Notify) {
-  emitKitchenRequest({ phase: "start" });
+async function markOrderProduced(orderId: string, notify: Notify, qcLog: Record<string, unknown> = {}) {
   try {
-    const token = currentSessionToken();
-    const response = await fetch(`${apiBaseUrl}/api/orders/${orderId}/produced`, {
-      method: "POST",
-      headers: token ? { Authorization: `Bearer ${token}` } : undefined
-    });
-    const result = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      throw new Error(result.error || "Unable to mark order as produced.");
-    }
-    notify(result.alreadyProduced ? "This order was already produced. Inventory was not deducted again." : "Order marked as produced and inventory deducted.");
+    const result = await apiAction("order.produce", { orderId, qcLog });
+    notify(result.alreadyProduced ? "This order was already produced. Inventory was not deducted again." : "Order marked as produced, inventory deducted, and QC logged.");
   } catch (error) {
     notify(error instanceof Error ? error.message : "Unable to mark order as produced.");
-  } finally {
-    emitKitchenRequest({ phase: "end" });
+    throw error;
   }
 }
 
@@ -1182,7 +1211,7 @@ function Inventory({ user, setPage, setSelectedIngredientId, query, setQuery }: 
   });
   return (
     <>
-      <Toolbar query={query} setQuery={setQuery} placeholder="Search ingredients" action={<div className="button-row"><Button variant="secondary" onClick={() => exportCsv("pastry-county-inventory.csv", ["Ingredient", "Category", "Current Stock", "Reorder Level", "Base Unit", "Purchase Unit", "Latest Unit Cost", "Supplier"], list.map((item) => [item.name, item.category, item.currentStock, item.reorderLevel, item.baseUnit, item.purchaseUnit ?? item.baseUnit, item.latestUnitCost, suppliers.find((supplier) => supplier.id === item.supplierId)?.name ?? "Unassigned"]))}>Export CSV</Button><Button onClick={() => { setSelectedIngredientId(""); setPage("ingredient-form"); }} disabled={!canUser(user, "manageInventory")}><Plus size={18} /> Add Ingredient</Button></div>} />
+      <Toolbar query={query} setQuery={setQuery} placeholder="Search ingredients" action={<div className="button-row"><Button variant="secondary" onClick={() => exportCsv("pastry-county-inventory.csv", ["Ingredient", "Category", "Current Stock", "Reorder Level", "Base Unit", "Purchase Unit", "Latest Unit Cost", "Supplier", "Allergens", "Storage"], list.map((item) => [item.name, item.category, item.currentStock, item.reorderLevel, item.baseUnit, item.purchaseUnit ?? item.baseUnit, item.latestUnitCost, suppliers.find((supplier) => supplier.id === item.supplierId)?.name ?? "Unassigned", allergenSummary(item.allergenProfile), storageSummary(item.storageProfile)]))}>Export CSV</Button><Button onClick={() => { setSelectedIngredientId(""); setPage("ingredient-form"); }} disabled={!canUser(user, "manageInventory")}><Plus size={18} /> Add Ingredient</Button></div>} />
       <Chips items={categories} active={filter} setActive={setFilter} />
       <ResponsiveTable
         headers={["Ingredient", "Category", "Current Stock", "Reorder", "Latest Cost", "Status"]}
@@ -1227,6 +1256,22 @@ function IngredientDetail({ ingredientId, user, setPage, notify, askConfirm, rel
       <div className="split">
         <SummaryCard title="Stock Summary" items={[["Current stock", formatQuantity(ingredient.currentStock, ingredient.baseUnit)], ["Reserved stock", formatQuantity(ingredient.reservedStock ?? 0, ingredient.baseUnit)], ["Available stock", formatQuantity(ingredient.currentStock - (ingredient.reservedStock ?? 0), ingredient.baseUnit)], ["Reorder level", formatQuantity(ingredient.reorderLevel, ingredient.baseUnit)]]} />
         <SummaryCard title="Cost Summary" items={[["Last purchase price", `${formatNaira(ingredient.latestUnitCost)}/${ingredient.baseUnit}`], ["Purchase unit", ingredient.purchaseUnit ?? ingredient.baseUnit], ["Supplier", supplier?.name ?? "Unassigned"], ["Expiry date", ingredient.expiryDate ?? "Not tracked"], ["Purchase trend", trendText]]} />
+      </div>
+      <div className="split">
+        <SummaryCard title="Allergen Profile" items={[
+          ["Contains", joinList(ingredient.allergenProfile?.contains)],
+          ["May contain", joinList(ingredient.allergenProfile?.mayContain)],
+          ["Dietary flags", joinList(ingredient.allergenProfile?.dietaryFlags)],
+          ["Cross-contact", ingredient.allergenProfile?.crossContactRisk ?? "Not set"],
+          ["Label notes", ingredient.allergenProfile?.labelNotes ?? "None"]
+        ]} />
+        <SummaryCard title="Storage Controls" items={[
+          ["Temperature", ingredient.storageProfile?.storageTemperature?.replace(/_/g, " ") ?? "Not set"],
+          ["Location", ingredient.storageProfile?.storageLocation ?? "Not set"],
+          ["Opened shelf life", ingredient.storageProfile?.openedShelfLifeDays ? `${ingredient.storageProfile.openedShelfLifeDays} days` : "Not set"],
+          ["Sensitivity", [ingredient.storageProfile?.humiditySensitive ? "Humidity" : "", ingredient.storageProfile?.odorSensitive ? "Odor" : ""].filter(Boolean).join(", ") || "None recorded"],
+          ["Handling", ingredient.storageProfile?.handlingNotes ?? "None"]
+        ]} />
       </div>
       <Section title="Batch Lots & FEFO">
         <ResponsiveTable headers={["Lot", "Remaining", "Expiry", "Received", "Guidance"]} rows={batches.map((batch, index) => ({
@@ -1388,6 +1433,21 @@ function IngredientForm({ ingredientId, setPage, notify, reloadData }: { ingredi
           expiryTrackingEnabled: formValue(form, "expiryTrackingEnabled"),
           defaultExpiryDays: formNumber(form, "defaultExpiryDays"),
           expiryDate: formValue(form, "expiryDate"),
+          allergenProfile: {
+            contains: splitCsv(formValue(form, "containsAllergens")),
+            mayContain: splitCsv(formValue(form, "mayContainAllergens")),
+            dietaryFlags: splitCsv(formValue(form, "dietaryFlags")),
+            crossContactRisk: formValue(form, "crossContactRisk"),
+            labelNotes: formValue(form, "labelNotes")
+          },
+          storageProfile: {
+            storageTemperature: formValue(form, "storageTemperature"),
+            storageLocation: formValue(form, "storageLocation"),
+            humiditySensitive: formValue(form, "humiditySensitive") === "Yes",
+            odorSensitive: formValue(form, "odorSensitive") === "Yes",
+            openedShelfLifeDays: optionalFormNumber(form, "openedShelfLifeDays"),
+            handlingNotes: formValue(form, "handlingNotes")
+          },
           notes: formValue(form, "notes")
         }
       });
@@ -1419,6 +1479,22 @@ function IngredientForm({ ingredientId, setPage, notify, reloadData }: { ingredi
         <Field label="Current batch expiry"><input name="expiryDate" type="date" defaultValue={ingredient?.expiryDate?.slice(0, 10) ?? ""} /></Field>
         <Field label="Notes"><textarea name="notes" defaultValue={ingredient?.notes ?? ""} placeholder="Storage notes, preferred brands, or supplier details" /></Field>
       </div>
+      <Section title="Allergen & Storage Controls">
+        <p className="section-note">Operator awareness only. Verify local labeling and food-business rules before relying on this for public sale.</p>
+        <div className="form-grid">
+          <Field label="Contains allergens"><input name="containsAllergens" defaultValue={ingredient?.allergenProfile?.contains?.join(", ") ?? ""} placeholder="gluten, eggs, milk, soy" /></Field>
+          <Field label="May contain"><input name="mayContainAllergens" defaultValue={ingredient?.allergenProfile?.mayContain?.join(", ") ?? ""} placeholder="peanuts, tree nuts, sesame" /></Field>
+          <Field label="Dietary flags"><input name="dietaryFlags" defaultValue={ingredient?.allergenProfile?.dietaryFlags?.join(", ") ?? ""} placeholder="vegan, halal, alcohol-free" /></Field>
+          <Field label="Cross-contact risk"><select name="crossContactRisk" defaultValue={ingredient?.allergenProfile?.crossContactRisk ?? ""}><option value="">Not set</option><option value="low">Low</option><option value="medium">Medium</option><option value="high">High</option></select></Field>
+          <Field label="Label notes"><textarea name="labelNotes" defaultValue={ingredient?.allergenProfile?.labelNotes ?? ""} placeholder="Shared mixer, supplier declaration, or label reminder" /></Field>
+          <Field label="Storage temperature"><select name="storageTemperature" defaultValue={ingredient?.storageProfile?.storageTemperature ?? ""}><option value="">Not set</option><option value="ambient">Ambient</option><option value="cool_dry">Cool dry</option><option value="refrigerated">Refrigerated</option><option value="frozen">Frozen</option></select></Field>
+          <Field label="Storage location"><input name="storageLocation" defaultValue={ingredient?.storageProfile?.storageLocation ?? ""} placeholder="Dry store shelf A, freezer 1" /></Field>
+          <Field label="Opened shelf life days"><input name="openedShelfLifeDays" type="number" min="0" step="1" defaultValue={ingredient?.storageProfile?.openedShelfLifeDays ?? ""} placeholder="e.g. 14" /></Field>
+          <Field label="Humidity sensitive"><select name="humiditySensitive" defaultValue={ingredient?.storageProfile?.humiditySensitive ? "Yes" : "No"}><option>Yes</option><option>No</option></select></Field>
+          <Field label="Odor sensitive"><select name="odorSensitive" defaultValue={ingredient?.storageProfile?.odorSensitive ? "Yes" : "No"}><option>Yes</option><option>No</option></select></Field>
+          <Field label="Handling notes"><textarea name="handlingNotes" defaultValue={ingredient?.storageProfile?.handlingNotes ?? ""} placeholder="Keep sealed; avoid humidity; thaw overnight under refrigeration" /></Field>
+        </div>
+      </Section>
     </FormShell>
   );
 }
@@ -1429,7 +1505,7 @@ function Recipes({ setPage, setSelectedRecipeId, query, setQuery }: any) {
   const list = recipes.filter((recipe) => (filter === "All" || recipe.category === filter) && recipe.name.toLowerCase().includes(query.toLowerCase()));
   return (
     <>
-      <Toolbar query={query} setQuery={setQuery} placeholder="Search recipes" action={<div className="button-row"><Button variant="secondary" onClick={() => exportCsv("pastry-county-recipes.csv", ["Recipe", "Category", "Base Yield", "Yield Unit", "Product Family", "Pan Profile", "Oven", "Bake Time", "Batch Cost", "Cost Per Unit"], list.map((recipe) => { const cost = calculateRecipeCost(recipe.id, recipe.baseYieldQuantity); const formula = recipe.formulaMetadata ?? {}; return [recipe.name, recipe.category, recipe.baseYieldQuantity, recipe.yieldUnit, formula.productFamily ?? "", formula.panProfile ?? "", formula.ovenTemperature ?? "", formula.bakeTimeRange ?? "", cost.totalRecipeCost, cost.costPerYieldUnit]; }))}>Export CSV</Button><Button onClick={() => { setSelectedRecipeId(""); setPage("recipe-form"); }}><Plus size={18} /> Add Recipe</Button></div>} />
+      <Toolbar query={query} setQuery={setQuery} placeholder="Search recipes" action={<div className="button-row"><Button variant="secondary" onClick={() => exportCsv("pastry-county-recipes.csv", ["Recipe", "Category", "Base Yield", "Yield Unit", "Product Family", "Pan Profile", "Oven", "Bake Time", "Ingredient Subtotal", "Non-Ingredient Cost", "Batch Cost", "Cost Per Unit"], list.map((recipe) => { const cost = calculateRecipeCost(recipe.id, recipe.baseYieldQuantity); const formula = recipe.formulaMetadata ?? {}; return [recipe.name, recipe.category, recipe.baseYieldQuantity, recipe.yieldUnit, formula.productFamily ?? "", formula.panProfile ?? "", formula.ovenTemperature ?? "", formula.bakeTimeRange ?? "", cost.ingredientSubtotal, cost.nonIngredientCost, cost.totalRecipeCost, cost.costPerYieldUnit]; }))}>Export CSV</Button><Button onClick={() => { setSelectedRecipeId(""); setPage("recipe-form"); }}><Plus size={18} /> Add Recipe</Button></div>} />
       <Chips items={categories} active={filter} setActive={setFilter} />
       <div className="card-grid">
         {list.map((recipe) => {
@@ -1440,6 +1516,7 @@ function Recipes({ setPage, setSelectedRecipeId, query, setQuery }: any) {
               <h3>{recipe.name}</h3>
               <p>Base yield: {recipe.baseYieldQuantity} {recipe.yieldUnit}</p>
               <small>{formulaMetadataSummary(recipe.formulaMetadata)}</small>
+              <small>{costProfileSummary(recipe.costProfile)}</small>
               <div className="mini-stats"><span>{formatNaira(cost.totalRecipeCost)} batch</span><span>{formatNaira(cost.costPerYieldUnit)} each</span></div>
               <Button variant="secondary" onClick={(event) => { event.stopPropagation(); setSelectedRecipeId(recipe.id); setPage("scaling"); }}><Scale size={18} /> Scale Recipe</Button>
             </article>
@@ -1459,15 +1536,21 @@ function RecipeDetail({ recipeId, user, setPage, notify, askConfirm, reloadData 
     <div className="detail-layout">
       <article className="detail-hero">
         <div><p className="eyebrow">{recipe.category}</p><h2>{recipe.name}</h2><p>Base yield {recipe.baseYieldQuantity} {recipe.yieldUnit} · {formatNaira(cost.totalRecipeCost)} batch cost</p></div>
-        <div className="button-row"><Button onClick={() => setPage("scaling")}><Scale size={18} /> Scale Recipe</Button><Button variant="secondary" onClick={() => setPage("recipe-form")} disabled={!canUser(user, "manageRecipes")}>Edit Recipe</Button><Button variant="secondary" onClick={() => setPage("order-create")} disabled={!canUser(user, "manageOrders")}>Create Order</Button><Button variant="ghost" onClick={async () => { await apiAction("recipe.save", { recipe: { name: `${recipe.name} Copy`, category: recipe.category, baseYieldQuantity: recipe.baseYieldQuantity, yieldUnit: recipe.yieldUnit, notes: recipe.notes, instructions: recipe.instructions.join("\n"), formulaMetadata: recipe.formulaMetadata ?? {}, items: currentRecipeItems.map((item) => ({ ...item, prepState: item.prepState ?? {} })) } }); notify("Recipe duplicated in Neon."); await reloadData(); setPage("recipes"); }} disabled={!canUser(user, "manageRecipes")}>Duplicate</Button><Button variant="danger" onClick={() => askConfirm({ title: `Archive ${recipe.name}?`, message: "It will disappear from active recipes. Linked order history stays intact.", confirmLabel: "Archive Recipe", tone: "danger", onConfirm: async () => { await apiAction("recipe.delete", { recipeId }); notify(`${recipe.name} archived from active recipes.`); await reloadData(); setPage("recipes"); } })} disabled={!canUser(user, "deleteRecords")}>Archive</Button></div>
+        <div className="button-row"><Button onClick={() => setPage("scaling")}><Scale size={18} /> Scale Recipe</Button><Button variant="secondary" onClick={() => setPage("recipe-form")} disabled={!canUser(user, "manageRecipes")}>Edit Recipe</Button><Button variant="secondary" onClick={() => setPage("order-create")} disabled={!canUser(user, "manageOrders")}>Create Order</Button><Button variant="ghost" onClick={async () => { await apiAction("recipe.save", { recipe: { name: `${recipe.name} Copy`, category: recipe.category, baseYieldQuantity: recipe.baseYieldQuantity, yieldUnit: recipe.yieldUnit, notes: recipe.notes, instructions: recipe.instructions.join("\n"), formulaMetadata: recipe.formulaMetadata ?? {}, costProfile: recipe.costProfile ?? {}, items: currentRecipeItems.map((item) => ({ ...item, prepState: item.prepState ?? {} })) } }); notify("Recipe duplicated in Neon."); await reloadData(); setPage("recipes"); }} disabled={!canUser(user, "manageRecipes")}>Duplicate</Button><Button variant="danger" onClick={() => askConfirm({ title: `Archive ${recipe.name}?`, message: "It will disappear from active recipes. Linked order history stays intact.", confirmLabel: "Archive Recipe", tone: "danger", onConfirm: async () => { await apiAction("recipe.delete", { recipeId }); notify(`${recipe.name} archived from active recipes.`); await reloadData(); setPage("recipes"); } })} disabled={!canUser(user, "deleteRecords")}>Archive</Button></div>
       </article>
       {hasFormulaMetadata(recipe.formulaMetadata) && <Section title="Formula Profile"><div className="compact-list">{formulaMetadataRows(recipe.formulaMetadata).map(([label, value]) => <div className="row-card" key={label}><span>{label}</span><strong>{value}</strong></div>)}</div></Section>}
+      {cost.nonIngredientCost > 0 && <Section title="Production Cost Profile"><div className="compact-list">{[
+        ["Ingredient subtotal", formatNaira(cost.ingredientSubtotal)],
+        ["Non-ingredient costs", formatNaira(cost.nonIngredientCost)],
+        ["Effective yield", `${Number(cost.effectiveYieldQuantity.toFixed(3))} ${recipe.yieldUnit}`],
+        ["Cost profile", costProfileSummary(recipe.costProfile)]
+      ].map(([label, value]) => <div className="row-card" key={label}><span>{label}</span><strong>{value}</strong></div>)}</div></Section>}
       <div className="split">
         <Section title="Ingredients"><div className="compact-list">{currentRecipeItems.map((item) => <div className="row-card" key={item.id}><span><strong>{ingredients.find((ingredient) => ingredient.id === item.ingredientId)?.name}</strong><small>{prepStateSummary(item.prepState) || "No prep state recorded"}</small></span><strong>{formatQuantity(item.quantity, item.unit)}</strong></div>)}</div></Section>
         <Section title="Instructions"><ol className="method-list">{recipe.instructions.map((step) => <li key={step}>{step}</li>)}</ol></Section>
       </div>
       <div className="split">
-        <Section title="Cost Breakdown"><div className="compact-list">{cost.ingredientCostBreakdown.map((item) => <div className="row-card" key={item.ingredientId}><span>{item.ingredientName}<small>{formatScaledIngredientQuantity(item)}</small></span><strong>{formatNaira(item.cost)}</strong></div>)}</div></Section>
+        <Section title="Cost Breakdown"><div className="compact-list">{[...cost.ingredientCostBreakdown.map((item) => <div className="row-card" key={item.ingredientId}><span>{item.ingredientName}<small>{formatScaledIngredientQuantity(item)}</small></span><strong>{formatNaira(item.cost)}</strong></div>), ...cost.nonIngredientCostBreakdown.map((item) => <div className="row-card" key={item.label}><span>{item.label}</span><strong>{formatNaira(item.cost)}</strong></div>)]}</div></Section>
         <Section title="Inventory Availability"><div className="metric-grid small">{[1, 2, 3].map((batch) => <article className="metric-card" key={batch}><span>{batch} batch{batch > 1 ? "es" : ""}</span><strong>{checkStockAvailability(scaleRecipe(recipeId, recipe.baseYieldQuantity * batch)).some((item) => item.status === "shortage") ? "Shortage" : "Ready"}</strong></article>)}</div></Section>
       </div>
     </div>
@@ -1550,6 +1633,16 @@ function RecipeForm({ recipeId, setPage, notify, reloadData }: { recipeId: strin
             storageServiceNotes: formValue(form, "storageServiceNotes"),
             testBakeStatus: formValue(form, "testBakeStatus")
           },
+          costProfile: {
+            laborMinutes: optionalFormNumber(form, "laborMinutes"),
+            laborRatePerHour: formNumber(form, "laborRatePerHour"),
+            packagingCost: formNumber(form, "packagingCost"),
+            overheadCost: formNumber(form, "overheadCost"),
+            utilityCost: formNumber(form, "utilityCost"),
+            failureAllowancePercentage: formNumber(form, "failureAllowancePercentage"),
+            yieldLossPercentage: formNumber(form, "yieldLossPercentage"),
+            notes: formValue(form, "costNotes")
+          },
           items
         }
       });
@@ -1577,6 +1670,19 @@ function RecipeForm({ recipeId, setPage, notify, reloadData }: { recipeId: strin
           <Field label="Sensory checkpoints"><textarea name="sensoryCheckpoints" defaultValue={recipe?.formulaMetadata?.sensoryCheckpoints ?? ""} placeholder="Glossy batter, no dry flour, skewer with moist crumbs" /></Field>
           <Field label="Storage/service notes"><textarea name="storageServiceNotes" defaultValue={recipe?.formulaMetadata?.storageServiceNotes ?? ""} placeholder="Wrap after cooling; best within 3 days" /></Field>
           <Field label="Test bake status"><select name="testBakeStatus" defaultValue={recipe?.formulaMetadata?.testBakeStatus ?? "untested"}><option value="untested">Untested</option><option value="test_bake_needed">Test bake needed</option><option value="tested">Tested</option><option value="production_ready">Production ready</option></select></Field>
+        </div>
+      </Section>
+      <Section title="Cost Profile">
+        <p className="section-note">Optional production costs for the base batch. Ingredient subtotal stays separate in costing.</p>
+        <div className="form-grid">
+          <Field label="Labor minutes"><input name="laborMinutes" type="number" min="0" step="1" defaultValue={recipe?.costProfile?.laborMinutes ?? ""} placeholder="0" /></Field>
+          <Field label="Labor rate per hour"><input name="laborRatePerHour" type="number" min="0" step="0.01" defaultValue={recipe?.costProfile?.laborRatePerHour ?? ""} placeholder="0" /></Field>
+          <Field label="Packaging cost"><input name="packagingCost" type="number" min="0" step="0.01" defaultValue={recipe?.costProfile?.packagingCost ?? ""} placeholder="0" /></Field>
+          <Field label="Overhead cost"><input name="overheadCost" type="number" min="0" step="0.01" defaultValue={recipe?.costProfile?.overheadCost ?? ""} placeholder="0" /></Field>
+          <Field label="Utility cost"><input name="utilityCost" type="number" min="0" step="0.01" defaultValue={recipe?.costProfile?.utilityCost ?? ""} placeholder="0" /></Field>
+          <Field label="Failure allowance %"><input name="failureAllowancePercentage" type="number" min="0" step="0.1" defaultValue={recipe?.costProfile?.failureAllowancePercentage ?? ""} placeholder="0" /></Field>
+          <Field label="Yield loss %"><input name="yieldLossPercentage" type="number" min="0" max="99" step="0.1" defaultValue={recipe?.costProfile?.yieldLossPercentage ?? ""} placeholder="0" /></Field>
+          <Field label="Cost notes"><textarea name="costNotes" defaultValue={recipe?.costProfile?.notes ?? ""} placeholder="Packaging assumptions, labor station, or overhead basis" /></Field>
         </div>
       </Section>
       <Section title="Ingredients" action={<Button variant="secondary" onClick={() => setBuilderRows((rows) => [...rows, Date.now()])}><Plus size={18} /> Add Ingredient</Button>}>
@@ -1754,6 +1860,7 @@ function CreateOrder({ orderId, orderDraft, setOrderDraft, setPage, notify, relo
 
 function OrderDetail({ orderId, user, setPage, notify, askConfirm, reloadData }: { orderId: string; user?: AppUser; setPage: (page: Page) => void; notify: (message: string) => void; askConfirm: AskConfirm; reloadData: () => Promise<void> }) {
   const order = orders.find((item) => item.id === orderId);
+  const [qcOrderId, setQcOrderId] = useState("");
   if (!order) return <EmptyState title="Order not found" message="Select an order from the live order list." />;
   const requirements = requirementsForOrder(orderId);
   const availability = checkOrderStockAvailability(orderId);
@@ -1764,6 +1871,7 @@ function OrderDetail({ orderId, user, setPage, notify, askConfirm, reloadData }:
   const canProduce = !hasShortage && ["Stock Reserved", "In Production"].includes(order.status);
   const canDeliver = order.status === "Produced";
   const cost = calculateOrderCost(orderId);
+  const qcLogs = productionQcLogs.filter((log) => log.orderId === orderId);
   return (
     <div className="detail-layout">
       <article className="detail-hero">
@@ -1776,7 +1884,7 @@ function OrderDetail({ orderId, user, setPage, notify, askConfirm, reloadData }:
           <Button variant="secondary" onClick={() => setPage("order-create")} disabled={isFinal || !canUser(user, "manageOrders")}>Edit Order</Button>
           <Button onClick={async () => { try { const result = await apiAction("order.reserve", { orderId }); notify(result.partial ? `Partially reserved ${result.reservedLines.length} ingredient${result.reservedLines.length === 1 ? "" : "s"}; shortages remain.` : result.shortage ? "No additional stock could be reserved; shortages remain." : result.alreadyReserved ? "Stock is already fully reserved for this order." : "Stock reserved in Neon."); await reloadData(); } catch (error) { notify(error instanceof Error ? error.message : "Unable to reserve stock."); } }} disabled={!canReserve || !canUser(user, "manageOrders")}>Reserve Stock</Button>
           <Button variant="secondary" onClick={async () => { try { await apiAction("order.status", { orderId, status: "In Production", productionStatus: "In Progress" }); notify("Order marked as in production."); await reloadData(); } catch (error) { notify(error instanceof Error ? error.message : "Unable to start production."); } }} disabled={!canStartProduction || !canUser(user, "runProduction")}>Mark In Production</Button>
-          <Button variant="secondary" onClick={async () => { await markOrderProduced(orderId, notify); await reloadData(); }} disabled={!canProduce || !canUser(user, "runProduction")}>Mark Produced</Button>
+          <Button variant="secondary" onClick={() => setQcOrderId(orderId)} disabled={!canProduce || !canUser(user, "runProduction")}>Mark Produced</Button>
           <Button variant="ghost" onClick={async () => { try { await apiAction("order.status", { orderId, status: "Delivered", productionStatus: "Completed" }); notify("Order marked as delivered."); await reloadData(); } catch (error) { notify(error instanceof Error ? error.message : "Unable to deliver order."); } }} disabled={!canDeliver}>Delivered</Button>
           <Button variant="secondary" onClick={async () => { await apiAction("order.status", { orderId, status: "Cancelled" }); notify("Order cancelled and reservations released."); await reloadData(); }} disabled={order.status === "Cancelled" || order.status === "Delivered"}>Cancel Order</Button>
           <Button variant="danger" onClick={() => askConfirm({ title: `Delete ${order.customerName}'s order?`, message: "This removes the order from active operations and releases any reservation. Ledger history is preserved.", confirmLabel: "Delete Order", tone: "danger", onConfirm: async () => { await apiAction("order.delete", { orderId }); notify("Order deleted from active list and reservation released."); await reloadData(); setPage("orders"); } })} disabled={!canUser(user, "deleteRecords")}>Delete Order</Button>
@@ -1790,6 +1898,8 @@ function OrderDetail({ orderId, user, setPage, notify, askConfirm, reloadData }:
         return <div className="row-card" key={item.ingredientId}><span>{item.ingredientName}<small>Required {formatQuantity(item.requiredQuantity, unit)}, available {formatQuantity(item.availableStock, unit)}</small></span><Badge tone={item.shortageQuantity > 0 ? "danger" : "success"}>{item.shortageQuantity > 0 ? "Shortage" : "Enough Stock"}</Badge></div>;
       })}</div></Section>
       <Section title="Timeline"><div className="timeline"><article><CheckCircle2 size={18} /><div><strong>Order confirmed</strong><small>May 18, 2026</small></div></article><article><AlertTriangle size={18} /><div><strong>Stock shortage detected</strong><small>Dark Chocolate and Eggs need restock</small></div></article></div></Section>
+      <Section title="Production QC Logs"><div className="timeline">{qcLogs.length === 0 && <p>No QC logs recorded for this order yet.</p>}{qcLogs.map((log) => <article key={log.id}><ClipboardList size={18} /><div><strong>{log.passedQc ? "QC passed" : "QC issue logged"}{log.actualYieldQuantity ? ` | actual ${log.actualYieldQuantity}${log.yieldUnit ?? ""}` : ""}</strong><small>{[log.ovenTemperature, log.bakeTimeMinutes ? `${log.bakeTimeMinutes} min` : "", log.sensoryNotes].filter(Boolean).join(" | ") || "No process notes"} | {new Date(log.createdAt).toLocaleString()}</small></div></article>)}</div></Section>
+      {qcOrderId && <ProductionQcModal orderId={qcOrderId} onClose={() => setQcOrderId("")} notify={notify} reloadData={reloadData} />}
     </div>
   );
 }
@@ -1797,6 +1907,7 @@ function OrderDetail({ orderId, user, setPage, notify, askConfirm, reloadData }:
 function Production({ user, setPage, setSelectedOrderId, notify, reloadData }: any) {
   const [reviewBatchKey, setReviewBatchKey] = useState("");
   const [scaledOrderId, setScaledOrderId] = useState("");
+  const [qcOrderId, setQcOrderId] = useState("");
   const activeOrders = orders.filter((order) => !["Delivered", "Cancelled"].includes(order.status));
   const batches = Object.values(orderItems.reduce<Record<string, { key: string; recipeId: string; dueDate: string; orderIds: string[]; totalYield: number }>>((acc, item) => {
     const order = activeOrders.find((candidate) => candidate.id === item.orderId);
@@ -1868,7 +1979,7 @@ function Production({ user, setPage, setSelectedOrderId, notify, reloadData }: a
                   <p>{order.customerName} · due {order.dueDate}</p>
                   <small>Required: {requirements.slice(0, 3).map((item) => `${item.ingredientName} ${formatScaledIngredientQuantity(item)}`).join(", ")}</small>
                   {hasShortage && <small className="field-error">Resolve before production: {shortageText(orderShortages)}.</small>}
-                  <div className="button-row"><Button variant="secondary" onClick={async (event) => { event.stopPropagation(); try { if (hasShortage) { notify(`Cannot start production: ${shortageText(orderShortages)}.`); setPage("shopping"); return; } await apiAction("order.status", { orderId: order.id, status: "In Production", productionStatus: "In Progress" }); notify("Production started for this order."); await reloadData(); } catch (error) { notify(error instanceof Error ? error.message : "Unable to start production."); } }} disabled={!canStartProduction || !canUser(user, "runProduction")}>Start Production</Button><Button variant="secondary" onClick={(event) => { event.stopPropagation(); setScaledOrderId(order.id); }}>View Scaled Recipe</Button><Button onClick={async (event) => { event.stopPropagation(); try { if (hasShortage) { notify(`Cannot deduct inventory: ${shortageText(orderShortages)}.`); setPage("shopping"); return; } await markOrderProduced(order.id, notify); await reloadData(); } catch (error) { notify(error instanceof Error ? error.message : "Unable to deduct inventory."); } }} disabled={!canDeductInventory || !canUser(user, "runProduction")}>Deduct Inventory</Button></div>
+                  <div className="button-row"><Button variant="secondary" onClick={async (event) => { event.stopPropagation(); try { if (hasShortage) { notify(`Cannot start production: ${shortageText(orderShortages)}.`); setPage("shopping"); return; } await apiAction("order.status", { orderId: order.id, status: "In Production", productionStatus: "In Progress" }); notify("Production started for this order."); await reloadData(); } catch (error) { notify(error instanceof Error ? error.message : "Unable to start production."); } }} disabled={!canStartProduction || !canUser(user, "runProduction")}>Start Production</Button><Button variant="secondary" onClick={(event) => { event.stopPropagation(); setScaledOrderId(order.id); }}>View Scaled Recipe</Button><Button onClick={(event) => { event.stopPropagation(); if (hasShortage) { notify(`Cannot deduct inventory: ${shortageText(orderShortages)}.`); setPage("shopping"); return; } setQcOrderId(order.id); }} disabled={!canDeductInventory || !canUser(user, "runProduction")}>Deduct Inventory</Button></div>
                 </article>
               );
             })}
@@ -1893,6 +2004,69 @@ function Production({ user, setPage, setSelectedOrderId, notify, reloadData }: a
         </div>
       )}
       {scaledOrderId && <ProductionScaledRecipeModal orderId={scaledOrderId} onClose={() => setScaledOrderId("")} />}
+      {qcOrderId && <ProductionQcModal orderId={qcOrderId} onClose={() => setQcOrderId("")} notify={notify} reloadData={reloadData} />}
+    </div>
+  );
+}
+
+function ProductionQcModal({ orderId, onClose, notify, reloadData }: { orderId: string; onClose: () => void; notify: Notify; reloadData: () => Promise<void> }) {
+  const order = orders.find((item) => item.id === orderId);
+  const lines = orderItems.filter((item) => item.orderId === orderId);
+  const firstLine = lines[0];
+  const recipe = recipes.find((item) => item.id === firstLine?.recipeId);
+  const expectedYield = firstLine ? firstLine.requestedYieldQuantity * firstLine.quantityMultiplier : 0;
+  const yieldUnit = firstLine?.yieldUnit ?? recipe?.yieldUnit ?? "units";
+  const { dialogRef, onDialogKeyDown } = useDialogA11y<HTMLFormElement>(true, onClose);
+  if (!order) return null;
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <form ref={dialogRef} className="confirm-modal wide" role="dialog" aria-modal="true" aria-labelledby="production-qc-title" tabIndex={-1} onKeyDown={onDialogKeyDown} onSubmit={async (event) => {
+        event.preventDefault();
+        const form = event.currentTarget;
+        await markOrderProduced(orderId, notify, {
+          recipeId: recipe?.id,
+          formulaVersion: recipe?.formulaMetadata?.formulaVersion,
+          expectedYieldQuantity: formNumber(form, "expectedYieldQuantity", expectedYield),
+          actualYieldQuantity: formNumber(form, "actualYieldQuantity", expectedYield),
+          yieldUnit: formValue(form, "yieldUnit") || yieldUnit,
+          roomTemperature: formValue(form, "roomTemperature"),
+          mixTemperature: formValue(form, "mixTemperature"),
+          ovenTemperature: formValue(form, "ovenTemperature"),
+          bakeTimeMinutes: optionalFormNumber(form, "bakeTimeMinutes"),
+          restTimeMinutes: optionalFormNumber(form, "restTimeMinutes"),
+          sensoryNotes: formValue(form, "sensoryNotes"),
+          defects: formValue(form, "defects"),
+          nextAdjustment: formValue(form, "nextAdjustment"),
+          passedQc: formValue(form, "passedQc") === "Yes"
+        });
+        await reloadData();
+        onClose();
+      }}>
+        <div className="section-head">
+          <div><p className="eyebrow">Production QC</p><h2 id="production-qc-title">{order.customerName}</h2></div>
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+        </div>
+        <p className="section-note">Record the production checkpoints before inventory is deducted. This is a kitchen QC log, not a regulatory filing.</p>
+        <div className="form-grid">
+          <Field label="Recipe"><input readOnly value={recipe?.name ?? "Mixed order"} /></Field>
+          <Field label="Expected yield"><input name="expectedYieldQuantity" type="number" min="0" step="0.001" defaultValue={expectedYield || ""} /></Field>
+          <Field label="Actual yield"><input name="actualYieldQuantity" type="number" min="0" step="0.001" defaultValue={expectedYield || ""} /></Field>
+          <Field label="Yield unit"><input name="yieldUnit" defaultValue={yieldUnit} /></Field>
+          <Field label="Room temp"><input name="roomTemperature" placeholder="e.g. 25C" /></Field>
+          <Field label="Mix temp"><input name="mixTemperature" placeholder="e.g. batter 23C" /></Field>
+          <Field label="Oven temp"><input name="ovenTemperature" defaultValue={recipe?.formulaMetadata?.ovenTemperature ?? ""} placeholder="e.g. 170C fan" /></Field>
+          <Field label="Bake time minutes"><input name="bakeTimeMinutes" type="number" min="0" step="0.1" /></Field>
+          <Field label="Rest time minutes"><input name="restTimeMinutes" type="number" min="0" step="0.1" /></Field>
+          <Field label="QC result"><select name="passedQc" defaultValue="Yes"><option>Yes</option><option>No</option></select></Field>
+          <Field label="Sensory notes"><textarea name="sensoryNotes" placeholder="Glossy top, moist crumbs, clean edges" /></Field>
+          <Field label="Defects"><textarea name="defects" placeholder="Overbaked edges, sunken centre, underproofed pieces" /></Field>
+          <Field label="Next adjustment"><textarea name="nextAdjustment" placeholder="Reduce bake by 2 minutes, chill dough longer, lower oven shelf" /></Field>
+        </div>
+        <div className="button-row">
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button type="submit">Complete Production</Button>
+        </div>
+      </form>
     </div>
   );
 }
@@ -2028,11 +2202,11 @@ function Costing() {
   return (
     <div className="page-grid">
       <div className="split">
-        <Section title="Recipe Cost Calculator"><div className="form-grid"><Field label="Recipe"><select value={recipe.id} onChange={(event) => { setSelectedRecipeId(event.target.value); const nextRecipe = recipes.find((item) => item.id === event.target.value); if (nextRecipe) setYieldQty(nextRecipe.baseYieldQuantity); }}>{recipes.map((recipe) => <option key={recipe.id} value={recipe.id}>{recipe.name}</option>)}</select></Field><Field label="Desired yield"><input type="number" min="0.001" step="0.001" value={yieldQty} onChange={(event) => setYieldQty(Number(event.target.value))} /></Field><Metric label="Ingredient cost" value={formatNaira(cost.totalRecipeCost)} /><Metric label={`Cost per ${recipe.yieldUnit}`} value={formatNaira(cost.costPerYieldUnit)} /></div></Section>
+        <Section title="Recipe Cost Calculator"><div className="form-grid"><Field label="Recipe"><select value={recipe.id} onChange={(event) => { setSelectedRecipeId(event.target.value); const nextRecipe = recipes.find((item) => item.id === event.target.value); if (nextRecipe) setYieldQty(nextRecipe.baseYieldQuantity); }}>{recipes.map((recipe) => <option key={recipe.id} value={recipe.id}>{recipe.name}</option>)}</select></Field><Field label="Desired yield"><input type="number" min="0.001" step="0.001" value={yieldQty} onChange={(event) => setYieldQty(Number(event.target.value))} /></Field><Metric label="Ingredient subtotal" value={formatNaira(cost.ingredientSubtotal)} /><Metric label="Non-ingredient cost" value={formatNaira(cost.nonIngredientCost)} /><Metric label="Total production cost" value={formatNaira(cost.totalRecipeCost)} /><Metric label={`Cost per ${recipe.yieldUnit}`} value={formatNaira(cost.costPerYieldUnit)} /><Metric label="Effective yield" value={`${Number(cost.effectiveYieldQuantity.toFixed(2))} ${recipe.yieldUnit}`} /></div></Section>
         <Section title="Margin Calculator"><div className="form-grid"><Field label="Selling price"><input type="number" min="0" step="0.01" value={sellingPrice} onChange={(event) => setSellingPrice(Number(event.target.value))} /></Field><Metric label="Tax setting" value={`${settings.defaultTaxPercentage ?? 0}%`} /><Metric label="Net selling price" value={formatNaira(netPrice)} /><Metric label="Gross profit" value={formatNaira(margin.grossProfit)} /><Metric label="Gross margin" value={`${margin.grossMarginPercentage.toFixed(1)}%`} /></div></Section>
       </div>
-      <Section title="Cost Breakdown Chart"><div className="bar-chart">{cost.ingredientCostBreakdown.slice(0, 6).map((item) => <div key={item.ingredientId}><span>{item.ingredientName}</span><div><i style={{ width: `${cost.totalRecipeCost > 0 ? Math.min(100, (item.cost / cost.totalRecipeCost) * 220) : 0}%` }} /></div><strong>{formatNaira(item.cost)}</strong></div>)}</div></Section>
-      <article className="warning-card"><AlertTriangle size={22} /> Costs are calculated from the selected recipe and latest ingredient unit costs.</article>
+      <Section title="Cost Breakdown Chart"><div className="bar-chart">{[...cost.ingredientCostBreakdown.slice(0, 6).map((item) => ({ id: item.ingredientId, label: item.ingredientName, cost: item.cost })), ...cost.nonIngredientCostBreakdown.map((item) => ({ id: item.label, label: item.label, cost: item.cost }))].map((item) => <div key={item.id}><span>{item.label}</span><div><i style={{ width: `${cost.totalRecipeCost > 0 ? Math.min(100, (item.cost / cost.totalRecipeCost) * 220) : 0}%` }} /></div><strong>{formatNaira(item.cost)}</strong></div>)}</div></Section>
+      <article className="warning-card"><AlertTriangle size={22} /> Costs combine latest ingredient unit costs with the recipe cost profile. Verify labor, packaging, overhead, and yield-loss assumptions before quoting.</article>
     </div>
   );
 }
@@ -2123,7 +2297,7 @@ function ConversionLibrary({ user, notify, askConfirm, reloadData }: { user?: Ap
   const filteredRules = conversionRules.filter((rule) => {
     const ingredientName = ingredients.find((item) => item.id === rule.ingredientId)?.name ?? rule.ingredientId;
     const statusMatch = conversionFilter === "All" || (conversionFilter === "Verified" ? rule.verified : !rule.verified);
-    const queryMatch = [ingredientName, rule.fromUnit, rule.toUnit, rule.conversionFactor, rule.confidenceLevel, rule.source, rule.verified ? "verified" : "review"].join(" ").toLowerCase().includes(conversionSearch.toLowerCase());
+    const queryMatch = [ingredientName, rule.fromUnit, rule.toUnit, rule.conversionFactor, rule.confidenceLevel, rule.source, rule.ingredientState, rule.temperatureState, rule.formulaContext, rule.verified ? "verified" : "review"].join(" ").toLowerCase().includes(conversionSearch.toLowerCase());
     return statusMatch && queryMatch;
   });
   return (
@@ -2138,13 +2312,13 @@ function ConversionLibrary({ user, notify, askConfirm, reloadData }: { user?: Ap
           <ConversionImportModal onCancel={() => setImportOpen(false)} notify={notify} reloadData={reloadData} />
         </div>
       )}
-      <Section title="Approved Conversion Rules" action={<div className="button-row"><Button variant="secondary" onClick={() => exportCsv("pastry-county-conversion-rules.csv", ["Ingredient", "From Unit", "To Unit", "Factor", "Confidence", "Source", "Verified"], filteredRules.map((rule) => [ingredients.find((item) => item.id === rule.ingredientId)?.name ?? rule.ingredientId, rule.fromUnit, rule.toUnit, rule.conversionFactor, rule.confidenceLevel, rule.source, rule.verified ? "Yes" : "No"]), notify)}>Export CSV</Button><Button variant="secondary" onClick={() => setImportOpen(true)} disabled={!canManage}>Import CSV</Button><Button onClick={() => setEditingRule({ ingredientId: ingredients[0]?.id, fromUnit: "cup", toUnit: ingredients[0]?.baseUnit ?? "g", conversionFactor: 1, confidenceLevel: "Medium", source: "manual entry", verified: false })} disabled={!canManage}><Plus size={18} /> Add Conversion Rule</Button></div>}>
+      <Section title="Approved Conversion Rules" action={<div className="button-row"><Button variant="secondary" onClick={() => exportCsv("pastry-county-conversion-rules.csv", ["Ingredient", "From Unit", "To Unit", "Factor", "Ingredient State", "Temperature State", "Formula Context", "Confidence", "Source", "Verified"], filteredRules.map((rule) => [ingredients.find((item) => item.id === rule.ingredientId)?.name ?? rule.ingredientId, rule.fromUnit, rule.toUnit, rule.conversionFactor, rule.ingredientState ?? "", rule.temperatureState ?? "", rule.formulaContext ?? "", rule.confidenceLevel, rule.source, rule.verified ? "Yes" : "No"]), notify)}>Export CSV</Button><Button variant="secondary" onClick={() => setImportOpen(true)} disabled={!canManage}>Import CSV</Button><Button onClick={() => setEditingRule({ ingredientId: ingredients[0]?.id, fromUnit: "cup", toUnit: ingredients[0]?.baseUnit ?? "g", conversionFactor: 1, confidenceLevel: "Medium", source: "manual entry", verified: false })} disabled={!canManage}><Plus size={18} /> Add Conversion Rule</Button></div>}>
         <Toolbar query={conversionSearch} setQuery={setConversionSearch} placeholder="Search conversions" />
         <Chips items={["All", "Verified", "Needs Review"]} active={conversionFilter} setActive={setConversionFilter} />
         <PaginatedTable
           label="conversion rules"
-          headers={["Ingredient", "From", "To", "Value", "Confidence", "Source", "Verified", "Actions"]}
-          rows={filteredRules.map((rule) => ({ key: rule.id, cells: [ingredients.find((item) => item.id === rule.ingredientId)?.name, rule.fromUnit, rule.toUnit, `1 ${rule.fromUnit} = ${rule.conversionFactor}${rule.toUnit}`, rule.confidenceLevel, rule.source, rule.verified ? <Badge tone="success">Verified</Badge> : <Badge tone="warning">Review</Badge>, <div className="button-row"><Button variant="secondary" onClick={() => setEditingRule(rule)} disabled={!canManage}>Edit</Button><Button variant="secondary" onClick={async () => { await apiAction("conversion.verify", { ruleId: rule.id }); notify(`Verified ${rule.fromUnit} to ${rule.toUnit} conversion rule.`); await reloadData(); }} disabled={!canManage}>Mark Verified</Button><Button variant="danger" onClick={() => askConfirm({ title: "Delete conversion rule?", message: `This removes the ${rule.fromUnit} to ${rule.toUnit} conversion rule from the approved library.`, confirmLabel: "Delete Rule", tone: "danger", onConfirm: async () => { await apiAction("conversion.delete", { ruleId: rule.id }); notify("Conversion rule deleted."); await reloadData(); } })} disabled={!canUser(user, "deleteRecords")}>Delete</Button></div>] }))}
+          headers={["Ingredient", "From", "To", "Value", "Scope", "Confidence", "Source", "Verified", "Actions"]}
+          rows={filteredRules.map((rule) => ({ key: rule.id, cells: [ingredients.find((item) => item.id === rule.ingredientId)?.name, rule.fromUnit, rule.toUnit, `1 ${rule.fromUnit} = ${rule.conversionFactor}${rule.toUnit}`, [rule.ingredientState, rule.temperatureState, rule.formulaContext].filter(Boolean).join(" | ") || "Generic", rule.confidenceLevel, rule.source, rule.verified ? <Badge tone="success">Verified</Badge> : <Badge tone="warning">Review</Badge>, <div className="button-row"><Button variant="secondary" onClick={() => setEditingRule(rule)} disabled={!canManage}>Edit</Button><Button variant="secondary" onClick={async () => { await apiAction("conversion.verify", { ruleId: rule.id }); notify(`Verified ${rule.fromUnit} to ${rule.toUnit} conversion rule.`); await reloadData(); }} disabled={!canManage}>Mark Verified</Button><Button variant="danger" onClick={() => askConfirm({ title: "Delete conversion rule?", message: `This removes the ${rule.fromUnit} to ${rule.toUnit} conversion rule from the approved library.`, confirmLabel: "Delete Rule", tone: "danger", onConfirm: async () => { await apiAction("conversion.delete", { ruleId: rule.id }); notify("Conversion rule deleted."); await reloadData(); } })} disabled={!canUser(user, "deleteRecords")}>Delete</Button></div>] }))}
         />
       </Section>
     </div>
@@ -2162,13 +2336,24 @@ function ConversionImportModal({ onCancel, notify, reloadData }: { onCancel: () 
       const text = formValue(form, "rules");
       const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
       const dataLines = lines[0]?.toLowerCase().includes("ingredient") ? lines.slice(1) : lines;
-      const rules = dataLines.map(parseCsvLine).map(([ingredientName, fromUnit, toUnit, factor, confidence = "Medium", source = "manual entry", verified = "No"]) => {
+      const rules = dataLines.map(parseCsvLine).map((columns) => {
+        const [ingredientName, fromUnit, toUnit, factor] = columns;
+        const scopedFormat = columns.length > 7;
+        const ingredientState = scopedFormat ? columns[4] ?? "" : "";
+        const temperatureState = scopedFormat ? columns[5] ?? "" : "";
+        const formulaContext = scopedFormat ? columns[6] ?? "" : "";
+        const confidence = scopedFormat ? columns[7] ?? "Medium" : columns[4] ?? "Medium";
+        const source = scopedFormat ? columns[8] ?? "manual entry" : columns[5] ?? "manual entry";
+        const verified = scopedFormat ? columns[9] ?? "No" : columns[6] ?? "No";
         const ingredient = ingredients.find((item) => item.id === ingredientName || item.name.toLowerCase() === ingredientName.toLowerCase());
         return {
           ingredientId: ingredient?.id ?? "",
           fromUnit,
           toUnit,
           conversionFactor: Number(factor),
+          ingredientState,
+          temperatureState,
+          formulaContext,
           confidenceLevel: confidence,
           source,
           verified: ["yes", "true", "verified"].includes(verified.toLowerCase())
@@ -2192,8 +2377,8 @@ function ConversionImportModal({ onCancel, notify, reloadData }: { onCancel: () 
       }
     }}>
       <div className="section-head"><h2 id="conversion-import-title">Import Conversion Rules</h2><div className="button-row"><Button variant="secondary" onClick={onCancel}>Cancel</Button><Button type="submit">{saving ? "Importing..." : "Import Rules"}</Button></div></div>
-      <Field label="CSV rows" helper="Columns: Ingredient, From Unit, To Unit, Factor, Confidence, Source, Verified. Ingredient can be the exact ingredient name or ID.">
-        <textarea name="rules" required rows={10} placeholder={'Flour,cup,g,125,High,measured in kitchen,Yes\nSugar,cup,g,200,Medium,manual entry,No'} />
+      <Field label="CSV rows" helper="Columns: Ingredient, From Unit, To Unit, Factor, Ingredient State, Temperature State, Formula Context, Confidence, Source, Verified. Ingredient can be the exact ingredient name or ID.">
+        <textarea name="rules" required rows={10} placeholder={'Flour,cup,g,118,Sifted,,Brownie,High,measured in kitchen,Yes\nSugar,cup,g,200,,,,Medium,manual entry,No'} />
       </Field>
     </form>
   );
@@ -2213,6 +2398,9 @@ function ConversionRuleForm({ rule, onCancel, notify, reloadData }: { rule: Part
           fromUnit: formValue(form, "fromUnit"),
           toUnit: formValue(form, "toUnit"),
           conversionFactor: formNumber(form, "conversionFactor", 1),
+          ingredientState: formValue(form, "ingredientState"),
+          temperatureState: formValue(form, "temperatureState"),
+          formulaContext: formValue(form, "formulaContext"),
           confidenceLevel: formValue(form, "confidenceLevel"),
           source: formValue(form, "source"),
           verified: formValue(form, "verified") === "Yes"
@@ -2228,6 +2416,9 @@ function ConversionRuleForm({ rule, onCancel, notify, reloadData }: { rule: Part
         <Field label="From unit"><select name="fromUnit" defaultValue={rule.fromUnit ?? "cup"}>{unitOptions.map((unit) => <option key={unit}>{unit}</option>)}</select></Field>
         <Field label="To unit"><select name="toUnit" defaultValue={rule.toUnit ?? "g"}>{unitOptions.map((unit) => <option key={unit}>{unit}</option>)}</select></Field>
         <Field label={`Value for 1 ${rule.fromUnit ?? "from-unit"}`} helper="Example: if 1 cup flour weighs 125g, enter 125 and set To unit to g."><input name="conversionFactor" type="number" min="0.001" step="0.001" defaultValue={rule.conversionFactor ?? 1} required /></Field>
+        <Field label="Ingredient state" helper="Optional. Example: sifted, packed, melted, roasted."><input name="ingredientState" defaultValue={rule.ingredientState ?? ""} placeholder="sifted" /></Field>
+        <Field label="Temperature state" helper="Optional. Example: cold cubed, room temp, melted."><input name="temperatureState" defaultValue={rule.temperatureState ?? ""} placeholder="room temp" /></Field>
+        <Field label="Formula context" helper="Optional. Product family such as Brownie, Loaf, Cookie."><input name="formulaContext" defaultValue={rule.formulaContext ?? ""} placeholder="Brownie" /></Field>
         <Field label="Confidence"><select name="confidenceLevel" defaultValue={rule.confidenceLevel ?? "Medium"}><option>Low</option><option>Medium</option><option>High</option></select></Field>
         <Field label="Source"><select name="source" defaultValue={rule.source ?? "manual entry"}><option>AI estimate</option><option>manual entry</option><option>measured in kitchen</option><option>seed rule</option></select></Field>
         <Field label="Verified"><select name="verified" defaultValue={rule.verified ? "Yes" : "No"}><option>Yes</option><option>No</option></select></Field>

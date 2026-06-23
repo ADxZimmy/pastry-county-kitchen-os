@@ -208,6 +208,31 @@ const recipePrepTextFields = [
   "handlingWarning"
 ];
 const recipeTestBakeStatuses = new Set(["untested", "test_bake_needed", "tested", "production_ready"]);
+const allergenFields = ["contains", "mayContain", "dietaryFlags"];
+const allergenCrossContactRisks = new Set(["low", "medium", "high"]);
+const storageTemperatures = new Set(["ambient", "cool_dry", "refrigerated", "frozen"]);
+const storageTextFields = ["storageLocation", "handlingNotes"];
+const costNumberFields = [
+  "laborMinutes",
+  "laborRatePerHour",
+  "packagingCost",
+  "overheadCost",
+  "utilityCost",
+  "failureAllowancePercentage",
+  "yieldLossPercentage"
+];
+const conversionScopeTextFields = ["ingredientState", "temperatureState", "formulaContext"];
+const qcTextFields = [
+  "batchKey",
+  "formulaVersion",
+  "yieldUnit",
+  "roomTemperature",
+  "mixTemperature",
+  "ovenTemperature",
+  "sensoryNotes",
+  "defects",
+  "nextAdjustment"
+];
 
 function trimmedString(value) {
   const text = String(value ?? "").trim();
@@ -217,6 +242,17 @@ function trimmedString(value) {
 function positiveOptionalNumber(value) {
   const parsed = num(value);
   return parsed > 0 ? parsed : undefined;
+}
+
+function nonNegativeOptionalNumber(value) {
+  if (value === undefined || value === null || value === "") return undefined;
+  const parsed = num(value);
+  return parsed >= 0 ? parsed : undefined;
+}
+
+function stringList(value) {
+  const raw = Array.isArray(value) ? value : String(value ?? "").split(",");
+  return Array.from(new Set(raw.map((item) => String(item).trim()).filter(Boolean)));
 }
 
 export function normalizeRecipeFormulaMetadata(value = {}) {
@@ -243,6 +279,72 @@ export function normalizeRecipeItemPrepState(value = {}) {
   const sequence = positiveOptionalNumber(source.sequence);
   if (sequence !== undefined) prepState.sequence = sequence;
   return prepState;
+}
+
+export function normalizeIngredientAllergenProfile(value = {}) {
+  const source = value && typeof value === "object" ? value : {};
+  const profile = {};
+  allergenFields.forEach((field) => {
+    const list = stringList(source[field]);
+    if (list.length) profile[field] = list;
+  });
+  const crossContactRisk = trimmedString(source.crossContactRisk)?.toLowerCase();
+  if (crossContactRisk && allergenCrossContactRisks.has(crossContactRisk)) profile.crossContactRisk = crossContactRisk;
+  const labelNotes = trimmedString(source.labelNotes);
+  if (labelNotes) profile.labelNotes = labelNotes;
+  return profile;
+}
+
+export function normalizeIngredientStorageProfile(value = {}) {
+  const source = value && typeof value === "object" ? value : {};
+  const profile = {};
+  const storageTemperature = trimmedString(source.storageTemperature)?.toLowerCase();
+  if (storageTemperature && storageTemperatures.has(storageTemperature)) profile.storageTemperature = storageTemperature;
+  storageTextFields.forEach((field) => {
+    const text = trimmedString(source[field]);
+    if (text) profile[field] = text;
+  });
+  const openedShelfLifeDays = positiveOptionalNumber(source.openedShelfLifeDays);
+  if (openedShelfLifeDays !== undefined) profile.openedShelfLifeDays = openedShelfLifeDays;
+  if (source.humiditySensitive !== undefined) profile.humiditySensitive = bool(source.humiditySensitive);
+  if (source.odorSensitive !== undefined) profile.odorSensitive = bool(source.odorSensitive);
+  return profile;
+}
+
+export function normalizeRecipeCostProfile(value = {}) {
+  const source = value && typeof value === "object" ? value : {};
+  const profile = {};
+  costNumberFields.forEach((field) => {
+    const parsed = nonNegativeOptionalNumber(source[field]);
+    if (parsed !== undefined) profile[field] = parsed;
+  });
+  const notes = trimmedString(source.notes);
+  if (notes) profile.notes = notes;
+  return profile;
+}
+
+export function normalizeConversionScope(value = {}) {
+  const source = value && typeof value === "object" ? value : {};
+  return conversionScopeTextFields.reduce((acc, field) => {
+    const text = trimmedString(source[field]);
+    if (text) acc[field] = text;
+    return acc;
+  }, {});
+}
+
+export function normalizeProductionQcLog(value = {}) {
+  const source = value && typeof value === "object" ? value : {};
+  const log = {};
+  qcTextFields.forEach((field) => {
+    const text = trimmedString(source[field]);
+    if (text) log[field] = text;
+  });
+  ["expectedYieldQuantity", "actualYieldQuantity", "bakeTimeMinutes", "restTimeMinutes"].forEach((field) => {
+    const parsed = nonNegativeOptionalNumber(source[field]);
+    if (parsed !== undefined) log[field] = parsed;
+  });
+  log.passedQc = source.passedQc === undefined ? true : bool(source.passedQc);
+  return log;
 }
 
 export function archiveTableForEntity(entityType) {
@@ -302,10 +404,24 @@ async function requirementsForOrder(sql, orderId) {
     join recipes r on r.id = oi.recipe_id
     join recipe_items ri on ri.recipe_id = r.id
     join ingredients on ingredients.id = ri.ingredient_id
-    left join conversion_rules on conversion_rules.ingredient_id = ri.ingredient_id
-      and conversion_rules.from_unit = ri.unit
-      and conversion_rules.to_unit = ingredients.base_unit
-      and conversion_rules.active = true
+    left join lateral (
+      select conversion_factor
+      from conversion_rules
+      where conversion_rules.ingredient_id = ri.ingredient_id
+        and conversion_rules.from_unit = ri.unit
+        and conversion_rules.to_unit = ingredients.base_unit
+        and conversion_rules.active = true
+        and (conversion_rules.ingredient_state is null or lower(conversion_rules.ingredient_state) = lower(coalesce(ri.prep_state->>'ingredientState', '')))
+        and (conversion_rules.temperature_state is null or lower(conversion_rules.temperature_state) = lower(coalesce(ri.prep_state->>'temperatureState', '')))
+        and (conversion_rules.formula_context is null or lower(conversion_rules.formula_context) = lower(coalesce(r.formula_metadata->>'productFamily', r.category, '')))
+      order by
+        case when conversion_rules.ingredient_state is null then 0 else 1 end +
+        case when conversion_rules.temperature_state is null then 0 else 1 end +
+        case when conversion_rules.formula_context is null then 0 else 1 end desc,
+        conversion_rules.verified desc,
+        conversion_rules.updated_at desc
+      limit 1
+    ) conversion_rules on true
     where oi.order_id = ${orderId}
     group by ri.ingredient_id, ri.unit, ingredients.base_unit, conversion_rules.conversion_factor
   `;
@@ -416,6 +532,8 @@ async function reserveOrder(sql, orderId) {
 async function ensureOperationalTables(sql) {
   await sql`alter table orders add column if not exists archived boolean not null default false`;
   await sql`alter table ingredients add column if not exists purchase_unit text`;
+  await sql`alter table ingredients add column if not exists allergen_profile jsonb not null default '{}'`;
+  await sql`alter table ingredients add column if not exists storage_profile jsonb not null default '{}'`;
   await sql`update ingredients set purchase_unit = base_unit where purchase_unit is null or purchase_unit = ''`;
   await sql`alter table ingredients alter column purchase_unit set default 'g'`;
   await sql`alter table ingredients alter column purchase_unit set not null`;
@@ -424,6 +542,12 @@ async function ensureOperationalTables(sql) {
   await sql`alter table suppliers add column if not exists supplied_ingredient_ids text[] not null default '{}'`;
   await sql`alter table suppliers add column if not exists active boolean not null default true`;
   await sql`alter table conversion_rules add column if not exists active boolean not null default true`;
+  await sql`alter table conversion_rules add column if not exists ingredient_state text`;
+  await sql`alter table conversion_rules add column if not exists temperature_state text`;
+  await sql`alter table conversion_rules add column if not exists formula_context text`;
+  await sql`alter table recipes add column if not exists formula_metadata jsonb not null default '{}'`;
+  await sql`alter table recipes add column if not exists cost_profile jsonb not null default '{}'`;
+  await sql`alter table recipe_items add column if not exists prep_state jsonb not null default '{}'`;
   await sql`alter table settings add column if not exists safety_margin_percentage numeric(6,3) not null default 10`;
   await sql`alter table settings add column if not exists default_tax_percentage numeric(6,3) not null default 0`;
   await sql`alter table settings add column if not exists low_stock_notification_email text`;
@@ -468,6 +592,29 @@ async function ensureOperationalTables(sql) {
       created_at timestamptz not null default now()
     )
   `;
+  await sql`
+    create table if not exists production_qc_logs (
+      id text primary key,
+      order_id text not null references orders(id),
+      recipe_id text references recipes(id),
+      batch_key text,
+      formula_version text,
+      expected_yield_quantity numeric(14,3),
+      actual_yield_quantity numeric(14,3),
+      yield_unit text,
+      room_temperature text,
+      mix_temperature text,
+      oven_temperature text,
+      bake_time_minutes numeric(8,2),
+      rest_time_minutes numeric(8,2),
+      sensory_notes text,
+      defects text,
+      next_adjustment text,
+      passed_qc boolean not null default true,
+      logged_by text,
+      created_at timestamptz not null default now()
+    )
+  `;
   await ensureDecimalOperationalColumns(sql);
   await ensureAuditConversionRules(sql);
 }
@@ -506,11 +653,12 @@ async function ensureAuditConversionRules(sql) {
   for (const rule of auditConversionRuleSpecs) {
     const before = await rowById(sql, "conversion_rules", rule.id);
     await sql`
-      insert into conversion_rules (id, ingredient_id, from_unit, to_unit, conversion_factor, conversion_type, confidence_level, source, verified, active)
-      values (${rule.id}, ${rule.ingredientId}, ${rule.fromUnit}, ${rule.toUnit}, ${rule.conversionFactor}, 'ingredient_specific', ${rule.confidenceLevel}, 'seed rule', true, true)
+      insert into conversion_rules (id, ingredient_id, from_unit, to_unit, conversion_factor, conversion_type, confidence_level, source, verified, active, ingredient_state, temperature_state, formula_context)
+      values (${rule.id}, ${rule.ingredientId}, ${rule.fromUnit}, ${rule.toUnit}, ${rule.conversionFactor}, 'ingredient_specific', ${rule.confidenceLevel}, 'seed rule', true, true, null, null, null)
       on conflict (id) do update set ingredient_id = excluded.ingredient_id, from_unit = excluded.from_unit, to_unit = excluded.to_unit,
         conversion_factor = excluded.conversion_factor, conversion_type = excluded.conversion_type, confidence_level = excluded.confidence_level,
-        source = excluded.source, verified = excluded.verified, active = true, updated_at = now()
+        source = excluded.source, verified = excluded.verified, active = true, ingredient_state = null, temperature_state = null,
+        formula_context = null, updated_at = now()
     `;
     if (!conversionRuleMatches(before, rule)) {
       await audit(sql, "conversion_rules", rule.id, before ? "repair" : "create", before, await rowById(sql, "conversion_rules", rule.id));
@@ -524,6 +672,9 @@ async function ensureAuditConversionRules(sql) {
         and ingredient_id = ${rule.ingredientId}
         and from_unit = ${rule.fromUnit}
         and to_unit = ${rule.toUnit}
+        and ingredient_state is null
+        and temperature_state is null
+        and formula_context is null
         and id <> ${rule.id}
     `;
     for (const duplicate of duplicates) {
@@ -686,7 +837,42 @@ export function productionCompletionPreflight(status) {
   return null;
 }
 
-export async function produceOrder(sql, orderId, actor) {
+async function productionQcLogForOrder(sql, orderId, qcInput, actor) {
+  const qc = normalizeProductionQcLog(qcInput);
+  const lines = await sql`
+    select oi.recipe_id, (oi.requested_yield_quantity * oi.quantity_multiplier)::float as expected_yield_quantity,
+      oi.yield_unit, r.formula_metadata
+    from order_items oi
+    join recipes r on r.id = oi.recipe_id
+    where oi.order_id = ${orderId}
+    order by oi.id
+  `;
+  const firstLine = lines[0] ?? {};
+  const inferredExpectedYield = Number(firstLine.expected_yield_quantity ?? 0) || null;
+  const expectedYieldQuantity = qc.expectedYieldQuantity ?? inferredExpectedYield;
+  return {
+    id: id("qc"),
+    orderId,
+    recipeId: qc.recipeId || firstLine.recipe_id || null,
+    batchKey: qc.batchKey || null,
+    formulaVersion: qc.formulaVersion || firstLine.formula_metadata?.formulaVersion || null,
+    expectedYieldQuantity,
+    actualYieldQuantity: qc.actualYieldQuantity ?? expectedYieldQuantity,
+    yieldUnit: qc.yieldUnit || firstLine.yield_unit || null,
+    roomTemperature: qc.roomTemperature || null,
+    mixTemperature: qc.mixTemperature || null,
+    ovenTemperature: qc.ovenTemperature || null,
+    bakeTimeMinutes: qc.bakeTimeMinutes ?? null,
+    restTimeMinutes: qc.restTimeMinutes ?? null,
+    sensoryNotes: qc.sensoryNotes || null,
+    defects: qc.defects || null,
+    nextAdjustment: qc.nextAdjustment || null,
+    passedQc: qc.passedQc !== false,
+    loggedBy: actor?.email || actor?.sub || "system"
+  };
+}
+
+export async function produceOrder(sql, orderId, actor, qcInput = {}) {
   await ensureOperationalTables(sql);
   await requirePermission(sql, "order.produce", actor);
   const orderRows = await sql`select status from orders where id = ${orderId}`;
@@ -703,6 +889,7 @@ export async function produceOrder(sql, orderId, actor) {
   }
 
   const batchDeductions = await Promise.all(requirements.map((requirement) => batchDeductionsForRequirement(sql, requirement)));
+  const qcLog = await productionQcLogForOrder(sql, orderId, qcInput, actor);
   await sql.transaction((txn) => [
     ...requirements.flatMap((requirement, index) => [
       txn`
@@ -722,10 +909,14 @@ export async function produceOrder(sql, orderId, actor) {
       set quantity_remaining = greatest(0, quantity_remaining - ${deduction.quantity}), updated_at = now()
       where id = ${deduction.batchId}
     `)),
+    txn`
+      insert into production_qc_logs (id, order_id, recipe_id, batch_key, formula_version, expected_yield_quantity, actual_yield_quantity, yield_unit, room_temperature, mix_temperature, oven_temperature, bake_time_minutes, rest_time_minutes, sensory_notes, defects, next_adjustment, passed_qc, logged_by)
+      values (${qcLog.id}, ${qcLog.orderId}, ${qcLog.recipeId}, ${qcLog.batchKey}, ${qcLog.formulaVersion}, ${qcLog.expectedYieldQuantity}, ${qcLog.actualYieldQuantity}, ${qcLog.yieldUnit}, ${qcLog.roomTemperature}, ${qcLog.mixTemperature}, ${qcLog.ovenTemperature}, ${qcLog.bakeTimeMinutes}, ${qcLog.restTimeMinutes}, ${qcLog.sensoryNotes}, ${qcLog.defects}, ${qcLog.nextAdjustment}, ${qcLog.passedQc}, ${qcLog.loggedBy})
+    `,
     txn`update orders set status = 'Produced', production_status = 'Completed', stock_status = 'In Stock', updated_at = now() where id = ${orderId}`
   ]);
   await audit(sql, "orders", orderId, "produce", { status }, await rowById(sql, "orders", orderId));
-  return { produced: true };
+  return { produced: true, qcLogId: qcLog.id };
 }
 
 export async function handleAction(sql, body, actor) {
@@ -801,16 +992,19 @@ export async function handleAction(sql, body, actor) {
     const expiryDate = data.expiryDate || (bool(data.expiryTrackingEnabled) && defaultExpiryDays
       ? new Date(Date.now() + defaultExpiryDays * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
       : null);
+    const allergenProfileJson = JSON.stringify(normalizeIngredientAllergenProfile(data.allergenProfile));
+    const storageProfileJson = JSON.stringify(normalizeIngredientStorageProfile(data.storageProfile));
 
     const purchaseId = id("pur");
     await sql.transaction((txn) => [
       txn`
-        insert into ingredients (id, name, category, base_unit, purchase_unit, current_stock, reorder_level, latest_unit_cost, supplier_id, expiry_tracking_enabled, default_expiry_days, expiry_date, notes)
-        values (${ingredientId}, ${name}, ${category}, ${baseUnit}, ${purchaseUnit}, ${stockAfterPurchase}, ${reorderLevel}, ${latestUnitCost}, ${supplierId}, ${bool(data.expiryTrackingEnabled)}, ${defaultExpiryDays}, ${expiryDate}, ${data.notes || null})
+        insert into ingredients (id, name, category, base_unit, purchase_unit, current_stock, reorder_level, latest_unit_cost, supplier_id, expiry_tracking_enabled, default_expiry_days, expiry_date, notes, allergen_profile, storage_profile)
+        values (${ingredientId}, ${name}, ${category}, ${baseUnit}, ${purchaseUnit}, ${stockAfterPurchase}, ${reorderLevel}, ${latestUnitCost}, ${supplierId}, ${bool(data.expiryTrackingEnabled)}, ${defaultExpiryDays}, ${expiryDate}, ${data.notes || null}, ${allergenProfileJson}::jsonb, ${storageProfileJson}::jsonb)
         on conflict (id) do update set name = excluded.name, category = excluded.category, base_unit = excluded.base_unit, purchase_unit = excluded.purchase_unit,
           current_stock = excluded.current_stock, reorder_level = excluded.reorder_level, latest_unit_cost = excluded.latest_unit_cost,
           supplier_id = excluded.supplier_id, expiry_tracking_enabled = excluded.expiry_tracking_enabled, default_expiry_days = excluded.default_expiry_days,
-          expiry_date = excluded.expiry_date, notes = excluded.notes, updated_at = now()
+          expiry_date = excluded.expiry_date, notes = excluded.notes, allergen_profile = excluded.allergen_profile,
+          storage_profile = excluded.storage_profile, updated_at = now()
       `,
       ...(purchaseQuantity > 0 ? [
         txn`
@@ -934,6 +1128,7 @@ export async function handleAction(sql, body, actor) {
     const instructions = String(data.instructions || "").split(/\n+/).map((step) => step.trim()).filter(Boolean);
     const formulaMetadata = normalizeRecipeFormulaMetadata(data.formulaMetadata);
     const formulaMetadataJson = JSON.stringify(formulaMetadata);
+    const costProfileJson = JSON.stringify(normalizeRecipeCostProfile(data.costProfile));
     await sql.transaction((txn) => [
       txn`
         insert into products (id, name, category, description, active)
@@ -941,10 +1136,11 @@ export async function handleAction(sql, body, actor) {
         on conflict (id) do update set name = excluded.name, category = excluded.category, description = excluded.description, updated_at = now()
       `,
       txn`
-        insert into recipes (id, product_id, name, category, base_yield_quantity, yield_unit, instructions, notes, formula_metadata, active)
-        values (${recipeId}, ${productId}, ${required(data.name, "Recipe name")}, ${required(data.category, "Category")}, ${num(data.baseYieldQuantity, 1)}, ${data.yieldUnit || "pieces"}, ${instructions}, ${data.notes || null}, ${formulaMetadataJson}::jsonb, true)
+        insert into recipes (id, product_id, name, category, base_yield_quantity, yield_unit, instructions, notes, formula_metadata, cost_profile, active)
+        values (${recipeId}, ${productId}, ${required(data.name, "Recipe name")}, ${required(data.category, "Category")}, ${num(data.baseYieldQuantity, 1)}, ${data.yieldUnit || "pieces"}, ${instructions}, ${data.notes || null}, ${formulaMetadataJson}::jsonb, ${costProfileJson}::jsonb, true)
         on conflict (id) do update set name = excluded.name, category = excluded.category, base_yield_quantity = excluded.base_yield_quantity,
-          yield_unit = excluded.yield_unit, instructions = excluded.instructions, notes = excluded.notes, formula_metadata = excluded.formula_metadata, updated_at = now()
+          yield_unit = excluded.yield_unit, instructions = excluded.instructions, notes = excluded.notes, formula_metadata = excluded.formula_metadata,
+          cost_profile = excluded.cost_profile, updated_at = now()
       `,
       txn`delete from recipe_items where recipe_id = ${recipeId}`,
       ...items.map((item, index) => {
@@ -1001,7 +1197,7 @@ export async function handleAction(sql, body, actor) {
 
   if (action === "order.reserve") return reserveOrder(sql, required(body.orderId, "Order"));
   if (action === "order.releaseReservation") return releaseReservation(sql, required(body.orderId, "Order"));
-  if (action === "order.produce") return produceOrder(sql, required(body.orderId, "Order"), actor);
+  if (action === "order.produce") return produceOrder(sql, required(body.orderId, "Order"), actor, body.qcLog ?? {});
 
   if (action === "order.delete") {
     await sql`alter table orders add column if not exists archived boolean not null default false`;
@@ -1028,7 +1224,7 @@ export async function handleAction(sql, body, actor) {
         throw Object.assign(new Error(`Cannot start production until shortages are resolved: ${shortageSummary(reservation.shortages)}.`), { statusCode: 409, details: reservation.shortages });
       }
     }
-    if (status === "Produced") return produceOrder(sql, orderId, actor);
+    if (status === "Produced") return produceOrder(sql, orderId, actor, body.qcLog ?? {});
     if (status === "Delivered") {
       const rows = await sql`select status, stock_status from orders where id = ${orderId}`;
       if (rows[0]?.status !== "Produced") {
@@ -1065,7 +1261,7 @@ export async function handleAction(sql, body, actor) {
           set status = 'In Production', production_status = 'In Progress', updated_at = now()
           where id = ${orderId} and status not in ('Produced', 'Delivered', 'Cancelled')
         `;
-        results.push(await produceOrder(sql, orderId, actor));
+        results.push(await produceOrder(sql, orderId, actor, body.qcLog ?? {}));
       }
       return { ok: true, count: results.length, results };
     }
@@ -1125,12 +1321,14 @@ export async function handleAction(sql, body, actor) {
     const data = body.rule ?? {};
     const ruleId = data.id || id("conv");
     const before = data.id ? await rowById(sql, "conversion_rules", data.id) : null;
+    const scope = normalizeConversionScope(data);
     await sql`
-      insert into conversion_rules (id, ingredient_id, from_unit, to_unit, conversion_factor, conversion_type, confidence_level, source, verified, notes)
-      values (${ruleId}, ${required(data.ingredientId, "Ingredient")}, ${required(data.fromUnit, "From unit")}, ${required(data.toUnit, "To unit")}, ${num(data.conversionFactor, 1)}, ${data.conversionType || "ingredient_specific"}, ${data.confidenceLevel || "Medium"}, ${data.source || "manual entry"}, ${bool(data.verified)}, ${data.notes || null})
+      insert into conversion_rules (id, ingredient_id, from_unit, to_unit, conversion_factor, conversion_type, confidence_level, source, verified, notes, ingredient_state, temperature_state, formula_context)
+      values (${ruleId}, ${required(data.ingredientId, "Ingredient")}, ${required(data.fromUnit, "From unit")}, ${required(data.toUnit, "To unit")}, ${num(data.conversionFactor, 1)}, ${data.conversionType || "ingredient_specific"}, ${data.confidenceLevel || "Medium"}, ${data.source || "manual entry"}, ${bool(data.verified)}, ${data.notes || null}, ${scope.ingredientState || null}, ${scope.temperatureState || null}, ${scope.formulaContext || null})
       on conflict (id) do update set ingredient_id = excluded.ingredient_id, from_unit = excluded.from_unit, to_unit = excluded.to_unit,
         conversion_factor = excluded.conversion_factor, conversion_type = excluded.conversion_type, confidence_level = excluded.confidence_level,
-        source = excluded.source, verified = excluded.verified, notes = excluded.notes, updated_at = now()
+        source = excluded.source, verified = excluded.verified, notes = excluded.notes, ingredient_state = excluded.ingredient_state,
+        temperature_state = excluded.temperature_state, formula_context = excluded.formula_context, updated_at = now()
     `;
     await audit(sql, "conversion_rules", ruleId, data.id ? "update" : "create", before, await rowById(sql, "conversion_rules", ruleId));
     return { ok: true, id: ruleId };

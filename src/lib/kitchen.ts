@@ -8,6 +8,7 @@ export interface ScaledIngredient {
   scaledQuantity: number;
   unit: Unit;
   scaleFactor: number;
+  formulaContext?: string;
   displayQuantity?: number;
   displayUnit?: Unit;
   scalingNote?: string;
@@ -16,6 +17,12 @@ export interface ScaledIngredient {
 
 export interface ScalingPreferences {
   eggRoundingPreference?: Settings["eggRoundingPreference"];
+}
+
+export interface ConversionScope {
+  ingredientState?: string;
+  temperatureState?: string;
+  formulaContext?: string;
 }
 
 export interface StockAvailability {
@@ -119,6 +126,7 @@ export function scaleRecipe(recipeId: string, requestedYieldQuantity: number, re
   const recipe = recipeList.find((item) => item.id === recipeId);
   if (!recipe) throw new Error(`Recipe ${recipeId} was not found`);
   const scaleFactor = requestedYieldQuantity / recipe.baseYieldQuantity;
+  const formulaContext = recipe.formulaMetadata?.productFamily || recipe.category;
   return itemList
     .filter((item) => item.recipeId === recipeId)
     .map((item) => {
@@ -137,6 +145,7 @@ export function scaleRecipe(recipeId: string, requestedYieldQuantity: number, re
         scaledQuantity,
         unit: item.unit,
         scaleFactor,
+        formulaContext,
         prepState: item.prepState,
         ...display
       };
@@ -146,7 +155,13 @@ export function scaleRecipe(recipeId: string, requestedYieldQuantity: number, re
 export function combineRequirements(requirements: ScaledIngredient[]) {
   const map = new Map<string, ScaledIngredient>();
   requirements.forEach((item) => {
-    const key = `${item.ingredientId}:${item.unit}`;
+    const key = [
+      item.ingredientId,
+      item.unit,
+      item.prepState?.ingredientState ?? "",
+      item.prepState?.temperatureState ?? "",
+      item.formulaContext ?? ""
+    ].join(":");
     const existing = map.get(key);
     if (existing) {
       existing.scaledQuantity += item.scaledQuantity;
@@ -230,15 +245,37 @@ export function checkOrderStockAvailability(orderId: string, ingredientList = in
 }
 
 export function calculateRecipeCost(recipeId: string, requestedYieldQuantity: number) {
+  const recipe = recipes.find((item) => item.id === recipeId);
   const scaled = scaleRecipe(recipeId, requestedYieldQuantity);
   const ingredientCostBreakdown = scaled.map(normalizeRequirementToBase).map((item) => {
     const ingredient = ingredients.find((candidate) => candidate.id === item.ingredientId)!;
     return { ...item, unitCost: ingredient.latestUnitCost, cost: item.scaledQuantity * ingredient.latestUnitCost };
   });
-  const totalRecipeCost = ingredientCostBreakdown.reduce((sum, item) => sum + item.cost, 0);
+  const ingredientSubtotal = ingredientCostBreakdown.reduce((sum, item) => sum + item.cost, 0);
+  const costProfile = recipe?.costProfile ?? {};
+  const scaleFactor = recipe ? requestedYieldQuantity / recipe.baseYieldQuantity : 1;
+  const laborCost = ((costProfile.laborMinutes ?? 0) * scaleFactor / 60) * (costProfile.laborRatePerHour ?? 0);
+  const packagingCost = (costProfile.packagingCost ?? 0) * scaleFactor;
+  const overheadCost = (costProfile.overheadCost ?? 0) * scaleFactor;
+  const utilityCost = (costProfile.utilityCost ?? 0) * scaleFactor;
+  const directCost = ingredientSubtotal + laborCost + packagingCost + overheadCost + utilityCost;
+  const failureAllowanceCost = directCost * ((costProfile.failureAllowancePercentage ?? 0) / 100);
+  const totalRecipeCost = directCost + failureAllowanceCost;
+  const effectiveYieldQuantity = Math.max(0.001, requestedYieldQuantity * (1 - Math.min(99, costProfile.yieldLossPercentage ?? 0) / 100));
+  const nonIngredientCostBreakdown = [
+    { label: "Labor", cost: laborCost },
+    { label: "Packaging", cost: packagingCost },
+    { label: "Overhead", cost: overheadCost },
+    { label: "Utilities", cost: utilityCost },
+    { label: "Failure allowance", cost: failureAllowanceCost }
+  ].filter((item) => item.cost > 0);
   return {
+    ingredientSubtotal,
+    nonIngredientCost: totalRecipeCost - ingredientSubtotal,
+    nonIngredientCostBreakdown,
+    effectiveYieldQuantity,
     totalRecipeCost,
-    costPerYieldUnit: totalRecipeCost / requestedYieldQuantity,
+    costPerYieldUnit: totalRecipeCost / effectiveYieldQuantity,
     ingredientCostBreakdown
   };
 }
@@ -264,17 +301,19 @@ export function requirementsForOrder(orderId: string, allOrderItems = orderItems
 }
 
 export function calculateOrderCost(orderId: string) {
-  const requirements = requirementsForOrder(orderId);
-  return requirements.map(normalizeRequirementToBase).reduce((sum, item) => {
-    const ingredient = ingredients.find((candidate) => candidate.id === item.ingredientId)!;
-    return sum + item.scaledQuantity * ingredient.latestUnitCost;
-  }, 0);
+  return orderItems
+    .filter((item) => item.orderId === orderId)
+    .reduce((sum, item) => sum + calculateRecipeCost(item.recipeId, item.requestedYieldQuantity * item.quantityMultiplier).totalRecipeCost, 0);
 }
 
 function normalizeRequirementToBase(item: ScaledIngredient): ScaledIngredient {
   const ingredient = ingredients.find((candidate) => candidate.id === item.ingredientId);
   if (!ingredient || item.unit === ingredient.baseUnit) return item;
-  const conversion = convertUnit(item.scaledQuantity, item.unit, ingredient.baseUnit, ingredient.id);
+  const conversion = convertUnit(item.scaledQuantity, item.unit, ingredient.baseUnit, ingredient.id, conversionRules, {
+    ingredientState: item.prepState?.ingredientState,
+    temperatureState: item.prepState?.temperatureState,
+    formulaContext: item.formulaContext
+  });
   return {
     ...item,
     scaledQuantity: conversion.needsReview ? item.scaledQuantity : Number(conversion.convertedQuantity.toFixed(3)),
@@ -423,7 +462,23 @@ export function buildKitchenAssistantResponse(prompt: string) {
   return `I can help with live kitchen questions. Current snapshot: ${activeOrders.length} active order${activeOrders.length === 1 ? "" : "s"}, ${lowStock.length} low-stock item${lowStock.length === 1 ? "" : "s"}, and ${shopping.length} suggested purchase line${shopping.length === 1 ? "" : "s"}. Try asking about what to buy, production blockers, recipe cost, low stock, or paste recipe measurements for conversion.`;
 }
 
-export function convertUnit(quantity: number, fromUnit: Unit, toUnit: Unit, ingredientId?: string, rules: ConversionRule[] = conversionRules) {
+function normalizedScopeValue(value?: string) {
+  return String(value ?? "").trim().toLowerCase();
+}
+
+function conversionScopeScore(rule: ConversionRule, scope: ConversionScope = {}) {
+  const scopedFields: Array<keyof ConversionScope> = ["ingredientState", "temperatureState", "formulaContext"];
+  let score = 0;
+  for (const field of scopedFields) {
+    const ruleValue = normalizedScopeValue(rule[field]);
+    if (!ruleValue) continue;
+    if (ruleValue !== normalizedScopeValue(scope[field])) return -1;
+    score += 1;
+  }
+  return score;
+}
+
+export function convertUnit(quantity: number, fromUnit: Unit, toUnit: Unit, ingredientId?: string, rules: ConversionRule[] = conversionRules, scope: ConversionScope = {}) {
   if (fromUnit === toUnit) return { convertedQuantity: quantity, confidenceLevel: "High" as const, source: "direct", needsReview: false };
   if (String(ingredientId ?? "").toLowerCase().includes("egg") && ((fromUnit === "egg" && toUnit === "pcs") || (fromUnit === "pcs" && toUnit === "egg"))) {
     return { convertedQuantity: quantity, confidenceLevel: "High" as const, source: "direct egg count", needsReview: false };
@@ -438,7 +493,10 @@ export function convertUnit(quantity: number, fromUnit: Unit, toUnit: Unit, ingr
   };
   const directFactor = direct[`${fromUnit}:${toUnit}`];
   if (directFactor) return { convertedQuantity: quantity * directFactor, confidenceLevel: "High" as const, source: "direct", needsReview: false };
-  const rule = rules.find((candidate) => candidate.ingredientId === ingredientId && candidate.fromUnit === fromUnit && candidate.toUnit === toUnit);
+  const rule = rules
+    .map((candidate) => ({ candidate, score: candidate.ingredientId === ingredientId && candidate.fromUnit === fromUnit && candidate.toUnit === toUnit && candidate.active !== false ? conversionScopeScore(candidate, scope) : -1 }))
+    .filter((item) => item.score >= 0)
+    .sort((a, b) => b.score - a.score || Number(b.candidate.verified) - Number(a.candidate.verified))[0]?.candidate;
   if (rule) {
     return {
       convertedQuantity: quantity * rule.conversionFactor,

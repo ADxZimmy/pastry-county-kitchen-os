@@ -1,4 +1,4 @@
-import type { AppStaffUser, AuditLog, ConversionRule, Ingredient, IngredientBatch, InventoryMovement, Order, OrderItem, Product, Recipe, RecipeItem, Settings, Supplier } from "./types";
+import type { AppStaffUser, AuditLog, ConversionRule, Ingredient, IngredientBatch, InventoryMovement, Order, OrderItem, Product, ProductionQcLog, Recipe, RecipeItem, Settings, Supplier } from "./types";
 
 export interface KitchenSnapshot {
   suppliers: Supplier[];
@@ -11,6 +11,7 @@ export interface KitchenSnapshot {
   orderItems: OrderItem[];
   inventoryMovements: InventoryMovement[];
   ingredientBatches?: IngredientBatch[];
+  productionQcLogs?: ProductionQcLog[];
   auditLogs?: AuditLog[];
   conversionRules: ConversionRule[];
   settings: Settings;
@@ -26,6 +27,7 @@ export const orders: Order[] = [];
 export const orderItems: OrderItem[] = [];
 export const inventoryMovements: InventoryMovement[] = [];
 export const ingredientBatches: IngredientBatch[] = [];
+export const productionQcLogs: ProductionQcLog[] = [];
 export const auditLogs: AuditLog[] = [];
 export const conversionRules: ConversionRule[] = [];
 
@@ -54,6 +56,7 @@ export function setKitchenSnapshot(snapshot: KitchenSnapshot) {
   replaceArray(orderItems, snapshot.orderItems);
   replaceArray(inventoryMovements, snapshot.inventoryMovements);
   replaceArray(ingredientBatches, snapshot.ingredientBatches ?? []);
+  replaceArray(productionQcLogs, snapshot.productionQcLogs ?? []);
   replaceArray(auditLogs, snapshot.auditLogs ?? []);
   replaceArray(conversionRules, snapshot.conversionRules);
   Object.assign(settings, snapshot.settings);

@@ -106,6 +106,8 @@ try {
   await runNpmScript("smoke:phase2-rerun");
   await runNpmScript("smoke:milestone7");
   await runNpmScript("smoke:regression-audit", { REGRESSION_AUDIT_SMOKE_MUTATE: "1" });
+  await runNpmScript("smoke:phase3-pastry");
+  await runNpmScript("smoke:phase4-pastry-depth");
 } finally {
   if (useTemporaryUser) await removeSmokeUser().catch((error) => console.warn(`Temporary smoke user cleanup failed: ${error.message}`));
 }

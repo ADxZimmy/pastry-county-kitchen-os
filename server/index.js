@@ -157,7 +157,7 @@ app.post("/api/inventory-movements", requireDatabase, async (req, res, next) => 
 app.post("/api/orders/:orderId/produced", requireDatabase, async (req, res, next) => {
   try {
     const { orderId } = req.params;
-    res.json(await produceOrder(sql, orderId, actorFromRequest(req)));
+    res.json(await produceOrder(sql, orderId, actorFromRequest(req), req.body?.qcLog ?? {}));
   } catch (error) {
     next(error);
   }

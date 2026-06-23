@@ -21,11 +21,17 @@ export async function loadKitchenSnapshot(sql = getSql()) {
   await sql`alter table suppliers add column if not exists supplied_ingredient_ids text[] not null default '{}'`;
   await sql`alter table suppliers add column if not exists active boolean not null default true`;
   await sql`alter table ingredients add column if not exists purchase_unit text`;
+  await sql`alter table ingredients add column if not exists allergen_profile jsonb not null default '{}'`;
+  await sql`alter table ingredients add column if not exists storage_profile jsonb not null default '{}'`;
   await sql`update ingredients set purchase_unit = base_unit where purchase_unit is null or purchase_unit = ''`;
   await sql`alter table ingredients alter column purchase_unit set default 'g'`;
   await sql`alter table ingredients alter column purchase_unit set not null`;
   await sql`alter table conversion_rules add column if not exists active boolean not null default true`;
+  await sql`alter table conversion_rules add column if not exists ingredient_state text`;
+  await sql`alter table conversion_rules add column if not exists temperature_state text`;
+  await sql`alter table conversion_rules add column if not exists formula_context text`;
   await sql`alter table recipes add column if not exists formula_metadata jsonb not null default '{}'`;
+  await sql`alter table recipes add column if not exists cost_profile jsonb not null default '{}'`;
   await sql`alter table recipe_items add column if not exists prep_state jsonb not null default '{}'`;
   await sql`alter table settings add column if not exists safety_margin_percentage numeric(6,3) not null default 10`;
   await sql`alter table settings add column if not exists default_tax_percentage numeric(6,3) not null default 0`;
@@ -71,6 +77,29 @@ export async function loadKitchenSnapshot(sql = getSql()) {
       created_at timestamptz not null default now()
     )
   `;
+  await sql`
+    create table if not exists production_qc_logs (
+      id text primary key,
+      order_id text not null references orders(id),
+      recipe_id text references recipes(id),
+      batch_key text,
+      formula_version text,
+      expected_yield_quantity numeric(14,3),
+      actual_yield_quantity numeric(14,3),
+      yield_unit text,
+      room_temperature text,
+      mix_temperature text,
+      oven_temperature text,
+      bake_time_minutes numeric(8,2),
+      rest_time_minutes numeric(8,2),
+      sensory_notes text,
+      defects text,
+      next_adjustment text,
+      passed_qc boolean not null default true,
+      logged_by text,
+      created_at timestamptz not null default now()
+    )
+  `;
   const [
     supplierRows,
     userRows,
@@ -82,6 +111,7 @@ export async function loadKitchenSnapshot(sql = getSql()) {
     orderItemRows,
     movementRows,
     batchRows,
+    qcRows,
     auditRows,
     conversionRows,
     settingRows
@@ -94,7 +124,9 @@ export async function loadKitchenSnapshot(sql = getSql()) {
         coalesce(nullif(purchase_unit, ''), base_unit) as "purchaseUnit",
         supplier_id as "supplierId", expiry_tracking_enabled as "expiryTrackingEnabled",
         default_expiry_days as "defaultExpiryDays", notes, reserved_stock::float as "reservedStock",
-        expiry_date::text as "expiryDate"
+        expiry_date::text as "expiryDate",
+        coalesce(allergen_profile, '{}'::jsonb) as "allergenProfile",
+        coalesce(storage_profile, '{}'::jsonb) as "storageProfile"
       from ingredients
       left join lateral (
         select cost_per_base_unit
@@ -109,7 +141,8 @@ export async function loadKitchenSnapshot(sql = getSql()) {
     sql`select id, name, category, description, active from products where active = true order by category, name`,
     sql`
       select id, product_id as "productId", name, category, base_yield_quantity::float as "baseYieldQuantity",
-        yield_unit as "yieldUnit", instructions, notes, coalesce(formula_metadata, '{}'::jsonb) as "formulaMetadata", active, updated_at::date::text as "updatedAt"
+        yield_unit as "yieldUnit", instructions, notes, coalesce(formula_metadata, '{}'::jsonb) as "formulaMetadata",
+        coalesce(cost_profile, '{}'::jsonb) as "costProfile", active, updated_at::date::text as "updatedAt"
       from recipes
       where active = true
       order by name
@@ -157,6 +190,21 @@ export async function loadKitchenSnapshot(sql = getSql()) {
       limit 300
     `,
     sql`
+      select id, order_id as "orderId", recipe_id as "recipeId", batch_key as "batchKey",
+        formula_version as "formulaVersion",
+        expected_yield_quantity::float as "expectedYieldQuantity",
+        actual_yield_quantity::float as "actualYieldQuantity",
+        yield_unit as "yieldUnit", room_temperature as "roomTemperature",
+        mix_temperature as "mixTemperature", oven_temperature as "ovenTemperature",
+        bake_time_minutes::float as "bakeTimeMinutes",
+        rest_time_minutes::float as "restTimeMinutes",
+        sensory_notes as "sensoryNotes", defects, next_adjustment as "nextAdjustment",
+        passed_qc as "passedQc", logged_by as "loggedBy", created_at as "createdAt"
+      from production_qc_logs
+      order by created_at desc
+      limit 200
+    `,
+    sql`
       select id, entity_type as "entityType", entity_id as "entityId", action, before_data as "beforeData",
         after_data as "afterData", actor, created_at as "createdAt"
       from audit_logs
@@ -166,7 +214,9 @@ export async function loadKitchenSnapshot(sql = getSql()) {
     sql`
       select id, ingredient_id as "ingredientId", from_unit as "fromUnit", to_unit as "toUnit",
         conversion_factor::float as "conversionFactor", conversion_type as "conversionType",
-        confidence_level as "confidenceLevel", source, verified, notes, active, updated_at::date::text as "updatedAt"
+        confidence_level as "confidenceLevel", source, verified, notes,
+        ingredient_state as "ingredientState", temperature_state as "temperatureState",
+        formula_context as "formulaContext", active, updated_at::date::text as "updatedAt"
       from conversion_rules
       where active = true
       order by ingredient_id, from_unit
@@ -194,13 +244,15 @@ export async function loadKitchenSnapshot(sql = getSql()) {
     recipes: recipeRows.map((recipe) => ({
       ...recipe,
       instructions: Array.isArray(recipe.instructions) ? recipe.instructions : String(recipe.instructions ?? "").split("\n").filter(Boolean),
-      formulaMetadata: recipe.formulaMetadata ?? {}
+      formulaMetadata: recipe.formulaMetadata ?? {},
+      costProfile: recipe.costProfile ?? {}
     })),
     recipeItems: recipeItemRows.map((item) => ({ ...item, prepState: item.prepState ?? {} })),
     orders: orderRows,
     orderItems: orderItemRows,
     inventoryMovements: movementRows,
     ingredientBatches: batchRows,
+    productionQcLogs: qcRows,
     auditLogs: auditRows,
     conversionRules: conversionRows,
     settings: first(settingRows) ?? {
