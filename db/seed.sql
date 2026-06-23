@@ -9,23 +9,23 @@ insert into suppliers (id, name, contact_name, phone, email, address, default_cu
 on conflict (id) do update set name = excluded.name, contact_name = excluded.contact_name, phone = excluded.phone, email = excluded.email, address = excluded.address, default_currency = excluded.default_currency, lead_time_days = excluded.lead_time_days, supplied_ingredient_ids = excluded.supplied_ingredient_ids, notes = excluded.notes, updated_at = now();
 
 insert into ingredients (id, name, category, base_unit, current_stock, reserved_stock, reorder_level, latest_unit_cost, supplier_id, expiry_tracking_enabled, notes) values
-  ('flour', 'Flour', 'Dry Goods', 'g', 10000, 0, 3000, 0.50, 'sup-market', false, null),
-  ('sugar', 'Sugar', 'Dry Goods', 'g', 8000, 0, 2500, 0.62, 'sup-market', false, null),
-  ('cocoa', 'Cocoa Powder', 'Chocolate', 'g', 2000, 0, 800, 4.20, 'sup-market', false, null),
+  ('flour', 'Flour', 'Dry Goods', 'g', 10000, 0, 3000, 1.60, 'sup-market', false, null),
+  ('sugar', 'Sugar', 'Dry Goods', 'g', 8000, 0, 2500, 2.125, 'sup-market', false, null),
+  ('cocoa', 'Cocoa Powder', 'Chocolate', 'g', 2000, 0, 800, 30.00, 'sup-market', false, null),
   ('dark-chocolate', 'Dark Chocolate', 'Chocolate', 'g', 450, 0, 1000, 7.80, 'sup-market', false, 'Use 55% to 70% cocoa for brownies.'),
   ('white-chocolate', 'White Chocolate', 'Chocolate', 'g', 1800, 0, 900, 8.10, 'sup-market', false, null),
-  ('eggs', 'Eggs', 'Dairy', 'pcs', 8, 0, 30, 160.00, 'sup-farm', true, null),
+  ('eggs', 'Eggs', 'Dairy', 'pcs', 8, 0, 30, 200.00, 'sup-farm', true, null),
   ('egg-yolks', 'Egg Yolks', 'Dairy', 'g', 0, 0, 0, 3.20, 'sup-farm', true, null),
   ('egg-whites', 'Egg Whites', 'Dairy', 'g', 0, 0, 0, 2.40, 'sup-farm', true, null),
   ('coconut-oil', 'Coconut Oil', 'Dairy', 'ml', 3000, 0, 1000, 2.80, 'sup-market', false, null),
   ('vanilla', 'Vanilla Extract', 'Dry Goods', 'ml', 500, 0, 150, 12.00, 'sup-market', false, null),
-  ('baking-powder', 'Baking Powder', 'Dry Goods', 'g', 700, 0, 250, 1.10, 'sup-market', false, null),
-  ('salt', 'Salt', 'Dry Goods', 'g', 1200, 0, 200, 0.20, 'sup-market', false, null),
+  ('baking-powder', 'Baking Powder', 'Dry Goods', 'g', 700, 0, 250, 4.0529, 'sup-market', false, null),
+  ('salt', 'Salt', 'Dry Goods', 'g', 1200, 0, 200, 0.62, 'sup-market', false, null),
   ('lemon', 'Lemon', 'Fruits', 'pcs', 20, 0, 12, 120.00, 'sup-farm', true, null),
-  ('blueberries', 'Blueberries', 'Fruits', 'g', 300, 0, 500, 9.50, 'sup-farm', true, null),
+  ('blueberries', 'Blueberries', 'Fruits', 'g', 300, 0, 500, 32.00, 'sup-farm', true, null),
   ('banana', 'Banana', 'Fruits', 'pcs', 14, 0, 10, 110.00, 'sup-farm', true, null),
   ('peanuts', 'Peanuts', 'Dry Goods', 'g', 2200, 0, 700, 2.20, 'sup-market', false, null),
-  ('box', 'Packaging Box', 'Packaging', 'pcs', 50, 0, 20, 180.00, 'sup-pack', false, null),
+  ('box', 'Packaging Box', 'Packaging', 'pcs', 50, 0, 20, 320.00, 'sup-pack', false, null),
   ('parchment', 'Parchment Paper', 'Packaging', 'roll', 1, 0, 2, 2500.00, 'sup-pack', false, null),
   ('stickers', 'Stickers', 'Packaging', 'pcs', 120, 0, 100, 25.00, 'sup-pack', false, null)
 on conflict (id) do update set name = excluded.name, category = excluded.category, base_unit = excluded.base_unit, current_stock = excluded.current_stock, reserved_stock = excluded.reserved_stock, reorder_level = excluded.reorder_level, latest_unit_cost = excluded.latest_unit_cost, supplier_id = excluded.supplier_id, expiry_tracking_enabled = excluded.expiry_tracking_enabled, notes = excluded.notes, updated_at = now();
