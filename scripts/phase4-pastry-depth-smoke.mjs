@@ -78,7 +78,45 @@ async function bootstrap(token) {
   return body;
 }
 
-async function createAndVerifyApi(action, token) {
+async function cleanupPreviousSmokeData(action, token) {
+  const snapshot = await bootstrap(token);
+  const staleOrders = snapshot.orders.filter((item) => item.customerName?.startsWith("AUDIT Smoke Phase4 "));
+  const staleRecipes = snapshot.recipes.filter((item) => item.name?.startsWith("AUDIT-Smoke-Phase4-Brownie-"));
+  const staleIngredients = snapshot.ingredients.filter((item) => item.name?.startsWith("AUDIT-Smoke-Phase4-Flour-"));
+  const staleIngredientIds = new Set(staleIngredients.map((item) => item.id));
+  const staleRules = snapshot.conversionRules.filter((item) => staleIngredientIds.has(item.ingredientId));
+
+  for (const order of staleOrders) {
+    try {
+      await action("order.delete", { orderId: order.id });
+    } catch (error) {
+      console.warn(`Previous Phase 4 order cleanup failed: ${error.message}`);
+    }
+  }
+  for (const recipe of staleRecipes) {
+    try {
+      await action("recipe.delete", { recipeId: recipe.id });
+    } catch (error) {
+      console.warn(`Previous Phase 4 recipe cleanup failed: ${error.message}`);
+    }
+  }
+  for (const rule of staleRules) {
+    try {
+      await action("conversion.delete", { ruleId: rule.id });
+    } catch (error) {
+      console.warn(`Previous Phase 4 conversion cleanup failed: ${error.message}`);
+    }
+  }
+  for (const ingredient of staleIngredients) {
+    try {
+      await action("ingredient.delete", { ingredientId: ingredient.id });
+    } catch (error) {
+      console.warn(`Previous Phase 4 ingredient cleanup failed: ${error.message}`);
+    }
+  }
+}
+
+async function createAndVerifyApi(action, token, ids) {
   await action("schema.ensure");
 
   const ingredient = await action("ingredient.save", {
@@ -109,6 +147,7 @@ async function createAndVerifyApi(action, token) {
     }
   });
   assert(ingredient.id, "Ingredient save did not return an id.");
+  ids.ingredientId = ingredient.id;
 
   const genericRule = await action("conversion.save", {
     rule: {
@@ -117,10 +156,11 @@ async function createAndVerifyApi(action, token) {
       toUnit: "g",
       conversionFactor: 120,
       confidenceLevel: "High",
-      source: "Phase 4 generic smoke rule",
+      source: "manual entry",
       verified: true
     }
   });
+  if (genericRule.id) ids.conversionRuleIds = [...(ids.conversionRuleIds ?? []), genericRule.id];
   const scopedRule = await action("conversion.save", {
     rule: {
       ingredientId: ingredient.id,
@@ -128,13 +168,14 @@ async function createAndVerifyApi(action, token) {
       toUnit: "g",
       conversionFactor: 110,
       confidenceLevel: "High",
-      source: "Phase 4 sifted brownie smoke rule",
+      source: "measured in kitchen",
       verified: true,
       ingredientState: "Sifted",
       temperatureState: "Room temperature",
       formulaContext: "Brownie"
     }
   });
+  if (scopedRule.id) ids.conversionRuleIds = [...(ids.conversionRuleIds ?? []), scopedRule.id];
   assert(genericRule.id && scopedRule.id, "Conversion rule saves did not return ids.");
 
   const recipe = await action("recipe.save", {
@@ -193,6 +234,7 @@ async function createAndVerifyApi(action, token) {
     }
   });
   assert(recipe.id && recipe.productId, "Recipe save did not return ids.");
+  ids.recipeId = recipe.id;
 
   const dueDate = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
   const order = await action("order.save", {
@@ -217,6 +259,7 @@ async function createAndVerifyApi(action, token) {
     }
   });
   assert(order.id, "Order save did not return an id.");
+  ids.orderId = order.id;
   assert(order.reservation?.reserved, `Order reservation failed: ${JSON.stringify(order.reservation ?? {})}.`);
 
   const produced = await action("order.produce", {
@@ -258,12 +301,7 @@ async function createAndVerifyApi(action, token) {
   assert(savedQcLog?.actualYieldQuantity === 3.75, "Production QC log did not reload with actual yield.");
   assert(savedQcLog?.sensoryNotes?.includes("Glossy top"), "Production QC sensory notes did not reload.");
 
-  return {
-    ingredientId: ingredient.id,
-    conversionRuleIds: [genericRule.id, scopedRule.id],
-    recipeId: recipe.id,
-    orderId: order.id
-  };
+  return ids;
 }
 
 async function verifyUi() {
@@ -343,9 +381,10 @@ async function main() {
   const owner = await login();
   assert(owner.role === "Owner/Admin", `Phase 4 pastry smoke requires an Owner/Admin live test account; received ${owner.role}.`);
   const action = actionClient(owner.token);
-  let ids = {};
+  const ids = { conversionRuleIds: [] };
   try {
-    ids = await createAndVerifyApi(action, owner.token);
+    await cleanupPreviousSmokeData(action, owner.token);
+    await createAndVerifyApi(action, owner.token, ids);
     await verifyUi();
   } finally {
     await cleanup(action, ids);
