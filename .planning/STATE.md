@@ -61,10 +61,14 @@ Phase 005 Navigation And Routing Overhaul is planned from the owner's critical n
 - Reviewed GSD Hybrid and UI UX Pro Max guidance for the owner's navigation/routing complaint.
 - Audited the current `src/App.tsx` navigation shape: page-only hash routing, selected record IDs outside URLs, static form cancel targets, task pages as peer pages, and cross-feature jumps without return context.
 - Created GSD Hybrid Phase 005 under `.planning/phases/005-navigation-routing-overhaul/` for the navigation and routing overhaul.
+- Implemented Phase 005 locally: added typed route helpers, route-backed session/hash state, durable recipe/inventory/order URLs, route-aware breadcrumbs/back controls, contextual form cancel/save destinations, missing-record recovery, dirty-form guards, five-item mobile bottom navigation, Shopping return context, and explicit Production shortage links to Shopping.
+- Added `.planning/phases/005-navigation-routing-overhaul/NAVIGATION-INVENTORY.md` as the source-backed navigation inventory from `src/App.tsx`.
+- Added route helper unit tests and `scripts/navigation-routing-smoke.mjs`; wired `smoke:navigation-routing` into `package.json` and the umbrella live audit smoke.
+- Verified Phase 005 locally with `npm.cmd test`, `npm.cmd run build`, `node --check scripts/navigation-routing-smoke.mjs`, and `git diff --check`.
 
 ## In Progress
 
-- Phase 005 is ready for implementation: complete the source-backed button/page inventory, then add typed route helpers, route-aware navigation state, breadcrumbs/back controls, contextual form exits, mobile nav corrections, unsaved-change guards, and production smoke coverage.
+- Phase 005 is implemented locally and ready to commit/push. Production verification is still pending until Vercel serves the Phase 005 bundle.
 
 ## Blocked
 
@@ -73,7 +77,7 @@ Phase 005 Navigation And Routing Overhaul is planned from the owner's critical n
 
 ## Next Action
 
-Implement Phase 005 Step 1: inventory every `setPage`, card click, row click, toolbar action, form cancel/save, modal trigger, and cross-feature shortcut in `src/App.tsx`, then begin the route helper migration.
+Commit and push Phase 005, wait for Vercel to serve the new bundle, then run `npm.cmd run smoke:navigation-routing` followed by `npm.cmd run smoke:live-audit`.
 
 ## Verification Snapshot
 

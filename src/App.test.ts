@@ -3,6 +3,7 @@ import { resolveSessionPage } from "./App";
 import { recipes as kitchenRecipes, setKitchenSnapshot } from "./data";
 import { auditChangeSummary, auditDataJson, auditExportRows, auditRecordLabel, auditSearchText } from "./lib/audit";
 import { buildKitchenAssistantResponse, calculateMargin, calculateRecipeCost, checkStockAvailability, convertUnit, dashboardProductionQueue, formatNaira, formatQuantity, formatScaledIngredientQuantity, generateShoppingList, netSellingPrice, parseRecipeText, roundScaledQuantity, scaleRecipe, stockAdjustmentValidation } from "./lib/kitchen";
+import { parseAppRoute, routeBackLabel, routeParent, serializeAppRoute } from "./lib/routes";
 import type { AuditLog, ConversionRule, Ingredient, Recipe, RecipeItem } from "./types";
 
 describe("kitchen calculations", () => {
@@ -298,6 +299,30 @@ describe("route hash resolution", () => {
     expect(resolveSessionPage("", { user, page: "production" })).toBe("production");
     expect(resolveSessionPage("#shopping", { user, page: "production" })).toBe("shopping");
     expect(resolveSessionPage("#unknown-route", { page: "login" })).toBe("login");
+  });
+
+  it("parses and serializes durable record routes", () => {
+    expect(parseAppRoute("#recipes/recipe-classic")).toEqual({ name: "recipes", recipeId: "recipe-classic", mode: "detail" });
+    expect(parseAppRoute("#recipes/recipe-classic/edit")).toEqual({ name: "recipes", recipeId: "recipe-classic", mode: "edit" });
+    expect(parseAppRoute("#recipes/recipe-classic/scale")).toEqual({ name: "recipes", recipeId: "recipe-classic", mode: "scale" });
+    expect(parseAppRoute("#inventory/flour/edit")).toEqual({ name: "inventory", ingredientId: "flour", mode: "edit" });
+    expect(parseAppRoute("#orders/ord-chika")).toEqual({ name: "orders", orderId: "ord-chika", mode: "detail" });
+    expect(serializeAppRoute({ name: "orders", orderId: "ord-chika", mode: "edit" })).toBe("#orders/ord-chika/edit");
+  });
+
+  it("keeps legacy hashes compatible with saved selected IDs", () => {
+    expect(parseAppRoute("#recipe-detail", { selectedRecipeId: "recipe-classic" })).toEqual({ name: "recipes", recipeId: "recipe-classic", mode: "detail" });
+    expect(parseAppRoute("#recipe-form", { selectedRecipeId: "recipe-classic" })).toEqual({ name: "recipes", recipeId: "recipe-classic", mode: "edit" });
+    expect(parseAppRoute("#ingredient-form")).toEqual({ name: "inventory", mode: "new" });
+    expect(parseAppRoute("#order-create", { selectedOrderId: "ord-chika" })).toEqual({ name: "orders", orderId: "ord-chika", mode: "edit" });
+  });
+
+  it("preserves return context for cross-feature routes", () => {
+    const shoppingRoute = parseAppRoute("#shopping?returnTo=production");
+    expect(shoppingRoute).toEqual({ name: "shopping", returnTo: { name: "production" } });
+    expect(serializeAppRoute({ name: "shopping", returnTo: { name: "production", orderId: "ord-chika" } })).toBe("#shopping?returnTo=production%2Ford-chika");
+    expect(routeParent({ name: "orders", orderId: "ord-chika", mode: "detail", returnTo: { name: "production", orderId: "ord-chika" } })).toEqual({ name: "production", orderId: "ord-chika" });
+    expect(routeBackLabel({ name: "recipes", recipeId: "recipe-classic", mode: "edit" })).toBe("Back to Recipe Detail");
   });
 });
 

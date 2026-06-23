@@ -51,28 +51,23 @@ import {
   scaleRecipe,
   stockAdjustmentValidation
 } from "./lib/kitchen";
-
-export type Page =
-  | "welcome"
-  | "login"
-  | "dashboard"
-  | "recipes"
-  | "recipe-detail"
-  | "recipe-form"
-  | "scaling"
-  | "inventory"
-  | "ingredient-detail"
-  | "ingredient-form"
-  | "orders"
-  | "order-create"
-  | "order-detail"
-  | "production"
-  | "shopping"
-  | "costing"
-  | "ai"
-  | "conversions"
-  | "suppliers"
-  | "settings";
+import {
+  isRouteActive,
+  isSameRoute,
+  isTopLevelRoute,
+  pageForRoute,
+  pageIds,
+  parseAppRoute,
+  routeBackLabel,
+  routeFromPage,
+  routeNavPage,
+  routeParent,
+  routeTitle,
+  selectedIdsForRoute,
+  serializeAppRoute,
+  type AppRoute,
+  type Page
+} from "./lib/routes";
 
 type OrderDraft = {
   recipeId: string;
@@ -101,6 +96,8 @@ type AiChatMessage = {
   text: string;
 };
 
+type Navigate = (target: Page | AppRoute, options?: { replace?: boolean }) => void;
+
 const desktopNav = [
   ["dashboard", LayoutDashboard, "Dashboard"],
   ["recipes", Cookie, "Recipes"],
@@ -119,12 +116,12 @@ const bottomNav = [
   ["inventory", Boxes, "Inventory"],
   ["orders", ClipboardList, "Orders"],
   ["production", ChefHat, "Production"],
-  ["shopping", ShoppingBasket, "Shopping"],
   ["settings", ListChecks, "More"]
 ] as const;
 
 const moreItems = [
   ["recipes", Cookie, "Recipes"],
+  ["shopping", ShoppingBasket, "Shopping"],
   ["costing", Calculator, "Costing"],
   ["ai", Bot, "AI Assistant"],
   ["conversions", Wand2, "Conversions"],
@@ -135,35 +132,14 @@ const moreItems = [
 const bottomNavIds = new Set<Page>(bottomNav.map(([id]) => id as Page));
 const moreNavIds = new Set<Page>(moreItems.map(([id]) => id as Page));
 
-function isBottomNavActive(current: Page, id: Page) {
+function isBottomNavActive(route: AppRoute, id: Page) {
+  const current = routeNavPage(route);
   return current === id || (id === "settings" && moreNavIds.has(current) && !bottomNavIds.has(current));
 }
 
-const pageIds = new Set<Page>([
-  "welcome",
-  "login",
-  "dashboard",
-  "recipes",
-  "recipe-detail",
-  "recipe-form",
-  "scaling",
-  "inventory",
-  "ingredient-detail",
-  "ingredient-form",
-  "orders",
-  "order-create",
-  "order-detail",
-  "production",
-  "shopping",
-  "costing",
-  "ai",
-  "conversions",
-  "suppliers",
-  "settings"
-]);
-
 export type AppSession = {
   page?: Page;
+  route?: AppRoute;
   selectedRecipeId?: string;
   selectedIngredientId?: string;
   selectedOrderId?: string;
@@ -213,34 +189,43 @@ function writeSession(session: AppSession) {
   window.localStorage.setItem(sessionStorageKey, JSON.stringify(session));
 }
 
-function hashValue(hash: string) {
-  return hash.replace(/^#\/?/, "");
-}
-
 export function pageFromHash(hash: string): Page | undefined {
-  const candidate = hashValue(hash) as Page;
-  return pageIds.has(candidate) ? candidate : undefined;
+  const route = parseAppRoute(hash);
+  return route ? pageForRoute(route) : undefined;
 }
 
-function fallbackPageForSession(session: Pick<AppSession, "page" | "user">) {
-  if (session.user) return "dashboard";
-  return session.page === "login" ? "login" : "welcome";
+function fallbackRouteForSession(session: Pick<AppSession, "page" | "route" | "user">): AppRoute {
+  if (session.user) return { name: "dashboard" };
+  return session.page === "login" || session.route?.name === "login" ? { name: "login" } : { name: "welcome" };
+}
+
+export function resolveSessionRoute(hash: string, session: AppSession): AppRoute {
+  const context = {
+    selectedRecipeId: session.selectedRecipeId,
+    selectedIngredientId: session.selectedIngredientId,
+    selectedOrderId: session.selectedOrderId
+  };
+  const resolvedHashRoute = parseAppRoute(hash, context);
+  if (resolvedHashRoute) return resolvedHashRoute;
+  if (hash.replace(/^#\/?/, "")) return fallbackRouteForSession(session);
+  if (session.route) return session.route;
+  if (session.page && pageIds.has(session.page)) return routeFromPage(session.page, context);
+  return fallbackRouteForSession(session);
 }
 
 export function resolveSessionPage(hash: string, session: AppSession): Page {
-  const resolvedHashPage = pageFromHash(hash);
-  if (resolvedHashPage) return resolvedHashPage;
-  if (hashValue(hash)) return fallbackPageForSession(session);
-  return pageIds.has(session.page as Page) ? session.page as Page : fallbackPageForSession(session);
+  return pageForRoute(resolveSessionRoute(hash, session));
 }
 
 function readSession(): AppSession {
   if (typeof window === "undefined") return {};
   try {
     const session = JSON.parse(window.localStorage.getItem(sessionStorageKey) ?? "{}") as AppSession;
-    return { ...session, page: resolveSessionPage(window.location.hash, session) };
+    const route = resolveSessionRoute(window.location.hash, session);
+    return { ...session, route, page: pageForRoute(route) };
   } catch {
-    return { page: pageFromHash(window.location.hash) ?? "welcome" };
+    const route = parseAppRoute(window.location.hash) ?? { name: "welcome" };
+    return { route, page: pageForRoute(route) };
   }
 }
 
@@ -641,10 +626,12 @@ async function shareText(text: string, notify: Notify) {
 function App() {
   const savedSession = readSession();
   const [user, setUser] = useState<AppUser | undefined>(() => savedSession.user);
-  const [page, setPage] = useState<Page>(() => savedSession.user ? savedSession.page ?? "dashboard" : savedSession.page === "login" ? "login" : "welcome");
-  const [selectedRecipeId, setSelectedRecipeId] = useState(() => savedSession.selectedRecipeId ?? "");
-  const [selectedIngredientId, setSelectedIngredientId] = useState(() => savedSession.selectedIngredientId ?? "");
-  const [selectedOrderId, setSelectedOrderId] = useState(() => savedSession.selectedOrderId ?? "");
+  const [route, setRoute] = useState<AppRoute>(() => savedSession.route ?? (savedSession.user ? { name: "dashboard" } : savedSession.page === "login" ? { name: "login" } : { name: "welcome" }));
+  const page = pageForRoute(route);
+  const initialRouteIds = selectedIdsForRoute(route);
+  const [selectedRecipeId, setSelectedRecipeId] = useState(() => initialRouteIds.selectedRecipeId || savedSession.selectedRecipeId || "");
+  const [selectedIngredientId, setSelectedIngredientId] = useState(() => initialRouteIds.selectedIngredientId || savedSession.selectedIngredientId || "");
+  const [selectedOrderId, setSelectedOrderId] = useState(() => initialRouteIds.selectedOrderId || savedSession.selectedOrderId || "");
   const [orderDraft, setOrderDraft] = useState<OrderDraft | null>(null);
   const [query, setQuery] = useState("");
   const [dataStatus, setDataStatus] = useState<"loading" | "ready" | "error">("loading");
@@ -654,8 +641,11 @@ function App() {
   const [dataVersion, setDataVersion] = useState(0);
   const [toast, setToast] = useState("");
   const [confirmRequest, setConfirmRequest] = useState<ConfirmRequest | null>(null);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const historyAction = useRef<"push" | "replace">("replace");
   const dataStatusRef = useRef(dataStatus);
+  const routeRef = useRef(route);
+  const dirtyRef = useRef(hasUnsavedChanges);
 
   const notify = useCallback((message: string) => {
     setToast(message);
@@ -670,12 +660,24 @@ function App() {
     dataStatusRef.current = dataStatus;
   }, [dataStatus]);
 
+  useEffect(() => {
+    routeRef.current = route;
+    const ids = selectedIdsForRoute(route);
+    if (route.name === "recipes") setSelectedRecipeId(ids.selectedRecipeId);
+    if (route.name === "inventory") setSelectedIngredientId(ids.selectedIngredientId);
+    if (route.name === "orders" || route.name === "production") setSelectedOrderId(ids.selectedOrderId);
+  }, [route]);
+
+  useEffect(() => {
+    dirtyRef.current = hasUnsavedChanges;
+  }, [hasUnsavedChanges]);
+
   const loadKitchenData = useCallback(async (cancelled?: () => boolean, tokenOverride?: string) => {
       const token = tokenOverride ?? currentSessionToken();
       if (!token) {
         if (!cancelled?.()) {
           setUser(undefined);
-          setPage("login");
+          setRoute({ name: "login" });
           setDataError("");
           setDataStatus("loading");
           setIsRefreshing(false);
@@ -695,7 +697,7 @@ function App() {
             if (!cancelled?.()) {
               const message = result.error || "Session expired. Sign in again to continue.";
               setUser(undefined);
-              setPage("login");
+              setRoute({ name: "login" });
               setDataError("");
               setDataStatus("loading");
               notify(message);
@@ -745,9 +747,9 @@ function App() {
   }, [loadKitchenData, user]);
 
   useEffect(() => {
-    writeSession({ page, selectedRecipeId, selectedIngredientId, selectedOrderId, user });
-    const nextHash = `#${page}`;
-    const state = { page };
+    writeSession({ route, page, selectedRecipeId, selectedIngredientId, selectedOrderId, user });
+    const nextHash = serializeAppRoute(route);
+    const state = { route, page };
     if (window.location.hash !== nextHash) {
       if (historyAction.current === "push") window.history.pushState(state, "", nextHash);
       else window.history.replaceState(state, "", nextHash);
@@ -755,32 +757,82 @@ function App() {
       window.history.replaceState(state, "", nextHash);
     }
     historyAction.current = "push";
-  }, [page, selectedIngredientId, selectedOrderId, selectedRecipeId, user]);
+  }, [page, route, selectedIngredientId, selectedOrderId, selectedRecipeId, user]);
+
+  const routeContext = useCallback(() => ({
+    selectedRecipeId,
+    selectedIngredientId,
+    selectedOrderId
+  }), [selectedIngredientId, selectedOrderId, selectedRecipeId]);
+
+  const applyRoute = useCallback((target: Page | AppRoute, options: { replace?: boolean } = {}) => {
+    const nextRoute = typeof target === "string" ? routeFromPage(target, routeContext()) : target;
+    if (!isSameRoute(nextRoute, routeRef.current)) setQuery("");
+    historyAction.current = options.replace ? "replace" : "push";
+    setHasUnsavedChanges(false);
+    setRoute(nextRoute);
+  }, [routeContext]);
+
+  const navigate = useCallback((target: Page | AppRoute, options: { replace?: boolean } = {}) => {
+    const nextRoute = typeof target === "string" ? routeFromPage(target, routeContext()) : target;
+    if (dirtyRef.current && !isSameRoute(nextRoute, routeRef.current)) {
+      askConfirm({
+        title: "Discard unsaved changes?",
+        message: "This form has unsaved changes. Leave the page and discard them?",
+        confirmLabel: "Leave Page",
+        tone: "danger",
+        onConfirm: async () => applyRoute(nextRoute, options)
+      });
+      return;
+    }
+    applyRoute(nextRoute, options);
+  }, [applyRoute, askConfirm, routeContext]);
+
+  const goBack = useCallback(() => {
+    const parent = routeParent(routeRef.current);
+    if (parent) navigate(parent);
+    else window.history.back();
+  }, [navigate]);
 
   useEffect(() => {
     const onPopState = () => {
-      const hashPage = pageFromHash(window.location.hash);
-      const nextPage = hashPage ?? (user ? "dashboard" : "login");
+      const nextRoute = parseAppRoute(window.location.hash, routeContext()) ?? (user ? { name: "dashboard" } : { name: "login" } as AppRoute);
+      if (dirtyRef.current && !isSameRoute(nextRoute, routeRef.current)) {
+        window.history.pushState({ route: routeRef.current, page: pageForRoute(routeRef.current) }, "", serializeAppRoute(routeRef.current));
+        askConfirm({
+          title: "Discard unsaved changes?",
+          message: "This form has unsaved changes. Leave the page and discard them?",
+          confirmLabel: "Leave Page",
+          tone: "danger",
+          onConfirm: async () => applyRoute(nextRoute)
+        });
+        return;
+      }
       historyAction.current = "replace";
-      if (!hashPage) window.history.replaceState({ page: nextPage }, "", `#${nextPage}`);
-      setPage(nextPage);
+      if (!parseAppRoute(window.location.hash, routeContext())) window.history.replaceState({ route: nextRoute, page: pageForRoute(nextRoute) }, "", serializeAppRoute(nextRoute));
+      setHasUnsavedChanges(false);
+      setRoute(nextRoute);
     };
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
-  }, [user]);
+  }, [applyRoute, askConfirm, routeContext, user]);
 
-  const navigate = (next: Page) => {
-    if (next !== page) setQuery("");
-    historyAction.current = "push";
-    if (next === "settings" && page !== "settings") {
-      setPage("settings");
-      return;
-    }
-    setPage(next);
-  };
+  useEffect(() => {
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (!dirtyRef.current) return;
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, []);
 
   const content = useMemo(() => {
-    const props = { user, setPage: navigate, setSelectedRecipeId, setSelectedIngredientId, setSelectedOrderId, setOrderDraft, selectedRecipeId, selectedIngredientId, selectedOrderId, query, setQuery, notify, askConfirm, reloadData: () => loadKitchenData() };
+    const routeIds = selectedIdsForRoute(route);
+    const activeSelectedRecipeId = routeIds.selectedRecipeId || selectedRecipeId;
+    const activeSelectedIngredientId = routeIds.selectedIngredientId || selectedIngredientId;
+    const activeSelectedOrderId = routeIds.selectedOrderId || selectedOrderId;
+    const props = { user, setPage: navigate, goBack, setFormDirty: setHasUnsavedChanges, currentRoute: route, setSelectedRecipeId, setSelectedIngredientId, setSelectedOrderId, setOrderDraft, selectedRecipeId: activeSelectedRecipeId, selectedIngredientId: activeSelectedIngredientId, selectedOrderId: activeSelectedOrderId, query, setQuery, notify, askConfirm, reloadData: () => loadKitchenData() };
     switch (page) {
       case "welcome":
         return <Welcome setPage={navigate} />;
@@ -791,27 +843,27 @@ function App() {
       case "recipes":
         return <Recipes {...props} />;
       case "recipe-detail":
-        return <RecipeDetail recipeId={selectedRecipeId} user={user} setPage={navigate} notify={notify} askConfirm={askConfirm} reloadData={() => loadKitchenData()} />;
+        return <RecipeDetail recipeId={activeSelectedRecipeId} user={user} setPage={navigate} setOrderDraft={setOrderDraft} notify={notify} askConfirm={askConfirm} reloadData={() => loadKitchenData()} />;
       case "recipe-form":
-        return <RecipeForm recipeId={selectedRecipeId} setPage={navigate} notify={notify} reloadData={() => loadKitchenData()} />;
+        return <RecipeForm recipeId={activeSelectedRecipeId} currentRoute={route} setPage={navigate} setFormDirty={setHasUnsavedChanges} notify={notify} reloadData={() => loadKitchenData()} />;
       case "scaling":
-        return <RecipeScaling recipeId={selectedRecipeId} setPage={navigate} setSelectedOrderId={setSelectedOrderId} setOrderDraft={setOrderDraft} notify={notify} />;
+        return <RecipeScaling recipeId={activeSelectedRecipeId} currentRoute={route} setPage={navigate} setSelectedOrderId={setSelectedOrderId} setOrderDraft={setOrderDraft} notify={notify} />;
       case "inventory":
         return <Inventory {...props} />;
       case "ingredient-detail":
-        return <IngredientDetail ingredientId={selectedIngredientId} user={user} setPage={navigate} notify={notify} askConfirm={askConfirm} reloadData={() => loadKitchenData()} />;
+        return <IngredientDetail ingredientId={activeSelectedIngredientId} user={user} setPage={navigate} notify={notify} askConfirm={askConfirm} reloadData={() => loadKitchenData()} />;
       case "ingredient-form":
-        return <IngredientForm ingredientId={selectedIngredientId} setPage={navigate} notify={notify} reloadData={() => loadKitchenData()} />;
+        return <IngredientForm ingredientId={activeSelectedIngredientId} setPage={navigate} setFormDirty={setHasUnsavedChanges} notify={notify} reloadData={() => loadKitchenData()} />;
       case "orders":
         return <Orders {...props} />;
       case "order-create":
-        return <CreateOrder orderId={selectedOrderId} orderDraft={orderDraft} setOrderDraft={setOrderDraft} setPage={navigate} notify={notify} reloadData={() => loadKitchenData()} />;
+        return <CreateOrder orderId={activeSelectedOrderId} currentRoute={route} orderDraft={orderDraft} setOrderDraft={setOrderDraft} setPage={navigate} setFormDirty={setHasUnsavedChanges} notify={notify} reloadData={() => loadKitchenData()} />;
       case "order-detail":
-        return <OrderDetail orderId={selectedOrderId} user={user} setPage={navigate} notify={notify} askConfirm={askConfirm} reloadData={() => loadKitchenData()} />;
+        return <OrderDetail orderId={activeSelectedOrderId} user={user} setPage={navigate} notify={notify} askConfirm={askConfirm} reloadData={() => loadKitchenData()} />;
       case "production":
         return <Production user={user} setPage={navigate} setSelectedOrderId={setSelectedOrderId} notify={notify} reloadData={() => loadKitchenData()} />;
       case "shopping":
-        return <ShoppingList user={user} notify={notify} reloadData={() => loadKitchenData()} />;
+        return <ShoppingList user={user} currentRoute={route} setPage={navigate} notify={notify} reloadData={() => loadKitchenData()} />;
       case "costing":
         return <Costing />;
       case "ai":
@@ -823,7 +875,7 @@ function App() {
       case "settings":
         return <SettingsPage user={user} setPage={navigate} notify={notify} reloadData={() => loadKitchenData()} />;
     }
-  }, [page, selectedIngredientId, selectedOrderId, selectedRecipeId, query, notify, askConfirm, loadKitchenData, dataVersion, user]);
+  }, [page, route, selectedIngredientId, selectedOrderId, selectedRecipeId, query, notify, askConfirm, loadKitchenData, dataVersion, user, navigate, goBack]);
 
   if (page === "welcome" || page === "login") {
     return (
@@ -858,7 +910,7 @@ function App() {
         <BrandMark />
         <nav>
           {desktopNav.map(([id, Icon, label]) => (
-            <button key={id} className={page === id ? "nav-item active" : "nav-item"} onClick={() => navigate(id as Page)}>
+            <button key={id} className={isRouteActive(route, id as Page) ? "nav-item active" : "nav-item"} onClick={() => navigate(id as Page)}>
               <Icon size={20} />
               <span>{label}</span>
             </button>
@@ -873,16 +925,17 @@ function App() {
         <header className="topbar">
           <div>
             <p className="eyebrow">Pastry County Kitchen OS</p>
-            <h1>{titleFor(page)}</h1>
+            <h1>{titleForRoute(route)}</h1>
           </div>
           <div className="button-row">
             <Badge tone="caramel">{user.role}</Badge>
             <Button variant="secondary" onClick={() => navigate("ai")}>
               <Bot size={18} /> Ask AI
             </Button>
-            <Button variant="ghost" onClick={() => { writeSession({ ...readSession(), page: "login", user: undefined }); setUser(undefined); setPage("login"); notify("Logged out."); }}>Logout</Button>
+            <Button variant="ghost" onClick={() => { setHasUnsavedChanges(false); writeSession({ ...readSession(), page: "login", route: { name: "login" }, user: undefined }); setUser(undefined); setRoute({ name: "login" }); notify("Logged out."); }}>Logout</Button>
           </div>
         </header>
+        <RouteWayfinding route={route} navigate={navigate} goBack={goBack} />
         {(isRefreshing || activeRequests > 0) && (
           <div className="global-status" role="status" aria-live="polite" aria-busy="true">
             {activeRequests > 0 ? "Saving kitchen changes..." : "Refreshing live kitchen data..."}
@@ -897,7 +950,7 @@ function App() {
       </main>
       <nav className="bottom-nav" aria-label="Primary mobile navigation">
         {bottomNav.map(([id, Icon, label]) => (
-          <button key={id} className={isBottomNavActive(page, id as Page) ? "active" : ""} onClick={() => navigate(id as Page)}>
+          <button key={id} className={isBottomNavActive(route, id as Page) ? "active" : ""} onClick={() => navigate(id as Page)}>
             <Icon size={20} />
             <span>{label}</span>
           </button>
@@ -940,21 +993,51 @@ function ErrorScreen({ message }: { message: string }) {
   );
 }
 
-function titleFor(page: Page) {
-  const map: Partial<Record<Page, string>> = {
-    dashboard: "Kitchen Command Center",
-    recipes: "Recipe Library",
-    inventory: "Inventory",
-    orders: "Orders",
-    production: "Production Plan",
-    shopping: "Shopping List",
-    costing: "Costing & Margins",
-    ai: "AI Conversion Assistant",
-    conversions: "Conversion Library",
-    suppliers: "Suppliers",
-    settings: "More & Settings"
-  };
-  return map[page] ?? "Kitchen OS";
+function titleForRoute(route: AppRoute) {
+  if (route.name === "recipes" && route.recipeId) {
+    const recipeName = recipes.find((item) => item.id === route.recipeId)?.name ?? "Recipe";
+    if (route.mode === "edit") return `Edit ${recipeName}`;
+    if (route.mode === "scale") return `Scale ${recipeName}`;
+    return recipeName;
+  }
+  if (route.name === "inventory" && route.ingredientId) {
+    const ingredientName = ingredients.find((item) => item.id === route.ingredientId)?.name ?? "Ingredient";
+    return route.mode === "edit" ? `Edit ${ingredientName}` : ingredientName;
+  }
+  if (route.name === "orders" && route.orderId) {
+    const order = orders.find((item) => item.id === route.orderId);
+    const label = order ? `${order.customerName} Order` : "Order";
+    return route.mode === "edit" ? `Edit ${label}` : label;
+  }
+  if (route.name === "costing" && route.recipeId) {
+    const recipeName = recipes.find((item) => item.id === route.recipeId)?.name ?? "Recipe";
+    return `${recipeName} Costing`;
+  }
+  return routeTitle(route);
+}
+
+function RouteWayfinding({ route, navigate, goBack }: { route: AppRoute; navigate: Navigate; goBack: () => void }) {
+  const parent = routeParent(route);
+  if (!parent || isTopLevelRoute(route)) return null;
+  const ancestors: AppRoute[] = [];
+  let currentParent: AppRoute | undefined = parent;
+  while (currentParent) {
+    ancestors.unshift(currentParent);
+    currentParent = routeParent(currentParent);
+  }
+  return (
+    <nav className="route-wayfinding" aria-label="Breadcrumb">
+      <Button variant="secondary" onClick={goBack}>{routeBackLabel(route)}</Button>
+      <ol>
+        {ancestors.map((item) => (
+          <li key={serializeAppRoute(item)}>
+            <button onClick={() => navigate(item)}>{titleForRoute(item)}</button>
+          </li>
+        ))}
+        <li aria-current="page">{titleForRoute(route)}</li>
+      </ol>
+    </nav>
+  );
 }
 
 function BrandMark() {
@@ -969,7 +1052,7 @@ function BrandMark() {
   );
 }
 
-function Welcome({ setPage }: { setPage: (page: Page) => void }) {
+function Welcome({ setPage }: { setPage: Navigate }) {
   return (
     <main className="auth-screen welcome-screen">
       <div className="auth-card hero-card">
@@ -990,7 +1073,7 @@ function Welcome({ setPage }: { setPage: (page: Page) => void }) {
   );
 }
 
-function Login({ setPage, setUser, notify }: { setPage: (page: Page) => void; setUser: (user: AppUser) => void; notify: Notify }) {
+function Login({ setPage, setUser, notify }: { setPage: Navigate; setUser: (user: AppUser) => void; notify: Notify }) {
   const [working, setWorking] = useState(false);
   return (
     <main className="auth-screen">
@@ -1007,7 +1090,7 @@ function Login({ setPage, setUser, notify }: { setPage: (page: Page) => void; se
           const result = await response.json().catch(() => ({}));
           if (!response.ok) throw new Error(result.error || "Login failed.");
           const signedInUser = result as AppUser;
-          writeSession({ ...readSession(), page: "dashboard", user: signedInUser });
+          writeSession({ ...readSession(), page: "dashboard", route: { name: "dashboard" }, user: signedInUser });
           setUser(signedInUser);
           notify(`Signed in as ${signedInUser.role}.`);
           setPage("dashboard");
@@ -1089,7 +1172,9 @@ function Dashboard({ setPage, setSelectedIngredientId, setSelectedOrderId }: any
   const openNotification = (item: ReturnType<typeof notificationDigest>[number]) => {
     if (item.ingredientId) setSelectedIngredientId(item.ingredientId);
     if (item.orderId) setSelectedOrderId(item.orderId);
-    setPage(item.page);
+    if (item.ingredientId) setPage({ name: "inventory", ingredientId: item.ingredientId, mode: "detail" });
+    else if (item.orderId) setPage({ name: "orders", orderId: item.orderId, mode: "detail" });
+    else setPage(item.page);
   };
   const activeOrders = orders.filter((order) => !["Delivered", "Cancelled"].includes(order.status));
   const producedOrders = orders.filter((order) => ["Produced", "Delivered"].includes(order.status));
@@ -1139,7 +1224,7 @@ function Dashboard({ setPage, setSelectedIngredientId, setSelectedOrderId }: any
           <div className="compact-list">
             <p className="section-note">Overdue or carryover production</p>
             {productionQueue.overdue.map((card) => (
-              <button className="row-card" key={card.id} onClick={() => { setSelectedOrderId(card.id); setPage("order-detail"); }}>
+              <button className="row-card" key={card.id} onClick={() => { setSelectedOrderId(card.id); setPage({ name: "orders", orderId: card.id, mode: "detail" }); }}>
                 <span><strong>{card.productName}</strong><small>{card.quantity} Â· {card.dueDate}</small></span>
                 <Badge tone={stockTone(card.stockStatus)}>{card.stockStatus}</Badge>
               </button>
@@ -1169,7 +1254,7 @@ function Dashboard({ setPage, setSelectedIngredientId, setSelectedOrderId }: any
         <Section title="Low Stock Alerts">
           <div className="compact-list">
             {lowStock.map((item) => (
-              <button className="row-card" key={item.id} onClick={() => { setSelectedIngredientId(item.id); setPage("ingredient-detail"); }}>
+              <button className="row-card" key={item.id} onClick={() => { setSelectedIngredientId(item.id); setPage({ name: "inventory", ingredientId: item.id, mode: "detail" }); }}>
                 <span><strong>{item.name}</strong><small>{formatQuantity(item.currentStock, item.baseUnit)} left, reorder at {formatQuantity(item.reorderLevel, item.baseUnit)}</small></span>
                 <Badge tone="danger">Low Stock</Badge>
               </button>
@@ -1211,13 +1296,13 @@ function Inventory({ user, setPage, setSelectedIngredientId, query, setQuery }: 
   });
   return (
     <>
-      <Toolbar query={query} setQuery={setQuery} placeholder="Search ingredients" action={<div className="button-row"><Button variant="secondary" onClick={() => exportCsv("pastry-county-inventory.csv", ["Ingredient", "Category", "Current Stock", "Reorder Level", "Base Unit", "Purchase Unit", "Latest Unit Cost", "Supplier", "Allergens", "Storage"], list.map((item) => [item.name, item.category, item.currentStock, item.reorderLevel, item.baseUnit, item.purchaseUnit ?? item.baseUnit, item.latestUnitCost, suppliers.find((supplier) => supplier.id === item.supplierId)?.name ?? "Unassigned", allergenSummary(item.allergenProfile), storageSummary(item.storageProfile)]))}>Export CSV</Button><Button onClick={() => { setSelectedIngredientId(""); setPage("ingredient-form"); }} disabled={!canUser(user, "manageInventory")}><Plus size={18} /> Add Ingredient</Button></div>} />
+      <Toolbar query={query} setQuery={setQuery} placeholder="Search ingredients" action={<div className="button-row"><Button variant="secondary" onClick={() => exportCsv("pastry-county-inventory.csv", ["Ingredient", "Category", "Current Stock", "Reorder Level", "Base Unit", "Purchase Unit", "Latest Unit Cost", "Supplier", "Allergens", "Storage"], list.map((item) => [item.name, item.category, item.currentStock, item.reorderLevel, item.baseUnit, item.purchaseUnit ?? item.baseUnit, item.latestUnitCost, suppliers.find((supplier) => supplier.id === item.supplierId)?.name ?? "Unassigned", allergenSummary(item.allergenProfile), storageSummary(item.storageProfile)]))}>Export CSV</Button><Button onClick={() => { setSelectedIngredientId(""); setPage({ name: "inventory", mode: "new" }); }} disabled={!canUser(user, "manageInventory")}><Plus size={18} /> Add Ingredient</Button></div>} />
       <Chips items={categories} active={filter} setActive={setFilter} />
       <ResponsiveTable
         headers={["Ingredient", "Category", "Current Stock", "Reorder", "Latest Cost", "Status"]}
         rows={list.map((item) => ({
           key: item.id,
-          onClick: () => { setSelectedIngredientId(item.id); setPage("ingredient-detail"); },
+          onClick: () => { setSelectedIngredientId(item.id); setPage({ name: "inventory", ingredientId: item.id, mode: "detail" }); },
           cells: [item.name, item.category, formatQuantity(item.currentStock, item.baseUnit), formatQuantity(item.reorderLevel, item.baseUnit), `${formatNaira(item.latestUnitCost)}/${item.baseUnit}`, <Badge tone={isBelowReorder(item) ? "danger" : "success"}>{isBelowReorder(item) ? "Low Stock" : "In Stock"}</Badge>]
         }))}
       />
@@ -1225,11 +1310,11 @@ function Inventory({ user, setPage, setSelectedIngredientId, query, setQuery }: 
   );
 }
 
-function IngredientDetail({ ingredientId, user, setPage, notify, askConfirm, reloadData }: { ingredientId: string; user?: AppUser; setPage: (page: Page) => void; notify: (message: string) => void; askConfirm: AskConfirm; reloadData: () => Promise<void> }) {
+function IngredientDetail({ ingredientId, user, setPage, notify, askConfirm, reloadData }: { ingredientId: string; user?: AppUser; setPage: Navigate; notify: (message: string) => void; askConfirm: AskConfirm; reloadData: () => Promise<void> }) {
   const ingredient = ingredients.find((item) => item.id === ingredientId)!;
   const [stockForm, setStockForm] = useState<"purchase" | "adjustment" | null>(null);
   const [usageOpen, setUsageOpen] = useState(false);
-  if (!ingredient) return <EmptyState title="Ingredient not found" message="Select an ingredient from inventory." />;
+  if (!ingredient) return <EmptyState title="Ingredient not found" message="Select an ingredient from inventory." action={<Button variant="secondary" onClick={() => setPage({ name: "inventory" })}>Back to Inventory</Button>} />;
   const supplier = suppliers.find((item) => item.id === ingredient.supplierId);
   const movements = inventoryMovements.filter((item) => item.ingredientId === ingredientId);
   const usageMovements = movements.filter((movement) => ["production_use", "waste", "adjustment", "reservation", "reservation_release"].includes(movement.movementType));
@@ -1249,8 +1334,8 @@ function IngredientDetail({ ingredientId, user, setPage, notify, askConfirm, rel
           <Button onClick={() => setStockForm("purchase")} disabled={!canUser(user, "manageInventory")}><PackagePlus size={18} /> Add Stock</Button>
           <Button variant="secondary" onClick={() => setStockForm("adjustment")} disabled={!canUser(user, "manageInventory")}>Adjust Stock</Button>
           <Button variant="secondary" onClick={() => setUsageOpen(true)}>View Usage</Button>
-          <Button variant="ghost" onClick={() => setPage("ingredient-form")} disabled={!canUser(user, "manageInventory")}>Edit {ingredient.name}</Button>
-          <Button variant="danger" onClick={() => askConfirm({ title: `Archive ${ingredient.name}?`, message: "It will disappear from active inventory, while historical recipe and order records remain intact.", confirmLabel: "Archive Ingredient", tone: "danger", onConfirm: async () => { await apiAction("ingredient.delete", { ingredientId }); notify(`${ingredient.name} archived from active inventory.`); await reloadData(); setPage("inventory"); } })} disabled={!canUser(user, "deleteRecords")}>Archive</Button>
+          <Button variant="ghost" onClick={() => setPage({ name: "inventory", ingredientId, mode: "edit" })} disabled={!canUser(user, "manageInventory")}>Edit {ingredient.name}</Button>
+          <Button variant="danger" onClick={() => askConfirm({ title: `Archive ${ingredient.name}?`, message: "It will disappear from active inventory, while historical recipe and order records remain intact.", confirmLabel: "Archive Ingredient", tone: "danger", onConfirm: async () => { await apiAction("ingredient.delete", { ingredientId }); notify(`${ingredient.name} archived from active inventory.`); await reloadData(); setPage({ name: "inventory" }); } })} disabled={!canUser(user, "deleteRecords")}>Archive</Button>
         </div>
       </article>
       <div className="split">
@@ -1410,14 +1495,16 @@ function StockAdjustmentModal({ ingredient, mode, onClose, notify, reloadData }:
   );
 }
 
-function IngredientForm({ ingredientId, setPage, notify, reloadData }: { ingredientId: string; setPage: (page: Page) => void; notify: (message: string) => void; reloadData: () => Promise<void> }) {
+function IngredientForm({ ingredientId, setPage, setFormDirty, notify, reloadData }: { ingredientId: string; setPage: Navigate; setFormDirty: (dirty: boolean) => void; notify: (message: string) => void; reloadData: () => Promise<void> }) {
   const ingredient = ingredients.find((item) => item.id === ingredientId);
   const [baseUnit, setBaseUnit] = useState<Unit>(ingredient?.baseUnit ?? "g");
   const [purchaseUnit, setPurchaseUnit] = useState<Unit>(ingredient?.purchaseUnit ?? ingredient?.baseUnit ?? "g");
+  if (ingredientId && !ingredient) return <EmptyState title="Ingredient not found" message="Return to inventory and choose an active ingredient." action={<Button variant="secondary" onClick={() => setPage({ name: "inventory" })}>Back to Inventory</Button>} />;
+  const returnRoute: AppRoute = ingredient ? { name: "inventory", ingredientId: ingredient.id, mode: "detail" } : { name: "inventory" };
   return (
-    <FormShell title={ingredient ? "Edit Ingredient" : "Add Ingredient"} action="Save Ingredient" cancelTo="inventory" setPage={setPage} onDone={async (form) => {
+    <FormShell title={ingredient ? "Edit Ingredient" : "Add Ingredient"} action="Save Ingredient" cancelLabel={ingredient ? "Back to Ingredient" : "Back to Inventory"} onCancel={() => setPage(returnRoute)} setFormDirty={setFormDirty} onDone={async (form) => {
       const supplierName = formValue(form, "supplierId");
-      await apiAction("ingredient.save", {
+      const result = await apiAction("ingredient.save", {
         ingredient: {
           id: ingredient?.id,
           name: formValue(form, "name"),
@@ -1453,7 +1540,8 @@ function IngredientForm({ ingredientId, setPage, notify, reloadData }: { ingredi
       });
       notify("Ingredient saved to Neon.");
       await reloadData();
-      setPage("inventory");
+      const savedId = typeof result.id === "string" ? result.id : ingredient?.id;
+      setPage(savedId ? { name: "inventory", ingredientId: savedId, mode: "detail" } : { name: "inventory" });
     }}>
       <div className="form-grid">
         <Field label="Ingredient name"><input name="name" defaultValue={ingredient?.name ?? ""} placeholder="Ingredient name" required /></Field>
@@ -1505,20 +1593,20 @@ function Recipes({ setPage, setSelectedRecipeId, query, setQuery }: any) {
   const list = recipes.filter((recipe) => (filter === "All" || recipe.category === filter) && recipe.name.toLowerCase().includes(query.toLowerCase()));
   return (
     <>
-      <Toolbar query={query} setQuery={setQuery} placeholder="Search recipes" action={<div className="button-row"><Button variant="secondary" onClick={() => exportCsv("pastry-county-recipes.csv", ["Recipe", "Category", "Base Yield", "Yield Unit", "Product Family", "Pan Profile", "Oven", "Bake Time", "Ingredient Subtotal", "Non-Ingredient Cost", "Batch Cost", "Cost Per Unit"], list.map((recipe) => { const cost = calculateRecipeCost(recipe.id, recipe.baseYieldQuantity); const formula = recipe.formulaMetadata ?? {}; return [recipe.name, recipe.category, recipe.baseYieldQuantity, recipe.yieldUnit, formula.productFamily ?? "", formula.panProfile ?? "", formula.ovenTemperature ?? "", formula.bakeTimeRange ?? "", cost.ingredientSubtotal, cost.nonIngredientCost, cost.totalRecipeCost, cost.costPerYieldUnit]; }))}>Export CSV</Button><Button onClick={() => { setSelectedRecipeId(""); setPage("recipe-form"); }}><Plus size={18} /> Add Recipe</Button></div>} />
+      <Toolbar query={query} setQuery={setQuery} placeholder="Search recipes" action={<div className="button-row"><Button variant="secondary" onClick={() => exportCsv("pastry-county-recipes.csv", ["Recipe", "Category", "Base Yield", "Yield Unit", "Product Family", "Pan Profile", "Oven", "Bake Time", "Ingredient Subtotal", "Non-Ingredient Cost", "Batch Cost", "Cost Per Unit"], list.map((recipe) => { const cost = calculateRecipeCost(recipe.id, recipe.baseYieldQuantity); const formula = recipe.formulaMetadata ?? {}; return [recipe.name, recipe.category, recipe.baseYieldQuantity, recipe.yieldUnit, formula.productFamily ?? "", formula.panProfile ?? "", formula.ovenTemperature ?? "", formula.bakeTimeRange ?? "", cost.ingredientSubtotal, cost.nonIngredientCost, cost.totalRecipeCost, cost.costPerYieldUnit]; }))}>Export CSV</Button><Button onClick={() => { setSelectedRecipeId(""); setPage({ name: "recipes", mode: "new" }); }}><Plus size={18} /> Add Recipe</Button></div>} />
       <Chips items={categories} active={filter} setActive={setFilter} />
       <div className="card-grid">
         {list.map((recipe) => {
           const cost = calculateRecipeCost(recipe.id, recipe.baseYieldQuantity);
           return (
-            <article className="item-card" key={recipe.id} onClick={() => { setSelectedRecipeId(recipe.id); setPage("recipe-detail"); }}>
+            <article className="item-card" key={recipe.id} onClick={() => { setSelectedRecipeId(recipe.id); setPage({ name: "recipes", recipeId: recipe.id, mode: "detail" }); }}>
               <div className="item-card-head"><Cookie size={22} /><Badge tone="caramel">{recipe.category}</Badge></div>
               <h3>{recipe.name}</h3>
               <p>Base yield: {recipe.baseYieldQuantity} {recipe.yieldUnit}</p>
               <small>{formulaMetadataSummary(recipe.formulaMetadata)}</small>
               <small>{costProfileSummary(recipe.costProfile)}</small>
               <div className="mini-stats"><span>{formatNaira(cost.totalRecipeCost)} batch</span><span>{formatNaira(cost.costPerYieldUnit)} each</span></div>
-              <Button variant="secondary" onClick={(event) => { event.stopPropagation(); setSelectedRecipeId(recipe.id); setPage("scaling"); }}><Scale size={18} /> Scale Recipe</Button>
+              <Button variant="secondary" onClick={(event) => { event.stopPropagation(); setSelectedRecipeId(recipe.id); setPage({ name: "recipes", recipeId: recipe.id, mode: "scale" }); }}><Scale size={18} /> Scale Recipe</Button>
             </article>
           );
         })}
@@ -1527,16 +1615,16 @@ function Recipes({ setPage, setSelectedRecipeId, query, setQuery }: any) {
   );
 }
 
-function RecipeDetail({ recipeId, user, setPage, notify, askConfirm, reloadData }: { recipeId: string; user?: AppUser; setPage: (page: Page) => void; notify: (message: string) => void; askConfirm: AskConfirm; reloadData: () => Promise<void> }) {
+function RecipeDetail({ recipeId, user, setPage, setOrderDraft, notify, askConfirm, reloadData }: { recipeId: string; user?: AppUser; setPage: Navigate; setOrderDraft: (draft: OrderDraft | null) => void; notify: (message: string) => void; askConfirm: AskConfirm; reloadData: () => Promise<void> }) {
   const recipe = recipes.find((item) => item.id === recipeId);
-  if (!recipe) return <EmptyState title="Recipe not found" message="Select a recipe from the database-backed recipe library." />;
+  if (!recipe) return <EmptyState title="Recipe not found" message="Select a recipe from the database-backed recipe library." action={<Button variant="secondary" onClick={() => setPage({ name: "recipes" })}>Back to Recipes</Button>} />;
   const cost = calculateRecipeCost(recipeId, recipe.baseYieldQuantity);
   const currentRecipeItems = recipeItems.filter((item) => item.recipeId === recipeId);
   return (
     <div className="detail-layout">
       <article className="detail-hero">
         <div><p className="eyebrow">{recipe.category}</p><h2>{recipe.name}</h2><p>Base yield {recipe.baseYieldQuantity} {recipe.yieldUnit} · {formatNaira(cost.totalRecipeCost)} batch cost</p></div>
-        <div className="button-row"><Button onClick={() => setPage("scaling")}><Scale size={18} /> Scale Recipe</Button><Button variant="secondary" onClick={() => setPage("recipe-form")} disabled={!canUser(user, "manageRecipes")}>Edit Recipe</Button><Button variant="secondary" onClick={() => setPage("order-create")} disabled={!canUser(user, "manageOrders")}>Create Order</Button><Button variant="ghost" onClick={async () => { await apiAction("recipe.save", { recipe: { name: `${recipe.name} Copy`, category: recipe.category, baseYieldQuantity: recipe.baseYieldQuantity, yieldUnit: recipe.yieldUnit, notes: recipe.notes, instructions: recipe.instructions.join("\n"), formulaMetadata: recipe.formulaMetadata ?? {}, costProfile: recipe.costProfile ?? {}, items: currentRecipeItems.map((item) => ({ ...item, prepState: item.prepState ?? {} })) } }); notify("Recipe duplicated in Neon."); await reloadData(); setPage("recipes"); }} disabled={!canUser(user, "manageRecipes")}>Duplicate</Button><Button variant="danger" onClick={() => askConfirm({ title: `Archive ${recipe.name}?`, message: "It will disappear from active recipes. Linked order history stays intact.", confirmLabel: "Archive Recipe", tone: "danger", onConfirm: async () => { await apiAction("recipe.delete", { recipeId }); notify(`${recipe.name} archived from active recipes.`); await reloadData(); setPage("recipes"); } })} disabled={!canUser(user, "deleteRecords")}>Archive</Button></div>
+        <div className="button-row"><Button onClick={() => setPage({ name: "recipes", recipeId, mode: "scale" })}><Scale size={18} /> Scale Recipe</Button><Button variant="secondary" onClick={() => setPage({ name: "recipes", recipeId, mode: "edit" })} disabled={!canUser(user, "manageRecipes")}>Edit Recipe</Button><Button variant="secondary" onClick={() => { setOrderDraft({ recipeId, requestedYieldQuantity: recipe.baseYieldQuantity }); setPage({ name: "orders", mode: "new", returnTo: { name: "recipes", recipeId, mode: "detail" } }); }} disabled={!canUser(user, "manageOrders")}>Create Order</Button><Button variant="ghost" onClick={async () => { const result = await apiAction("recipe.save", { recipe: { name: `${recipe.name} Copy`, category: recipe.category, baseYieldQuantity: recipe.baseYieldQuantity, yieldUnit: recipe.yieldUnit, notes: recipe.notes, instructions: recipe.instructions.join("\n"), formulaMetadata: recipe.formulaMetadata ?? {}, costProfile: recipe.costProfile ?? {}, items: currentRecipeItems.map((item) => ({ ...item, prepState: item.prepState ?? {} })) } }); notify("Recipe duplicated in Neon."); await reloadData(); setPage(typeof result.id === "string" ? { name: "recipes", recipeId: result.id, mode: "detail" } : { name: "recipes" }); }} disabled={!canUser(user, "manageRecipes")}>Duplicate</Button><Button variant="danger" onClick={() => askConfirm({ title: `Archive ${recipe.name}?`, message: "It will disappear from active recipes. Linked order history stays intact.", confirmLabel: "Archive Recipe", tone: "danger", onConfirm: async () => { await apiAction("recipe.delete", { recipeId }); notify(`${recipe.name} archived from active recipes.`); await reloadData(); setPage({ name: "recipes" }); } })} disabled={!canUser(user, "deleteRecords")}>Archive</Button></div>
       </article>
       {hasFormulaMetadata(recipe.formulaMetadata) && <Section title="Formula Profile"><div className="compact-list">{formulaMetadataRows(recipe.formulaMetadata).map(([label, value]) => <div className="row-card" key={label}><span>{label}</span><strong>{value}</strong></div>)}</div></Section>}
       {cost.nonIngredientCost > 0 && <Section title="Production Cost Profile"><div className="compact-list">{[
@@ -1573,13 +1661,15 @@ function ingredientPickerGroups(query: string, selectedId?: string): [string, In
     .map(([category, items]) => [category, items.sort((a, b) => a.name.localeCompare(b.name))]);
 }
 
-function RecipeForm({ recipeId, setPage, notify, reloadData }: { recipeId: string; setPage: (page: Page) => void; notify: (message: string) => void; reloadData: () => Promise<void> }) {
+function RecipeForm({ recipeId, currentRoute, setPage, setFormDirty, notify, reloadData }: { recipeId: string; currentRoute: AppRoute; setPage: Navigate; setFormDirty: (dirty: boolean) => void; notify: (message: string) => void; reloadData: () => Promise<void> }) {
   const recipe = recipes.find((item) => item.id === recipeId);
   const existingItems = recipeItems.filter((item) => item.recipeId === recipeId);
   const [builderRows, setBuilderRows] = useState<number[]>(existingItems.length ? existingItems.map((_, index) => index) : [0]);
   const [ingredientSearches, setIngredientSearches] = useState<Record<number, string>>({});
+  if (recipeId && !recipe) return <EmptyState title="Recipe not found" message="Return to recipes and choose an active recipe." action={<Button variant="secondary" onClick={() => setPage({ name: "recipes" })}>Back to Recipes</Button>} />;
+  const returnRoute = recipe ? { name: "recipes", recipeId: recipe.id, mode: "detail" } as AppRoute : { name: "recipes" } as AppRoute;
   return (
-    <FormShell title={recipe ? "Edit Recipe" : "Add Recipe"} action="Save Recipe" cancelTo="recipes" setPage={setPage} onDone={async (form) => {
+    <FormShell title={recipe ? "Edit Recipe" : "Add Recipe"} action="Save Recipe" cancelLabel={recipe ? "Back to Recipe" : "Back to Recipes"} onCancel={() => setPage(returnRoute)} setFormDirty={setFormDirty} onDone={async (form) => {
       const items = builderRows.map((_, index) => ({
         ingredientId: formValue(form, `ingredientId-${index}`),
         quantity: formNumber(form, `quantity-${index}`),
@@ -1606,7 +1696,7 @@ function RecipeForm({ recipeId, setPage, notify, reloadData }: { recipeId: strin
         notify("Add at least one ingredient with a quantity greater than zero before saving this recipe.");
         return;
       }
-      await apiAction("recipe.save", {
+      const result = await apiAction("recipe.save", {
         recipe: {
           id: recipe?.id,
           productId: recipe?.productId,
@@ -1648,7 +1738,8 @@ function RecipeForm({ recipeId, setPage, notify, reloadData }: { recipeId: strin
       });
       notify("Recipe saved to Neon.");
       await reloadData();
-      setPage("recipes");
+      const savedId = typeof result.id === "string" ? result.id : recipe?.id;
+      setPage(savedId ? { name: "recipes", recipeId: savedId, mode: "detail" } : currentRoute.name === "recipes" ? currentRoute : { name: "recipes" });
     }}>
       <Section title="Product information"><div className="form-grid"><Field label="Product name"><input name="name" defaultValue={recipe?.name ?? ""} placeholder="Product name" required /></Field><Field label="Category"><select name="category" defaultValue={recipe?.category ?? ""} required><option value="" disabled>Select category</option><option>Brownies</option><option>Blondies</option><option>Cookies</option><option>Loaves</option><option>Cakes</option></select></Field><Field label="Batch notes"><textarea name="notes" defaultValue={recipe?.notes ?? ""} placeholder="Cooling, cutting, baking, or packaging notes" /></Field></div></Section>
       <Section title="Yield information"><div className="form-grid two"><Field label="Base yield quantity"><input name="baseYieldQuantity" type="number" step="0.001" defaultValue={recipe?.baseYieldQuantity ?? 16} placeholder="0" /></Field><Field label="Yield unit"><select name="yieldUnit" defaultValue={recipe?.yieldUnit ?? "pieces"}><option>pieces</option><option>cookies</option><option>loaves</option><option>boxes</option><option>trays</option></select></Field></div></Section>
@@ -1726,10 +1817,10 @@ function RecipeForm({ recipeId, setPage, notify, reloadData }: { recipeId: strin
   );
 }
 
-function RecipeScaling({ recipeId, setPage, setSelectedOrderId, setOrderDraft, notify }: { recipeId: string; setPage: (page: Page) => void; setSelectedOrderId: (id: string) => void; setOrderDraft: (draft: OrderDraft | null) => void; notify: (message: string) => void }) {
+function RecipeScaling({ recipeId, currentRoute, setPage, setSelectedOrderId, setOrderDraft, notify }: { recipeId: string; currentRoute: AppRoute; setPage: Navigate; setSelectedOrderId: (id: string) => void; setOrderDraft: (draft: OrderDraft | null) => void; notify: (message: string) => void }) {
   const [desired, setDesired] = useState(12);
   const recipe = recipes.find((item) => item.id === recipeId);
-  if (!recipe) return <EmptyState title="No recipe selected" message="Add or select a recipe before scaling." />;
+  if (!recipe) return <EmptyState title="No recipe selected" message="Add or select a recipe before scaling." action={<Button variant="secondary" onClick={() => setPage({ name: "recipes" })}>Back to Recipes</Button>} />;
   const scaled = scaleRecipe(recipeId, desired);
   const cost = calculateRecipeCost(recipeId, desired);
   const availability = checkStockAvailability(scaled);
@@ -1747,7 +1838,7 @@ function RecipeScaling({ recipeId, setPage, setSelectedOrderId, setOrderDraft, n
       {hasFormulaMetadata(recipe.formulaMetadata) && <Section title="Formula Profile"><div className="compact-list">{formulaMetadataRows(recipe.formulaMetadata).slice(0, 8).map(([label, value]) => <div className="row-card" key={label}><span>{label}</span><strong>{value}</strong></div>)}</div></Section>}
       <Section title="Scaled Ingredients"><div className="compact-list">{scaled.map((item) => <div className="row-card" key={item.ingredientId}><span>{item.ingredientName}<small>Original {formatQuantity(item.originalQuantity, item.unit)}{prepStateSummary(item.prepState) ? ` | ${prepStateSummary(item.prepState)}` : ""}{item.scalingNote ? ` | ${item.scalingNote}` : ""}</small></span><strong>{formatScaledIngredientQuantity(item)}</strong></div>)}</div></Section>
       {availability.some((item) => item.status === "shortage") && <article className="warning-card"><AlertTriangle size={22} /> Some ingredients are short. Update stock before production is completed.</article>}
-      <div className="sticky-actions"><Button onClick={() => { notify("Scaled recipe added to production planning view."); setPage("production"); }}>Save as production plan</Button><Button variant="secondary" onClick={() => { setSelectedOrderId(""); setOrderDraft({ recipeId, requestedYieldQuantity: desired }); setPage("order-create"); }}>Create order</Button><Button variant="secondary" onClick={() => window.print()}>Print recipe</Button><Button variant="ghost" onClick={() => shareText(`${recipe.name} scaled to ${desired} ${recipe.yieldUnit}`, notify)}>Share recipe</Button></div>
+      <div className="sticky-actions"><Button onClick={() => { notify("Scaled recipe added to production planning view."); setPage({ name: "production" }); }}>Save as production plan</Button><Button variant="secondary" onClick={() => { setSelectedOrderId(""); setOrderDraft({ recipeId, requestedYieldQuantity: desired }); setPage({ name: "orders", mode: "new", returnTo: currentRoute.name === "recipes" ? currentRoute : { name: "recipes", recipeId, mode: "scale" } }); }}>Create order</Button><Button variant="secondary" onClick={() => window.print()}>Print recipe</Button><Button variant="ghost" onClick={() => shareText(`${recipe.name} scaled to ${desired} ${recipe.yieldUnit}`, notify)}>Share recipe</Button></div>
     </div>
   );
 }
@@ -1758,10 +1849,10 @@ function Orders({ user, setPage, setSelectedOrderId, setOrderDraft, query, setQu
   const list = orders.filter((order) => (filter === "All" || order.status === filter || (filter === "New" && order.status === "Draft")) && order.customerName.toLowerCase().includes(query.toLowerCase()));
   return (
     <>
-      <Toolbar query={query} setQuery={setQuery} placeholder="Search orders" action={<div className="button-row"><Button variant="secondary" onClick={() => exportCsv("pastry-county-orders.csv", ["Customer", "Phone", "Due Date", "Delivery", "Status", "Payment", "Production", "Stock", "Estimated Cost"], list.map((order) => [order.customerName, order.customerPhone, order.dueDate, order.deliveryMethod, order.status, order.paymentStatus, order.productionStatus, order.stockStatus, calculateOrderCost(order.id)]))}>Export CSV</Button><Button onClick={() => { setSelectedOrderId(""); setOrderDraft(null); setPage("order-create"); }} disabled={!canUser(user, "manageOrders")}><Plus size={18} /> Add Order</Button></div>} />
+      <Toolbar query={query} setQuery={setQuery} placeholder="Search orders" action={<div className="button-row"><Button variant="secondary" onClick={() => exportCsv("pastry-county-orders.csv", ["Customer", "Phone", "Due Date", "Delivery", "Status", "Payment", "Production", "Stock", "Estimated Cost"], list.map((order) => [order.customerName, order.customerPhone, order.dueDate, order.deliveryMethod, order.status, order.paymentStatus, order.productionStatus, order.stockStatus, calculateOrderCost(order.id)]))}>Export CSV</Button><Button onClick={() => { setSelectedOrderId(""); setOrderDraft(null); setPage({ name: "orders", mode: "new" }); }} disabled={!canUser(user, "manageOrders")}><Plus size={18} /> Add Order</Button></div>} />
       <Chips items={statuses} active={filter} setActive={setFilter} />
       <div className="card-grid">
-        {list.map((order) => <OrderCard key={order.id} order={order} onClick={() => { setSelectedOrderId(order.id); setPage("order-detail"); }} />)}
+        {list.map((order) => <OrderCard key={order.id} order={order} onClick={() => { setSelectedOrderId(order.id); setPage({ name: "orders", orderId: order.id, mode: "detail" }); }} />)}
       </div>
     </>
   );
@@ -1780,7 +1871,7 @@ function OrderCard({ order, onClick }: { order: Order; onClick: () => void }) {
   );
 }
 
-function CreateOrder({ orderId, orderDraft, setOrderDraft, setPage, notify, reloadData }: { orderId: string; orderDraft: OrderDraft | null; setOrderDraft: (draft: OrderDraft | null) => void; setPage: (page: Page) => void; notify: (message: string) => void; reloadData: () => Promise<void> }) {
+function CreateOrder({ orderId, currentRoute, orderDraft, setOrderDraft, setPage, setFormDirty, notify, reloadData }: { orderId: string; currentRoute: AppRoute; orderDraft: OrderDraft | null; setOrderDraft: (draft: OrderDraft | null) => void; setPage: Navigate; setFormDirty: (dirty: boolean) => void; notify: (message: string) => void; reloadData: () => Promise<void> }) {
   const order = orders.find((item) => item.id === orderId);
   const existingItems = orderItems.filter((item) => item.orderId === orderId);
   const draftRecipe = !order && orderDraft ? recipes.find((item) => item.id === orderDraft.recipeId) : undefined;
@@ -1804,10 +1895,13 @@ function CreateOrder({ orderId, orderDraft, setOrderDraft, setPage, notify, relo
   const sampleSellingPrice = 18000;
   const netPrice = netSellingPrice(sampleSellingPrice);
   const margin = calculateMargin(netPrice, cost);
+  if (orderId && !order) return <EmptyState title="Order not found" message="Return to orders and choose an active order." action={<Button variant="secondary" onClick={() => setPage({ name: "orders" })}>Back to Orders</Button>} />;
+  const routeReturnTo = currentRoute.name === "orders" ? currentRoute.returnTo : undefined;
+  const cancelRoute = order ? { name: "orders", orderId: order.id, mode: "detail" } as AppRoute : routeReturnTo ?? { name: "orders" } as AppRoute;
   return (
-    <FormShell title={order ? "Edit Order" : "Create Order"} action="Confirm and Reserve Stock" cancelTo="orders" setPage={setPage} onDone={async (form) => {
+    <FormShell title={order ? "Edit Order" : "Create Order"} action="Confirm and Reserve Stock" cancelLabel={order ? "Back to Order" : routeReturnTo ? "Back to Source" : "Back to Orders"} onCancel={() => { setOrderDraft(null); setPage(cancelRoute); }} setFormDirty={setFormDirty} onDone={async (form) => {
       const items = orderRows.map((row) => lineDrafts[row]).filter((item): item is OrderLineDraft => Boolean(item?.productId && item.recipeId));
-      await apiAction("order.save", {
+      const result = await apiAction("order.save", {
         reserve: true,
         order: {
           id: order?.id,
@@ -1824,7 +1918,8 @@ function CreateOrder({ orderId, orderDraft, setOrderDraft, setPage, notify, relo
       notify("Order saved to Neon and stock reservation checked.");
       setOrderDraft(null);
       await reloadData();
-      setPage("orders");
+      const savedId = typeof result.id === "string" ? result.id : order?.id;
+      setPage(savedId ? { name: "orders", orderId: savedId, mode: "detail" } : { name: "orders" });
     }}>
       <Section title="Customer info"><div className="form-grid"><Field label="Customer name"><input name="customerName" defaultValue={order?.customerName ?? ""} placeholder="Customer name" required /></Field><Field label="Customer phone"><input name="customerPhone" type="tel" defaultValue={order?.customerPhone ?? ""} placeholder="+234..." /></Field><Field label="Due date"><input name="dueDate" type="date" defaultValue={order?.dueDate ?? new Date().toISOString().slice(0, 10)} required /></Field><Field label="Delivery or pickup"><select name="deliveryMethod" defaultValue={order?.deliveryMethod ?? "Pickup"}><option>Pickup</option><option>Delivery</option></select></Field><Field label="Payment status"><select name="paymentStatus" defaultValue={order?.paymentStatus ?? "Unpaid"}><option>Unpaid</option><option>Deposit Paid</option><option>Paid</option></select></Field><Field label="Notes"><textarea name="notes" defaultValue={order?.notes ?? ""} placeholder="Order notes" /></Field></div></Section>
       <Section title="Order items" action={<Button variant="secondary" onClick={() => { const row = Date.now(); setOrderRows((rows) => [...rows, row]); setLineDrafts((drafts) => ({ ...drafts, [row]: { productId: "", recipeId: "", requestedYieldQuantity: 1, yieldUnit: "pieces", quantityMultiplier: 1 } })); }}><Plus size={18} /> Add another product</Button>}>
@@ -1858,10 +1953,10 @@ function CreateOrder({ orderId, orderDraft, setOrderDraft, setPage, notify, relo
   );
 }
 
-function OrderDetail({ orderId, user, setPage, notify, askConfirm, reloadData }: { orderId: string; user?: AppUser; setPage: (page: Page) => void; notify: (message: string) => void; askConfirm: AskConfirm; reloadData: () => Promise<void> }) {
+function OrderDetail({ orderId, user, setPage, notify, askConfirm, reloadData }: { orderId: string; user?: AppUser; setPage: Navigate; notify: (message: string) => void; askConfirm: AskConfirm; reloadData: () => Promise<void> }) {
   const order = orders.find((item) => item.id === orderId);
   const [qcOrderId, setQcOrderId] = useState("");
-  if (!order) return <EmptyState title="Order not found" message="Select an order from the live order list." />;
+  if (!order) return <EmptyState title="Order not found" message="Select an order from the live order list." action={<Button variant="secondary" onClick={() => setPage({ name: "orders" })}>Back to Orders</Button>} />;
   const requirements = requirementsForOrder(orderId);
   const availability = checkOrderStockAvailability(orderId);
   const hasShortage = availability.some((item) => item.shortageQuantity > 0);
@@ -1881,13 +1976,13 @@ function OrderDetail({ orderId, user, setPage, notify, askConfirm, reloadData }:
           <p>{order.customerPhone} · {order.deliveryMethod} · due {order.dueDate}</p>
         </div>
         <div className="button-row">
-          <Button variant="secondary" onClick={() => setPage("order-create")} disabled={isFinal || !canUser(user, "manageOrders")}>Edit Order</Button>
+          <Button variant="secondary" onClick={() => setPage({ name: "orders", orderId, mode: "edit" })} disabled={isFinal || !canUser(user, "manageOrders")}>Edit Order</Button>
           <Button onClick={async () => { try { const result = await apiAction("order.reserve", { orderId }); notify(result.partial ? `Partially reserved ${result.reservedLines.length} ingredient${result.reservedLines.length === 1 ? "" : "s"}; shortages remain.` : result.shortage ? "No additional stock could be reserved; shortages remain." : result.alreadyReserved ? "Stock is already fully reserved for this order." : "Stock reserved in Neon."); await reloadData(); } catch (error) { notify(error instanceof Error ? error.message : "Unable to reserve stock."); } }} disabled={!canReserve || !canUser(user, "manageOrders")}>Reserve Stock</Button>
           <Button variant="secondary" onClick={async () => { try { await apiAction("order.status", { orderId, status: "In Production", productionStatus: "In Progress" }); notify("Order marked as in production."); await reloadData(); } catch (error) { notify(error instanceof Error ? error.message : "Unable to start production."); } }} disabled={!canStartProduction || !canUser(user, "runProduction")}>Mark In Production</Button>
           <Button variant="secondary" onClick={() => setQcOrderId(orderId)} disabled={!canProduce || !canUser(user, "runProduction")}>Mark Produced</Button>
           <Button variant="ghost" onClick={async () => { try { await apiAction("order.status", { orderId, status: "Delivered", productionStatus: "Completed" }); notify("Order marked as delivered."); await reloadData(); } catch (error) { notify(error instanceof Error ? error.message : "Unable to deliver order."); } }} disabled={!canDeliver}>Delivered</Button>
           <Button variant="secondary" onClick={async () => { await apiAction("order.status", { orderId, status: "Cancelled" }); notify("Order cancelled and reservations released."); await reloadData(); }} disabled={order.status === "Cancelled" || order.status === "Delivered"}>Cancel Order</Button>
-          <Button variant="danger" onClick={() => askConfirm({ title: `Delete ${order.customerName}'s order?`, message: "This removes the order from active operations and releases any reservation. Ledger history is preserved.", confirmLabel: "Delete Order", tone: "danger", onConfirm: async () => { await apiAction("order.delete", { orderId }); notify("Order deleted from active list and reservation released."); await reloadData(); setPage("orders"); } })} disabled={!canUser(user, "deleteRecords")}>Delete Order</Button>
+          <Button variant="danger" onClick={() => askConfirm({ title: `Delete ${order.customerName}'s order?`, message: "This removes the order from active operations and releases any reservation. Ledger history is preserved.", confirmLabel: "Delete Order", tone: "danger", onConfirm: async () => { await apiAction("order.delete", { orderId }); notify("Order deleted from active list and reservation released."); await reloadData(); setPage({ name: "orders" }); } })} disabled={!canUser(user, "deleteRecords")}>Delete Order</Button>
         </div>
       </article>
       {hasShortage && <article className="warning-card"><AlertTriangle size={22} /> Resolve ingredient shortages before reserving stock, starting production, or marking this order produced.</article>}
@@ -1904,7 +1999,7 @@ function OrderDetail({ orderId, user, setPage, notify, askConfirm, reloadData }:
   );
 }
 
-function Production({ user, setPage, setSelectedOrderId, notify, reloadData }: any) {
+function Production({ user, setPage, setSelectedOrderId, notify, reloadData }: { user?: AppUser; setPage: Navigate; setSelectedOrderId: (id: string) => void; notify: Notify; reloadData: () => Promise<void> }) {
   const [reviewBatchKey, setReviewBatchKey] = useState("");
   const [scaledOrderId, setScaledOrderId] = useState("");
   const [qcOrderId, setQcOrderId] = useState("");
@@ -1955,8 +2050,9 @@ function Production({ user, setPage, setSelectedOrderId, notify, reloadData }: a
                 {hasShortage && <small className="field-error">Resolve before production: {shortageText(shortages)}.</small>}
                 <div className="button-row">
                   <Button variant="secondary" onClick={() => setReviewBatchKey(batch.key)}>Review Batch</Button>
-                  <Button variant="secondary" onClick={async () => { try { if (hasShortage) { notify(`Cannot start batch: ${shortageText(shortages)}.`); setPage("shopping"); return; } await apiAction("production.batchStatus", { orderIds: batch.orderIds, status: "In Production", productionStatus: "In Progress" }); notify(`${recipe?.name ?? "Batch"} batch started.`); await reloadData(); } catch (error) { notify(error instanceof Error ? error.message : "Unable to start batch."); } }} disabled={!canStartBatch}>Start Batch</Button>
-                  <Button onClick={async () => { try { if (hasShortage) { notify(`Cannot complete batch: ${shortageText(shortages)}.`); setPage("shopping"); return; } await apiAction("production.batchStatus", { orderIds: batch.orderIds, status: "Produced", productionStatus: "Completed" }); notify(`${recipe?.name ?? "Batch"} batch completed and stock deducted.`); await reloadData(); } catch (error) { notify(error instanceof Error ? error.message : "Unable to complete batch."); } }} disabled={!canCompleteBatch}>Complete Batch</Button>
+                  {hasShortage && <Button variant="secondary" onClick={() => setPage({ name: "shopping", returnTo: { name: "production" } })}>Open Shopping List</Button>}
+                  <Button variant="secondary" onClick={async () => { try { if (hasShortage) { notify(`Cannot start batch: ${shortageText(shortages)}.`); setPage({ name: "shopping", returnTo: { name: "production" } }); return; } await apiAction("production.batchStatus", { orderIds: batch.orderIds, status: "In Production", productionStatus: "In Progress" }); notify(`${recipe?.name ?? "Batch"} batch started.`); await reloadData(); } catch (error) { notify(error instanceof Error ? error.message : "Unable to start batch."); } }} disabled={!canStartBatch}>Start Batch</Button>
+                  <Button onClick={async () => { try { if (hasShortage) { notify(`Cannot complete batch: ${shortageText(shortages)}.`); setPage({ name: "shopping", returnTo: { name: "production" } }); return; } await apiAction("production.batchStatus", { orderIds: batch.orderIds, status: "Produced", productionStatus: "Completed" }); notify(`${recipe?.name ?? "Batch"} batch completed and stock deducted.`); await reloadData(); } catch (error) { notify(error instanceof Error ? error.message : "Unable to complete batch."); } }} disabled={!canCompleteBatch}>Complete Batch</Button>
                 </div>
               </article>
             );
@@ -1973,13 +2069,13 @@ function Production({ user, setPage, setSelectedOrderId, notify, reloadData }: a
               const canStartProduction = !hasShortage && ["Confirmed", "Stock Reserved", "In Production"].includes(order.status);
               const canDeductInventory = !hasShortage && ["Stock Reserved", "In Production"].includes(order.status);
               return (
-                <article className="item-card" key={order.id} onClick={() => { setSelectedOrderId(order.id); setPage("order-detail"); }}>
+                <article className="item-card" key={order.id} onClick={() => { setSelectedOrderId(order.id); setPage({ name: "orders", orderId: order.id, mode: "detail", returnTo: { name: "production", orderId: order.id } }); }}>
                   <div className="item-card-head"><ChefHat size={20} /><Badge tone={stockTone(hasShortage ? "Shortage" : order.stockStatus)}>{hasShortage ? "Shortage" : order.stockStatus}</Badge></div>
                   <h3>{orderItems.filter((item) => item.orderId === order.id).map((item) => products.find((product) => product.id === item.productId)?.name).join(", ")}</h3>
                   <p>{order.customerName} · due {order.dueDate}</p>
                   <small>Required: {requirements.slice(0, 3).map((item) => `${item.ingredientName} ${formatScaledIngredientQuantity(item)}`).join(", ")}</small>
                   {hasShortage && <small className="field-error">Resolve before production: {shortageText(orderShortages)}.</small>}
-                  <div className="button-row"><Button variant="secondary" onClick={async (event) => { event.stopPropagation(); try { if (hasShortage) { notify(`Cannot start production: ${shortageText(orderShortages)}.`); setPage("shopping"); return; } await apiAction("order.status", { orderId: order.id, status: "In Production", productionStatus: "In Progress" }); notify("Production started for this order."); await reloadData(); } catch (error) { notify(error instanceof Error ? error.message : "Unable to start production."); } }} disabled={!canStartProduction || !canUser(user, "runProduction")}>Start Production</Button><Button variant="secondary" onClick={(event) => { event.stopPropagation(); setScaledOrderId(order.id); }}>View Scaled Recipe</Button><Button onClick={(event) => { event.stopPropagation(); if (hasShortage) { notify(`Cannot deduct inventory: ${shortageText(orderShortages)}.`); setPage("shopping"); return; } setQcOrderId(order.id); }} disabled={!canDeductInventory || !canUser(user, "runProduction")}>Deduct Inventory</Button></div>
+                  <div className="button-row">{hasShortage && <Button variant="secondary" onClick={(event) => { event.stopPropagation(); setPage({ name: "shopping", returnTo: { name: "production", orderId: order.id } }); }}>Open Shopping List</Button>}<Button variant="secondary" onClick={async (event) => { event.stopPropagation(); try { if (hasShortage) { notify(`Cannot start production: ${shortageText(orderShortages)}.`); setPage({ name: "shopping", returnTo: { name: "production", orderId: order.id } }); return; } await apiAction("order.status", { orderId: order.id, status: "In Production", productionStatus: "In Progress" }); notify("Production started for this order."); await reloadData(); } catch (error) { notify(error instanceof Error ? error.message : "Unable to start production."); } }} disabled={!canStartProduction || !canUser(user, "runProduction")}>Start Production</Button><Button variant="secondary" onClick={(event) => { event.stopPropagation(); setScaledOrderId(order.id); }}>View Scaled Recipe</Button><Button onClick={(event) => { event.stopPropagation(); if (hasShortage) { notify(`Cannot deduct inventory: ${shortageText(orderShortages)}.`); setPage({ name: "shopping", returnTo: { name: "production", orderId: order.id } }); return; } setQcOrderId(order.id); }} disabled={!canDeductInventory || !canUser(user, "runProduction")}>Deduct Inventory</Button></div>
                 </article>
               );
             })}
@@ -2104,7 +2200,7 @@ function ProductionScaledRecipeModal({ orderId, onClose }: { orderId: string; on
   );
 }
 
-function ShoppingList({ user, notify, reloadData }: { user?: AppUser; notify: (message: string) => void; reloadData: () => Promise<void> }) {
+function ShoppingList({ user, currentRoute, setPage, notify, reloadData }: { user?: AppUser; currentRoute: AppRoute; setPage: Navigate; notify: (message: string) => void; reloadData: () => Promise<void> }) {
   const list = generateShoppingList();
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [purchaseDrafts, setPurchaseDrafts] = useState<Record<string, { quantity: string; unitCost: string; note: string; expiryDate: string }>>({});
@@ -2159,8 +2255,18 @@ function ShoppingList({ user, notify, reloadData }: { user?: AppUser; notify: (m
   const invalidSelected = selectedItems.some((item) => item.purchaseQuantity <= 0 || item.unitCost <= 0);
   const visibleIds = Array.from(new Set(list.map((item) => item.ingredientId)));
   const allSelected = visibleIds.length > 0 && visibleIds.every((id) => selectedIds.includes(id));
+  const returnTo = currentRoute.name === "shopping" ? currentRoute.returnTo : undefined;
   return (
     <div className="page-grid">
+      {returnTo && (
+        <article className="return-card">
+          <div>
+            <p className="eyebrow">Workflow return</p>
+            <h2>{routeBackLabel(currentRoute)}</h2>
+          </div>
+          <Button variant="secondary" onClick={() => setPage(returnTo)}>Back</Button>
+        </article>
+      )}
       <div className="metric-grid small"><Metric label="Needed for Orders" value={list.filter((item) => item.requiredQuantity > 0).length} /><Metric label="Below Reorder Level" value={ingredients.filter(isBelowReorder).length} /><Metric label="Selected Cost" value={formatNaira(selectedCost)} /></div>
       <Section title="Suggested Purchases" action={<Button variant="secondary" onClick={() => shareText(list.map((item) => `${item.ingredientName}: ${item.suggestedBuyQuantity}${item.unit}`).join("\n"), notify)}>Send to WhatsApp</Button>}>
         <ResponsiveTable headers={["Buy", "Ingredient", "Available", "Needed", "Purchase Qty", "Unit Cost", "Expiry", "Cost", "Reason", "Supplier"]} rows={list.map((item) => {
@@ -2211,7 +2317,7 @@ function Costing() {
   );
 }
 
-function AiAssistant({ setPage, notify, reloadData }: { setPage: (page: Page) => void; notify: (message: string) => void; reloadData: () => Promise<void> }) {
+function AiAssistant({ setPage, notify, reloadData }: { setPage: Navigate; notify: (message: string) => void; reloadData: () => Promise<void> }) {
   const suggestions = [
     { id: "flour-cups", label: "Convert 4 cups flour to grams", ingredientId: "flour", quantity: 4, fromUnit: "cup" as Unit, toUnit: "g" as Unit },
     { id: "yolks", label: "Convert 3 egg yolks to grams", ingredientId: "egg-yolks", quantity: 3, fromUnit: "yolk" as Unit, toUnit: "g" as Unit },
@@ -2260,8 +2366,8 @@ function AiAssistant({ setPage, notify, reloadData }: { setPage: (page: Page) =>
       <Section title="Conversion workspace">
         <div className="chips wrap">
           {suggestions.map((chip) => <button key={chip.id} className={selectedId === chip.id ? "active" : ""} onClick={() => setSelectedId(chip.id)}>{chip.label}</button>)}
-          <button onClick={() => setPage("shopping")}>What do I need to buy?</button>
-          <button onClick={() => setPage("costing")}>Estimate recipe cost</button>
+          <button onClick={() => setPage({ name: "shopping", returnTo: { name: "ai" } })}>What do I need to buy?</button>
+          <button onClick={() => setPage({ name: "costing", returnTo: { name: "ai" } })}>Estimate recipe cost</button>
         </div>
         <article className="message ai">
           <h3>Ingredient Conversion</h3>
@@ -2283,7 +2389,7 @@ function AiAssistant({ setPage, notify, reloadData }: { setPage: (page: Page) =>
         </article>
       </Section>
       <Section title="Recipe Parser Preview"><ResponsiveTable headers={["Ingredient", "Quantity", "Converted", "Confidence", "Review"]} rows={parsed.map((item) => ({ key: item.id, cells: [item.ingredientName, `${item.quantity} ${item.unit}`, `${item.convertedQuantity} ${item.convertedUnit}`, item.confidence, item.needsReview ? <Badge tone="warning">Needs review</Badge> : <Badge tone="success">Ready</Badge>] }))} /></Section>
-      <Button variant="secondary" onClick={() => setPage("conversions")}><Wand2 size={18} /> Conversion Library</Button>
+      <Button variant="secondary" onClick={() => setPage({ name: "conversions" })}><Wand2 size={18} /> Conversion Library</Button>
     </div>
   );
 }
@@ -2496,7 +2602,7 @@ function SupplierForm({ supplier, notify, reloadData, onCancel }: { supplier: Pa
   );
 }
 
-function SettingsPage({ user, setPage, notify, reloadData }: { user?: AppUser; setPage: (page: Page) => void; notify: (message: string) => void; reloadData: () => Promise<void> }) {
+function SettingsPage({ user, setPage, notify, reloadData }: { user?: AppUser; setPage: Navigate; notify: (message: string) => void; reloadData: () => Promise<void> }) {
   const [archiveData, setArchiveData] = useState<Record<string, { id: string; name: string }[]> | null>(null);
   const [auditFilter, setAuditFilter] = useState("All");
   const [auditSearch, setAuditSearch] = useState("");
@@ -2798,26 +2904,28 @@ function Metric({ label, value, hint }: { label: string; value: React.ReactNode;
   return <article className="metric-card"><span>{label}</span><strong className={valueClass}>{value}</strong>{hint && <small>{hint}</small>}</article>;
 }
 
-function EmptyState({ title, message }: { title: string; message: string }) {
+function EmptyState({ title, message, action }: { title: string; message: string; action?: React.ReactNode }) {
   return (
     <article className="section">
       <div className="section-head">
         <h2>{title}</h2>
+        {action}
       </div>
       <p>{message}</p>
     </article>
   );
 }
 
-function FormShell({ title, action, onDone, children, cancelTo, setPage }: { title: string; action: string; onDone: (form: HTMLFormElement) => void | Promise<void>; children: React.ReactNode; cancelTo: Page; setPage: (page: Page) => void }) {
+function FormShell({ title, action, onDone, children, cancelLabel = "Cancel", onCancel, setFormDirty }: { title: string; action: string; onDone: (form: HTMLFormElement) => void | Promise<void>; children: React.ReactNode; cancelLabel?: string; onCancel: () => void; setFormDirty: (dirty: boolean) => void }) {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
+  useEffect(() => () => setFormDirty(false), [setFormDirty]);
   return (
-    <form className="form-shell" onSubmit={async (event) => { event.preventDefault(); setSaving(true); setSaveError(""); try { await onDone(event.currentTarget); } catch (error) { setSaveError(error instanceof Error ? error.message : "Unable to save."); } finally { setSaving(false); } }}>
-      <div className="section-head"><h2>{title}</h2><div className="button-row"><Button variant="secondary" onClick={() => setPage(cancelTo)}>Cancel</Button><Button type="submit">{saving ? "Saving..." : action}</Button></div></div>
+    <form className="form-shell" onChangeCapture={() => setFormDirty(true)} onInputCapture={() => setFormDirty(true)} onSubmit={async (event) => { event.preventDefault(); setSaving(true); setSaveError(""); setFormDirty(false); try { await onDone(event.currentTarget); } catch (error) { setFormDirty(true); setSaveError(error instanceof Error ? error.message : "Unable to save."); } finally { setSaving(false); } }}>
+      <div className="section-head"><h2>{title}</h2><div className="button-row"><Button variant="secondary" onClick={onCancel}>{cancelLabel}</Button><Button type="submit">{saving ? "Saving..." : action}</Button></div></div>
       {saveError && <p className="global-error" role="alert">{saveError}</p>}
       {children}
-      <div className="sticky-actions"><Button type="submit">{saving ? "Saving..." : action}</Button></div>
+      <div className="sticky-actions"><Button variant="secondary" onClick={onCancel}>{cancelLabel}</Button><Button type="submit">{saving ? "Saving..." : action}</Button></div>
     </form>
   );
 }

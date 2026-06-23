@@ -108,6 +108,7 @@ try {
   await runNpmScript("smoke:regression-audit", { REGRESSION_AUDIT_SMOKE_MUTATE: "1" });
   await runNpmScript("smoke:phase3-pastry");
   await runNpmScript("smoke:phase4-pastry-depth");
+  await runNpmScript("smoke:navigation-routing");
 } finally {
   if (useTemporaryUser) await removeSmokeUser().catch((error) => console.warn(`Temporary smoke user cleanup failed: ${error.message}`));
 }

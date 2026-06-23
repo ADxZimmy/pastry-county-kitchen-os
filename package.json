@@ -15,6 +15,7 @@
     "smoke:live-audit": "node scripts/live-audit-smoke.mjs",
     "smoke:phase3-pastry": "node scripts/phase3-pastry-smoke.mjs",
     "smoke:phase4-pastry-depth": "node scripts/phase4-pastry-depth-smoke.mjs",
+    "smoke:navigation-routing": "node scripts/navigation-routing-smoke.mjs",
     "smoke:phase2-rerun": "node scripts/phase2-rerun-smoke.mjs",
     "smoke:milestone7": "node scripts/milestone7-smoke.mjs",
     "smoke:regression-audit": "node scripts/regression-audit-smoke.mjs"
