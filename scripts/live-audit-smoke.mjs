@@ -109,6 +109,7 @@ try {
   await runNpmScript("smoke:phase3-pastry");
   await runNpmScript("smoke:phase4-pastry-depth");
   await runNpmScript("smoke:navigation-routing");
+  await runNpmScript("smoke:import-onboarding");
 } finally {
   if (useTemporaryUser) await removeSmokeUser().catch((error) => console.warn(`Temporary smoke user cleanup failed: ${error.message}`));
 }

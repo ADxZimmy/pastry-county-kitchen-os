@@ -39,7 +39,7 @@ After that, product-depth work continued:
 - Phase 004 Pastry Costing, QC, and Compliance Depth was implemented, pushed, deployed, and production-smoke verified.
 - The umbrella `npm run smoke:live-audit` was updated to run Phase 002, Milestone 7, regression audit, Phase 003, Phase 004, and navigation-routing smoke coverage, and it passed against production after Phase 005.
 - Phase 005 Navigation And Routing Overhaul was implemented, pushed, deployed, and production-smoke verified. The former page-per-action risk is now corrected with route-aware hierarchy, direct record links, Back/Breadcrumb controls, contextual form exits, mobile nav cleanup, unsaved-change guards, and navigation smoke coverage.
-- Phase 006 Recipe Import Onboarding is planned under `.planning/phases/006-recipe-import-onboarding/`. It is not implemented yet. The intended direction is a review-first import pipeline for pasted text, spreadsheets, PDFs, Word documents, and images/camera captures, with support for recipes, costing sheets, ingredient masters, suppliers, conversion rules, allergen/storage notes, and source traceability.
+- Phase 006 Recipe Import Onboarding is implemented locally and pending production smoke verification. It adds a review-first import pipeline for pasted text, CSV/TSV, XLSX, DOCX, text PDFs, and provider-backed image/scanned/legacy files, with support for recipes, costing rows, ingredient masters, suppliers, conversion rules, and source traceability.
 
 The app is not yet claimable as `100/100` because certification evidence still needs external email DNS/operator sign-offs, backup/restore or rollback drills, and other manual evidence. That is a certification evidence gap, not a current product-depth blocker.
 
@@ -63,7 +63,7 @@ The app supports these core workflows:
 - Conversion library for ingredient-specific and state-scoped conversions, including import/export, verification, archive, and measured-source metadata.
 - Supplier management with contact details, currency, lead times, supplied ingredient IDs, linked-record delete guard, and search.
 - Settings, staff, audit reports, compliance exports, operations reports, archive recovery, and guarded Resend low-stock email logging/sending.
-- Planned, not yet built: review-first import onboarding for existing recipe/costing documents across text, spreadsheets, PDFs, Word documents, and camera/image inputs.
+- Import onboarding: `#imports` lets operators paste text or upload files, extract a draft, review confidence/source evidence, resolve ingredients, and commit selected records through audited backend actions. Local deterministic extraction covers text, CSV/TSV, XLSX, DOCX, and text PDFs; image/scanned/legacy extraction needs the configured OCR/vision provider.
 
 ## Frontend Shape
 

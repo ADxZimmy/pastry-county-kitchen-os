@@ -11,6 +11,9 @@ import {
   ClipboardList,
   Clock,
   Cookie,
+  Camera,
+  FileSpreadsheet,
+  FileText,
   Home,
   LayoutDashboard,
   ListChecks,
@@ -23,6 +26,7 @@ import {
   ShoppingBasket,
   Sparkles,
   Truck,
+  Upload,
   Users,
   Wand2
 } from "lucide-react";
@@ -30,7 +34,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import { apiBaseUrl, backendMode } from "./lib/backend";
 import { auditChangedFields, auditChangeSummary, auditDataJson, auditExportRows, auditFieldLabel, auditRecordLabel, auditSearchText, type AuditRecordNameLookup } from "./lib/audit";
 import { appUsers, auditLogs, conversionRules, ingredientBatches, ingredients, inventoryMovements, orderItems, orders, products, productionQcLogs, recipeItems, recipes, settings, suppliers, setKitchenSnapshot } from "./data";
-import type { AppStaffUser, AuditLog, ConversionRule, Ingredient, IngredientAllergenProfile, IngredientStorageProfile, Order, Recipe, RecipeCostProfile, RecipeFormulaMetadata, RecipeItemPrepState, StockStatus, Supplier, Unit } from "./types";
+import type { AppStaffUser, AuditLog, ConversionRule, ImportDraft, ImportDraftRecipeItem, Ingredient, IngredientAllergenProfile, IngredientStorageProfile, Order, Recipe, RecipeCostProfile, RecipeFormulaMetadata, RecipeItemPrepState, StockStatus, Supplier, Unit } from "./types";
 import {
   calculateMargin,
   calculateOrderCost,
@@ -101,6 +105,7 @@ type Navigate = (target: Page | AppRoute, options?: { replace?: boolean }) => vo
 const desktopNav = [
   ["dashboard", LayoutDashboard, "Dashboard"],
   ["recipes", Cookie, "Recipes"],
+  ["imports", Upload, "Import"],
   ["inventory", Boxes, "Inventory"],
   ["orders", ClipboardList, "Orders"],
   ["production", ChefHat, "Production"],
@@ -121,6 +126,7 @@ const bottomNav = [
 
 const moreItems = [
   ["recipes", Cookie, "Recipes"],
+  ["imports", Upload, "Import"],
   ["shopping", ShoppingBasket, "Shopping"],
   ["costing", Calculator, "Costing"],
   ["ai", Bot, "AI Assistant"],
@@ -160,12 +166,15 @@ const permissionRoles = {
   deleteRecords: ["Owner/Admin"],
   manageInventory: ["Owner/Admin", "Inventory Manager"],
   manageRecipes: ["Owner/Admin", "Baker"],
+  manageImports: ["Owner/Admin", "Baker", "Inventory Manager"],
   manageOrders: ["Owner/Admin", "Baker", "Inventory Manager"],
   runProduction: ["Owner/Admin", "Baker"],
   purchaseStock: ["Owner/Admin", "Inventory Manager"],
   manageConversions: ["Owner/Admin", "Baker"],
   manageSuppliers: ["Owner/Admin", "Inventory Manager"]
 } as const;
+
+const unitOptions: Unit[] = ["g", "kg", "ml", "litre", "pcs", "cup", "tablespoon", "teaspoon", "pack", "roll", "egg", "yolk", "white"];
 
 type Permission = keyof typeof permissionRoles;
 
@@ -864,6 +873,8 @@ function App() {
         return <Production user={user} setPage={navigate} setSelectedOrderId={setSelectedOrderId} notify={notify} reloadData={() => loadKitchenData()} />;
       case "shopping":
         return <ShoppingList user={user} currentRoute={route} setPage={navigate} notify={notify} reloadData={() => loadKitchenData()} />;
+      case "imports":
+        return <ImportWorkbench user={user} currentRoute={route} setPage={navigate} notify={notify} reloadData={() => loadKitchenData()} />;
       case "costing":
         return <Costing />;
       case "ai":
@@ -2291,6 +2302,230 @@ function ShoppingList({ user, currentRoute, setPage, notify, reloadData }: { use
       </Section>
       {invalidSelected && <article className="warning-card"><AlertTriangle size={22} /> Selected purchases need quantity and unit cost greater than zero before they can update inventory.</article>}
       <div className="sticky-actions"><Button onClick={async () => { try { if (invalidSelected) { notify("Fix selected purchase quantities and unit costs before marking purchased."); return; } await apiAction("shopping.purchaseSuggested", { items: selectedItems }); notify(`${selectedItems.length} purchase${selectedItems.length === 1 ? "" : "s"} logged and inventory updated.`); await reloadData(); } catch (error) { notify(error instanceof Error ? error.message : "Unable to log shopping purchases."); } }} disabled={!selectedItems.length || invalidSelected || !canUser(user, "purchaseStock")}>Mark Selected Purchased</Button><Button variant="secondary" onClick={() => setSelectedIds(allSelected ? [] : visibleIds)} disabled={!visibleIds.length}>{allSelected ? "Clear All" : "Select All"}</Button><Button variant="secondary" onClick={exportShoppingList}>Export/Share List</Button></div>
+    </div>
+  );
+}
+
+function importTemplateCsv() {
+  return [
+    "record_type,recipe,category,base_yield_quantity,yield_unit,ingredient,quantity,unit,package_quantity,package_price,line_amount,supplier,from_unit,to_unit,conversion_factor,contact,email",
+    "supplier,,,,,,,,,,,Balogun Baking Market,,,,Mrs Ade,orders@example.com",
+    "ingredient,,,,,Cake Flour,,g,,,0.75,Balogun Baking Market,,,,,",
+    "recipe,Chocolate Cake,Cakes,1,cake,Cake Flour,500,g,1000,750,375,,,,,,",
+    "recipe,Chocolate Cake,Cakes,1,cake,Sugar,300,g,1000,620,186,,,,,,",
+    "recipe,Chocolate Cake,Cakes,1,cake,Eggs,4,pcs,,,640,,,,,,",
+    "recipe,Chocolate Cake,Cakes,1,cake,,,,,,,,,,,",
+    "conversion,,,,,Cake Flour,,,,,,Balogun Baking Market,cup,g,120,,"
+  ].join("\n");
+}
+
+function fileToBase64(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = String(reader.result ?? "");
+      resolve(result.includes(",") ? result.split(",")[1] : result);
+    };
+    reader.onerror = () => reject(reader.error ?? new Error("Unable to read file."));
+    reader.readAsDataURL(file);
+  });
+}
+
+function confidenceTone(confidence?: string): "success" | "warning" | "danger" | "neutral" {
+  if (confidence === "High") return "success";
+  if (confidence === "Medium") return "warning";
+  if (confidence === "Low") return "danger";
+  return "neutral";
+}
+
+function sourceEvidenceLabel(source?: { sourceName?: string; sheet?: string; row?: number; line?: number; page?: number; text?: string }) {
+  if (!source) return "No source evidence";
+  const location = [source.sheet ? `sheet ${source.sheet}` : "", source.page ? `page ${source.page}` : "", source.row ? `row ${source.row}` : "", source.line ? `line ${source.line}` : ""].filter(Boolean).join(", ");
+  return [source.sourceName, location, source.text].filter(Boolean).join(" | ") || "Source captured";
+}
+
+function ImportWorkbench({ user, currentRoute, setPage, notify, reloadData }: { user?: AppUser; currentRoute: AppRoute; setPage: Navigate; notify: Notify; reloadData: () => Promise<void> }) {
+  const [mode, setMode] = useState<"text" | "file">("text");
+  const [text, setText] = useState("");
+  const [file, setFile] = useState<File | null>(null);
+  const [draft, setDraft] = useState<ImportDraft | null>(null);
+  const [extracting, setExtracting] = useState(false);
+  const [committing, setCommitting] = useState(false);
+  const canImport = canUser(user, "manageImports");
+  const inventoryImportAllowed = canUser(user, "manageInventory");
+  const recipeImportAllowed = canUser(user, "manageRecipes");
+  const updateDraft = (updater: (draft: ImportDraft) => ImportDraft) => setDraft((current) => current ? updater(structuredClone(current)) : current);
+  const extract = async () => {
+    if (!canImport) {
+      notify("Your role cannot import kitchen data.");
+      return;
+    }
+    setExtracting(true);
+    try {
+      const source = mode === "text"
+        ? { name: "Pasted recipe text", type: "text", text }
+        : file
+          ? { name: file.name, type: "file", mimeType: file.type, extension: file.name.split(".").pop()?.toLowerCase(), base64: await fileToBase64(file) }
+          : null;
+      if (!source || (mode === "text" && !text.trim())) {
+        notify("Add text or choose a file before extracting.");
+        return;
+      }
+      const result = await apiAction("import.extract", { source }) as ImportDraft;
+      setDraft(result);
+      setPage({ name: "imports", mode: "review", returnTo: currentRoute.name === "imports" ? currentRoute.returnTo : currentRoute });
+      notify(`Import draft ready: ${result.counts.recipes} recipe${result.counts.recipes === 1 ? "" : "s"}, ${result.counts.ingredients} ingredient${result.counts.ingredients === 1 ? "" : "s"}.`);
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Import extraction failed.");
+    } finally {
+      setExtracting(false);
+    }
+  };
+  const commit = async () => {
+    if (!draft) return;
+    setCommitting(true);
+    try {
+      const result = await apiAction("import.commit", { draft }) as { createdRecipes?: { id: string; name: string }[]; createdIngredients?: unknown[]; skipped?: { reason: string }[] };
+      notify(`Imported ${(result.createdRecipes ?? []).length} recipe${(result.createdRecipes ?? []).length === 1 ? "" : "s"} and ${(result.createdIngredients ?? []).length} ingredient${(result.createdIngredients ?? []).length === 1 ? "" : "s"}.`);
+      await reloadData();
+      const firstRecipe = result.createdRecipes?.[0];
+      if (firstRecipe?.id) setPage({ name: "recipes", recipeId: firstRecipe.id, mode: "detail" });
+      else setPage({ name: "imports" });
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Import commit failed.");
+    } finally {
+      setCommitting(false);
+    }
+  };
+  const updateRecipe = (recipeIndex: number, patch: Partial<ImportDraft["recipes"][number]>) => updateDraft((copy) => {
+    copy.recipes[recipeIndex] = { ...copy.recipes[recipeIndex], ...patch };
+    return copy;
+  });
+  const updateItem = (recipeIndex: number, itemIndex: number, patch: Partial<ImportDraftRecipeItem>) => updateDraft((copy) => {
+    copy.recipes[recipeIndex].items[itemIndex] = { ...copy.recipes[recipeIndex].items[itemIndex], ...patch };
+    return copy;
+  });
+  const updateIngredient = (ingredientIndex: number, patch: Partial<ImportDraft["ingredients"][number]>) => updateDraft((copy) => {
+    copy.ingredients[ingredientIndex] = { ...copy.ingredients[ingredientIndex], ...patch };
+    return copy;
+  });
+  return (
+    <div className="page-grid import-workbench">
+      <section className="import-hero">
+        <div>
+          <p className="eyebrow">Onboarding import</p>
+          <h2>Bring existing recipes and costing into Kitchen OS</h2>
+          <p>Upload a spreadsheet, PDF, Word document, image, or paste recipe text. The app extracts a draft first, then you review and commit only the records you trust.</p>
+        </div>
+        <div className="button-row">
+          <Button variant="secondary" onClick={() => downloadText("pastry-county-import-template.csv", importTemplateCsv())}><FileSpreadsheet size={18} /> CSV Template</Button>
+          <Button variant="secondary" onClick={() => setPage({ name: "recipes" })}>Open Recipes</Button>
+        </div>
+      </section>
+      <div className="import-mode-grid">
+        <button className={mode === "text" ? "import-mode active" : "import-mode"} onClick={() => setMode("text")} aria-pressed={mode === "text"}>
+          <FileText size={24} />
+          <span><strong>Paste text</strong><small>Fastest path for typed recipes, OCR transcripts, and copied notes.</small></span>
+        </button>
+        <button className={mode === "file" ? "import-mode active" : "import-mode"} onClick={() => setMode("file")} aria-pressed={mode === "file"}>
+          <Camera size={24} />
+          <span><strong>Upload or snap</strong><small>CSV, TSV, TXT, MD, XLSX, DOCX, PDF, and images up to 4MB.</small></span>
+        </button>
+      </div>
+      <Section title="Extract Import Draft" action={<Button onClick={extract} disabled={!canImport || extracting}>{extracting ? "Extracting..." : "Extract Draft"}</Button>}>
+        {mode === "text" ? (
+          <Field label="Recipe, costing, or onboarding text">
+            <textarea value={text} onChange={(event) => setText(event.target.value)} rows={10} placeholder={"Recipe: Chocolate Cake\nCategory: Cakes\nYield: 1 cake\nIngredients:\n500 g flour | package quantity: 1000 | package price: 750 | line amount: 375\n4 pcs eggs\nInstructions:\nMix gently.\nBake until set."} />
+          </Field>
+        ) : (
+          <div className="import-drop">
+            <Upload size={28} />
+            <Field label="Import file">
+              <input type="file" accept=".csv,.tsv,.txt,.md,.xlsx,.docx,.pdf,.jpg,.jpeg,.png,.webp,.heic,.xls,.doc" onChange={(event) => setFile(event.target.files?.[0] ?? null)} />
+            </Field>
+            <small>{file ? `${file.name} | ${(file.size / 1024).toFixed(1)} KB` : "Choose a workbook, document, PDF, or image. Scanned images use the configured OCR/vision provider when available."}</small>
+          </div>
+        )}
+        {!canImport && <article className="warning-card"><AlertTriangle size={22} /> Your current role can view imports but cannot extract or commit them.</article>}
+      </Section>
+      {draft && (
+        <>
+          <div className="metric-grid small">
+            <Metric label="Recipes" value={String(draft.counts.recipes)} />
+            <Metric label="Ingredients" value={String(draft.counts.ingredients)} />
+            <Metric label="Conversions" value={String(draft.counts.conversionRules)} />
+            <Metric label="Review flags" value={String(draft.counts.reviewItems)} />
+          </div>
+          {draft.warnings.length > 0 && <Section title="Import Warnings"><div className="compact-list">{draft.warnings.map((warning) => <div className="row-card" key={warning}><span>{warning}</span><Badge tone="warning">Review</Badge></div>)}</div></Section>}
+          <Section title="Recipe Drafts" action={<Button onClick={commit} disabled={committing || !recipeImportAllowed}>{committing ? "Importing..." : "Commit Selected"}</Button>}>
+            {draft.recipes.length === 0 ? <EmptyState title="No recipes detected" message="Try the CSV template, paste clearer recipe text, or use a source with recipe headings." /> : (
+              <div className="import-review-list">
+                {draft.recipes.map((recipe, recipeIndex) => (
+                  <article className="summary-card import-review-card" key={recipe.id}>
+                    <div className="item-card-head">
+                      <label className="checkline"><input type="checkbox" checked={recipe.selected !== false} onChange={(event) => updateRecipe(recipeIndex, { selected: event.target.checked })} /> Include</label>
+                      <Badge tone={confidenceTone(recipe.confidence)}>{recipe.confidence}</Badge>
+                    </div>
+                    <div className="form-grid">
+                      <Field label="Recipe name"><input value={recipe.name} onChange={(event) => updateRecipe(recipeIndex, { name: event.target.value })} /></Field>
+                      <Field label="Category"><input value={recipe.category} onChange={(event) => updateRecipe(recipeIndex, { category: event.target.value })} /></Field>
+                      <Field label="Base yield"><input type="number" min="0.001" step="0.001" value={recipe.baseYieldQuantity || ""} onChange={(event) => updateRecipe(recipeIndex, { baseYieldQuantity: Number(event.target.value) })} /></Field>
+                      <Field label="Yield unit"><input value={recipe.yieldUnit} onChange={(event) => updateRecipe(recipeIndex, { yieldUnit: event.target.value })} /></Field>
+                    </div>
+                    {Boolean(recipe.duplicateCandidates?.length) && (
+                      <article className="warning-card"><AlertTriangle size={20} /> {recipe.name} matches an existing recipe. Rename it or check "Import duplicate".
+                        <label className="checkline"><input type="checkbox" checked={Boolean(recipe.allowDuplicate)} onChange={(event) => updateRecipe(recipeIndex, { allowDuplicate: event.target.checked })} /> Import duplicate</label>
+                      </article>
+                    )}
+                    <ResponsiveTable
+                      headers={["Use", "Ingredient", "Quantity", "Unit", "Cost evidence", "Status"]}
+                      rows={recipe.items.map((item, itemIndex) => ({
+                        key: `${recipe.id}-${item.id}`,
+                        cells: [
+                          <input aria-label={`Include ${item.ingredientName}`} type="checkbox" checked={item.selected !== false} onChange={(event) => updateItem(recipeIndex, itemIndex, { selected: event.target.checked })} />,
+                          <div className="stacked-cell">
+                            <select value={item.ingredientId ?? ""} onChange={(event) => updateItem(recipeIndex, itemIndex, { ingredientId: event.target.value || undefined, needsReview: !event.target.value })}>
+                              <option value="">Create or resolve: {item.ingredientName}</option>
+                              {ingredients.map((ingredient) => <option key={ingredient.id} value={ingredient.id}>{ingredient.name}</option>)}
+                            </select>
+                            <small>{sourceEvidenceLabel(item.source)}</small>
+                          </div>,
+                          <input aria-label={`${item.ingredientName} quantity`} type="number" min="0" step="0.001" value={item.quantity || ""} onChange={(event) => updateItem(recipeIndex, itemIndex, { quantity: Number(event.target.value), needsReview: Number(event.target.value) <= 0 || !item.ingredientId })} />,
+                          <select value={item.unit} onChange={(event) => updateItem(recipeIndex, itemIndex, { unit: event.target.value as Unit })}>{unitOptions.map((unit) => <option key={unit}>{unit}</option>)}</select>,
+                          item.prepState?.sourceLineAmount ? formatNaira(item.prepState.sourceLineAmount) : "No source amount",
+                          <Badge tone={confidenceTone(item.confidence)}>{item.needsReview ? "Needs review" : item.confidence}</Badge>
+                        ]
+                      }))}
+                    />
+                  </article>
+                ))}
+              </div>
+            )}
+          </Section>
+          <div className="split">
+            <Section title="New Ingredient Drafts">
+              {!inventoryImportAllowed && draft.ingredients.length > 0 && <article className="warning-card"><AlertTriangle size={20} /> New ingredients require Owner/Admin or Inventory Manager. Resolve lines to existing ingredients or ask an inventory role to commit.</article>}
+              <div className="compact-list">
+                {draft.ingredients.length === 0 && <p>No new ingredient drafts.</p>}
+                {draft.ingredients.map((ingredient, index) => (
+                  <div className="row-card import-edit-row" key={ingredient.id}>
+                    <label className="checkline"><input type="checkbox" checked={ingredient.selected !== false} onChange={(event) => updateIngredient(index, { selected: event.target.checked })} /> {ingredient.name}</label>
+                    <select value={ingredient.baseUnit} onChange={(event) => updateIngredient(index, { baseUnit: event.target.value as Unit, purchaseUnit: event.target.value as Unit })}>{unitOptions.map((unit) => <option key={unit}>{unit}</option>)}</select>
+                    <input aria-label={`${ingredient.name} unit cost`} type="number" min="0" step="0.0001" value={ingredient.latestUnitCost ?? 0} onChange={(event) => updateIngredient(index, { latestUnitCost: Number(event.target.value) })} />
+                  </div>
+                ))}
+              </div>
+            </Section>
+            <Section title="Supplier & Conversion Drafts">
+              <div className="compact-list">
+                {draft.suppliers.map((supplier) => <div className="row-card" key={supplier.id}><span>{supplier.name}<small>{supplier.email || supplier.phone || "No contact captured"}</small></span><Badge tone={confidenceTone(supplier.confidence)}>{supplier.confidence}</Badge></div>)}
+                {draft.conversionRules.map((rule) => <div className="row-card" key={rule.id}><span>{rule.ingredientName}<small>1 {rule.fromUnit} = {rule.conversionFactor}{rule.toUnit}</small></span><Badge tone={rule.needsReview ? "warning" : "success"}>{rule.needsReview ? "Resolve ingredient" : "Ready"}</Badge></div>)}
+                {draft.suppliers.length === 0 && draft.conversionRules.length === 0 && <p>No supplier or conversion rows detected.</p>}
+              </div>
+            </Section>
+          </div>
+        </>
+      )}
     </div>
   );
 }

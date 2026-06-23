@@ -4,7 +4,7 @@
 
 - Phase: 006 Recipe Import Onboarding
   Outcome: Let businesses import existing recipes, costing sheets, ingredient masters, suppliers, and conversion references from text, spreadsheets, PDFs, Word documents, and images through a review-first import pipeline.
-  Status: Planned; ready for implementation.
+  Status: Implemented locally; pending push, deployment, and production smoke.
 
 ## Next
 

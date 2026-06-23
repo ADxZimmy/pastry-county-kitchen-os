@@ -6,7 +6,7 @@ User pastes a handwritten-style text recipe into Import, reviews parsed ingredie
 
 ## Result
 
-Not run.
+Covered by automated parser tests locally; browser UAT not yet run.
 
 ## Notes
 
@@ -18,7 +18,7 @@ User uploads an Excel/CSV costing sheet with recipe names, ingredient lines, pac
 
 ## Result
 
-Not run.
+Covered for CSV-style costing rows by automated parser tests locally; live smoke pending deployment.
 
 ## Notes
 
@@ -35,6 +35,7 @@ Not run.
 ## Notes
 
 Requires OCR/vision adapter and mobile camera/browser verification.
+The implementation includes the provider path, but production provider configuration must be verified before claiming camera OCR readiness.
 
 ## Scenario 4: Import Mixed Onboarding Workbook
 
@@ -42,9 +43,8 @@ User uploads a workbook with Ingredients, Suppliers, Recipes, and Conversions sh
 
 ## Result
 
-Not run.
+Covered for mixed CSV classification by automated parser tests locally; full workbook UAT pending live smoke.
 
 ## Notes
 
 This scenario should become the demo-ready onboarding story for businesses moving from spreadsheets.
-

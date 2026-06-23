@@ -93,9 +93,16 @@ export interface RecipeItemPrepState {
   preparationNotes?: string;
   handlingWarning?: string;
   sourceLineName?: string;
+  sourceFile?: string;
+  sourceType?: string;
+  sourceReference?: string;
+  sourceText?: string;
   sourceSheet?: string;
   sourceWorkbook?: string;
   sourceWorkbookRevision?: string;
+  sourcePage?: number;
+  sourceRow?: number;
+  sourceColumn?: number;
   sourcePackageQuantity?: number;
   sourcePackagePrice?: number;
   sourceNeededQuantity?: number;
@@ -144,6 +151,117 @@ export interface Recipe {
   costProfile?: RecipeCostProfile;
   active: boolean;
   updatedAt: string;
+}
+
+export interface ImportSourceSpan {
+  sourceName?: string;
+  sourceType?: string;
+  sourceFile?: string;
+  sheet?: string;
+  page?: number;
+  row?: number;
+  column?: number;
+  line?: number;
+  text?: string;
+}
+
+export interface ImportDraftIngredient {
+  id: string;
+  name: string;
+  category: string;
+  baseUnit: Unit;
+  purchaseUnit?: Unit;
+  latestUnitCost?: number;
+  supplierId?: string;
+  supplierName?: string;
+  reorderLevel?: number;
+  notes?: string;
+  confidence: "High" | "Medium" | "Low";
+  selected?: boolean;
+  source?: ImportSourceSpan;
+}
+
+export interface ImportDraftSupplier {
+  id: string;
+  name: string;
+  contactName?: string;
+  phone?: string;
+  email?: string;
+  address?: string;
+  defaultCurrency?: string;
+  leadTimeDays?: number;
+  notes?: string;
+  confidence: "High" | "Medium" | "Low";
+  selected?: boolean;
+  source?: ImportSourceSpan;
+}
+
+export interface ImportDraftRecipeItem {
+  id: string;
+  ingredientId?: string;
+  ingredientName: string;
+  quantity: number;
+  unit: Unit;
+  wastePercentage?: number;
+  notes?: string;
+  confidence: "High" | "Medium" | "Low";
+  needsReview?: boolean;
+  selected?: boolean;
+  source?: ImportSourceSpan;
+  prepState?: RecipeItemPrepState;
+}
+
+export interface ImportDraftRecipe {
+  id: string;
+  name: string;
+  category: string;
+  baseYieldQuantity: number;
+  yieldUnit: string;
+  notes?: string;
+  instructions: string[];
+  formulaMetadata?: RecipeFormulaMetadata;
+  costProfile?: RecipeCostProfile;
+  items: ImportDraftRecipeItem[];
+  confidence: "High" | "Medium" | "Low";
+  reviewCount?: number;
+  duplicateCandidates?: { id: string; name: string }[];
+  warnings?: string[];
+  selected?: boolean;
+  allowDuplicate?: boolean;
+  source?: ImportSourceSpan;
+}
+
+export interface ImportDraftConversionRule {
+  id: string;
+  ingredientId?: string;
+  ingredientName: string;
+  fromUnit: Unit;
+  toUnit: Unit;
+  conversionFactor: number;
+  confidenceLevel: "High" | "Medium" | "Low";
+  sourceLabel?: string;
+  verified?: boolean;
+  confidence: "High" | "Medium" | "Low";
+  needsReview?: boolean;
+  selected?: boolean;
+  source?: ImportSourceSpan;
+}
+
+export interface ImportDraft {
+  parserVersion: string;
+  source: { name: string; type: string; mimeType?: string; extension?: string };
+  recipes: ImportDraftRecipe[];
+  ingredients: ImportDraftIngredient[];
+  suppliers: ImportDraftSupplier[];
+  conversionRules: ImportDraftConversionRule[];
+  warnings: string[];
+  counts: {
+    recipes: number;
+    ingredients: number;
+    suppliers: number;
+    conversionRules: number;
+    reviewItems: number;
+  };
 }
 
 export interface OrderItem {

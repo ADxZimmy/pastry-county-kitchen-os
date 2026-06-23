@@ -4,7 +4,7 @@ Last updated: 2026-06-23
 
 ## Current Focus
 
-Phase 006 Recipe Import Onboarding is planned. The goal is a review-first import pipeline for recipes, costing sheets, ingredient masters, suppliers, conversions, PDFs, Word documents, text, and camera/image inputs so public onboarding is much smoother.
+Phase 006 Recipe Import Onboarding is implemented locally and awaiting production deployment/smoke verification. The app now has a review-first import pipeline for recipes, costing rows, ingredient masters, suppliers, conversions, and source traceability.
 
 ## Completed
 
@@ -17,10 +17,12 @@ Phase 006 Recipe Import Onboarding is planned. The goal is a review-first import
 - Planned Phase 006 Recipe Import Onboarding under `.planning/phases/006-recipe-import-onboarding/`.
 - Used GSD Hybrid planning flow plus UI UX Pro Max guidance for the import/onboarding UX shape.
 - Source-checked parser options: OpenAI file inputs/vision/structured outputs, Azure Document Intelligence, Google Document AI, and Amazon Textract.
+- Implemented Phase 006 local scope: `#imports` route, Import nav entry, paste/file intake, CSV template, draft review UI, deterministic import parser, backend `import.extract`/`import.commit`, import batch audit records, source evidence preservation, tests, and `smoke:import-onboarding`.
+- Added parser dependencies `read-excel-file`, `mammoth`, and `pdf-parse`; `exceljs` was rejected and removed after audit showed a vulnerable transitive `uuid`.
 
 ## In Progress
 
-- Phase 006 is planned but not implemented.
+- Phase 006 needs commit/push and production smoke verification after deployment.
 
 ## Blocked
 
@@ -29,7 +31,7 @@ Phase 006 Recipe Import Onboarding is planned. The goal is a review-first import
 
 ## Next Action
 
-Implement Phase 006 Step 1: define import contracts, sample fixtures, and deterministic pasted-text/CSV normalization tests before adding OCR or external parser dependencies.
+Commit and push Phase 006, wait for deployment, then run `npm.cmd run smoke:import-onboarding` against production.
 
 ## Verification Snapshot
 
@@ -37,5 +39,9 @@ Implement Phase 006 Step 1: define import contracts, sample fixtures, and determ
   Result: Created locally.
 - Check: UI UX Pro Max design-system search
   Result: Completed for bakery SaaS import onboarding; guidance favored an operations-focused import wizard with clear progress, review states, confidence badges, and compact correction UI.
-- Check: Current implementation tests
-  Result: Not run for this planning-only change.
+- Command/check: `npm.cmd audit --audit-level=moderate`
+  Result: Passed; zero vulnerabilities.
+- Command/check: `npm.cmd test`
+  Result: Passed; 73 tests across 5 files.
+- Command/check: `npm.cmd run build`
+  Result: Passed; TypeScript and Vite production build completed.

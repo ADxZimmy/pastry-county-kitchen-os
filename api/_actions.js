@@ -1,6 +1,7 @@
 import bcrypt from "bcryptjs";
 import { Resend } from "resend";
 import { ensureSessionColumns, sessionAccessError } from "./_auth.js";
+import { extractImportDraft, importParserVersion } from "./_imports.js";
 
 export { sessionAccessError } from "./_auth.js";
 
@@ -68,6 +69,8 @@ const actionRoles = {
   "inventory.adjust": ["Owner/Admin", "Inventory Manager"],
   "supplier.save": ["Owner/Admin", "Inventory Manager"],
   "supplier.delete": ["Owner/Admin"],
+  "import.extract": ["Owner/Admin", "Baker", "Inventory Manager"],
+  "import.commit": ["Owner/Admin", "Baker", "Inventory Manager"],
   "recipe.save": ["Owner/Admin", "Baker"],
   "recipe.delete": ["Owner/Admin"],
   "order.save": ["Owner/Admin", "Baker", "Inventory Manager"],
@@ -207,6 +210,10 @@ const recipePrepTextFields = [
   "preparationNotes",
   "handlingWarning",
   "sourceLineName",
+  "sourceFile",
+  "sourceType",
+  "sourceReference",
+  "sourceText",
   "sourceSheet",
   "sourceWorkbook",
   "sourceWorkbookRevision"
@@ -215,7 +222,10 @@ const recipePrepNumberFields = [
   "sourcePackageQuantity",
   "sourcePackagePrice",
   "sourceNeededQuantity",
-  "sourceLineAmount"
+  "sourceLineAmount",
+  "sourcePage",
+  "sourceRow",
+  "sourceColumn"
 ];
 const recipeTestBakeStatuses = new Set(["untested", "test_bake_needed", "tested", "production_ready"]);
 const allergenFields = ["contains", "mayContain", "dietaryFlags"];
@@ -629,6 +639,19 @@ async function ensureOperationalTables(sql) {
       created_at timestamptz not null default now()
     )
   `;
+  await sql`
+    create table if not exists import_batches (
+      id text primary key,
+      source_name text not null,
+      source_type text not null,
+      parser_version text not null,
+      actor text,
+      status text not null default 'draft',
+      summary jsonb not null default '{}'::jsonb,
+      warnings jsonb not null default '[]'::jsonb,
+      created_at timestamptz not null default now()
+    )
+  `;
   await ensureDecimalOperationalColumns(sql);
   await ensureAuditConversionRules(sql);
 }
@@ -722,6 +745,198 @@ function createBatchFromPurchase(txn, item) {
     insert into ingredient_batches (id, ingredient_id, purchase_id, quantity_received, quantity_remaining, unit, expiry_date, notes)
     values (${id("batch")}, ${item.ingredientId}, ${item.purchaseId}, ${item.quantity}, ${item.quantity}, ${item.unit}, ${item.expiryDate || null}, ${item.note || "Purchased stock lot"})
   `;
+}
+
+function importNameKey(value) {
+  return String(value ?? "")
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+function importSlug(value, fallback = "import") {
+  return (importNameKey(value) || fallback).replace(/\s+/g, "-").slice(0, 42);
+}
+
+function canCommitInventoryImports(actor) {
+  return ["Owner/Admin", "Inventory Manager"].includes(actor?.role);
+}
+
+function canCommitRecipeImports(actor) {
+  return ["Owner/Admin", "Baker"].includes(actor?.role);
+}
+
+function canCommitConversionImports(actor) {
+  return ["Owner/Admin", "Baker"].includes(actor?.role);
+}
+
+async function loadImportContext(sql) {
+  const [ingredientRows, recipeRows, supplierRows] = await Promise.all([
+    sql`select id, name, category, base_unit as "baseUnit", latest_unit_cost::float as "latestUnitCost" from ingredients where active = true order by name`,
+    sql`select id, name, category from recipes where active = true order by name`,
+    sql`select id, name from suppliers where active = true order by name`
+  ]);
+  return { ingredients: ingredientRows, recipes: recipeRows, suppliers: supplierRows };
+}
+
+async function commitImportDraft(sql, draft, actor) {
+  if (!draft || typeof draft !== "object") throw Object.assign(new Error("Import draft is required."), { statusCode: 400 });
+  const source = draft.source ?? {};
+  const sourceName = String(source.name || "Import source");
+  const actorLabel = actor?.email || actor?.sub || "system";
+  const importBatchId = id("import");
+  const context = await loadImportContext(sql);
+  const ingredientByName = new Map(context.ingredients.map((item) => [importNameKey(item.name), item]));
+  const recipeByName = new Map(context.recipes.map((item) => [importNameKey(item.name), item]));
+  const supplierByName = new Map(context.suppliers.map((item) => [importNameKey(item.name), item]));
+  const warnings = Array.isArray(draft.warnings) ? draft.warnings.map(String) : [];
+  const createdIngredients = [];
+  const createdSuppliers = [];
+  const createdConversions = [];
+  const createdRecipes = [];
+  const skipped = [];
+  const ingredientIdsByDraftName = new Map();
+  const statements = [];
+
+  const supplierDrafts = Array.isArray(draft.suppliers) ? draft.suppliers.filter((item) => item && item.selected !== false) : [];
+  for (const supplier of supplierDrafts) {
+    const name = required(supplier.name, "Supplier name");
+    const existing = supplierByName.get(importNameKey(name));
+    if (existing) {
+      skipped.push({ type: "supplier", name, reason: "Already exists" });
+      continue;
+    }
+    if (!canCommitInventoryImports(actor)) {
+      skipped.push({ type: "supplier", name, reason: "Only Owner/Admin or Inventory Manager can import suppliers." });
+      continue;
+    }
+    const supplierId = id("sup-import");
+    supplierByName.set(importNameKey(name), { id: supplierId, name });
+    createdSuppliers.push({ id: supplierId, name });
+    statements.push((txn) => txn`
+      insert into suppliers (id, name, contact_name, phone, email, address, default_currency, lead_time_days, notes, active)
+      values (${supplierId}, ${name}, ${supplier.contactName || null}, ${supplier.phone || null}, ${supplier.email || null}, ${supplier.address || null}, ${supplier.defaultCurrency || "NGN"}, ${nonNegative(num(supplier.leadTimeDays, 2), "Lead time")}, ${supplier.notes || `Imported from ${sourceName}`}, true)
+    `);
+  }
+
+  const ingredientDrafts = Array.isArray(draft.ingredients) ? draft.ingredients.filter((item) => item && item.selected !== false) : [];
+  for (const ingredient of ingredientDrafts) {
+    const name = required(ingredient.name, "Ingredient name");
+    const existing = ingredientByName.get(importNameKey(name));
+    if (existing) {
+      ingredientIdsByDraftName.set(importNameKey(name), existing.id);
+      skipped.push({ type: "ingredient", name, reason: "Matched existing ingredient" });
+      continue;
+    }
+    if (!canCommitInventoryImports(actor)) {
+      skipped.push({ type: "ingredient", name, reason: "Only Owner/Admin or Inventory Manager can create new ingredients from imports." });
+      continue;
+    }
+    const supplierId = ingredient.supplierId || supplierByName.get(importNameKey(ingredient.supplierName))?.id || null;
+    const ingredientId = id(`ing-${importSlug(name)}`);
+    const baseUnit = normalizeUnit(ingredient.baseUnit || ingredient.unit || "g");
+    const purchaseUnit = normalizeUnit(ingredient.purchaseUnit || baseUnit, baseUnit);
+    ingredientIdsByDraftName.set(importNameKey(name), ingredientId);
+    ingredientByName.set(importNameKey(name), { id: ingredientId, name, baseUnit });
+    createdIngredients.push({ id: ingredientId, name });
+    statements.push((txn) => txn`
+      insert into ingredients (id, name, category, base_unit, purchase_unit, current_stock, reserved_stock, reorder_level, latest_unit_cost, supplier_id, notes, active)
+      values (${ingredientId}, ${name}, ${ingredient.category || "Dry Goods"}, ${baseUnit}, ${purchaseUnit}, 0, 0, ${nonNegative(num(ingredient.reorderLevel), "Reorder level")}, ${nonNegative(num(ingredient.latestUnitCost), "Latest unit cost")}, ${supplierId}, ${ingredient.notes || `Imported from ${sourceName}`}, true)
+    `);
+  }
+
+  const recipeDrafts = Array.isArray(draft.recipes) ? draft.recipes.filter((item) => item && item.selected !== false) : [];
+  for (const recipe of recipeDrafts) {
+    const name = required(recipe.name, "Recipe name");
+    if (!canCommitRecipeImports(actor)) {
+      skipped.push({ type: "recipe", name, reason: "Only Owner/Admin or Baker can import recipes." });
+      continue;
+    }
+    if (recipeByName.has(importNameKey(name)) && !recipe.allowDuplicate) {
+      throw Object.assign(new Error(`${name} already exists. Rename it in the import review or skip the duplicate.`), { statusCode: 409 });
+    }
+    const items = Array.isArray(recipe.items) ? recipe.items.filter((item) => item && item.selected !== false) : [];
+    const unresolved = items.filter((item) => {
+      const ingredientId = item.ingredientId || ingredientIdsByDraftName.get(importNameKey(item.ingredientName));
+      return !ingredientId || num(item.quantity) <= 0;
+    });
+    if (unresolved.length) {
+      throw Object.assign(new Error(`Resolve ${unresolved.length} ingredient line${unresolved.length === 1 ? "" : "s"} before importing ${name}.`), { statusCode: 400 });
+    }
+    if (!items.length) {
+      throw Object.assign(new Error(`${name} has no ingredient lines to import.`), { statusCode: 400 });
+    }
+    const productId = id("prod-import");
+    const recipeId = id("rec-import");
+    const instructions = Array.isArray(recipe.instructions) ? recipe.instructions.map(String).filter(Boolean) : String(recipe.instructions || "").split(/\n+/).filter(Boolean);
+    const formulaMetadata = normalizeRecipeFormulaMetadata({
+      ...(recipe.formulaMetadata ?? {}),
+      formulaVersion: recipe.formulaMetadata?.formulaVersion || `Imported from ${sourceName}`,
+      testBakeStatus: recipe.formulaMetadata?.testBakeStatus || "test_bake_needed"
+    });
+    const costProfile = normalizeRecipeCostProfile(recipe.costProfile ?? {});
+    const notes = recipe.notes || `Imported from ${sourceName}. Review source evidence before production use.`;
+    createdRecipes.push({ id: recipeId, productId, name });
+    recipeByName.set(importNameKey(name), { id: recipeId, name });
+    statements.push(
+      (txn) => txn`
+        insert into products (id, name, category, description, active)
+        values (${productId}, ${name}, ${required(recipe.category || "Imported", "Category")}, ${notes}, true)
+      `,
+      (txn) => txn`
+        insert into recipes (id, product_id, name, category, base_yield_quantity, yield_unit, instructions, notes, formula_metadata, cost_profile, active)
+        values (${recipeId}, ${productId}, ${name}, ${recipe.category || "Imported"}, ${num(recipe.baseYieldQuantity, 1)}, ${recipe.yieldUnit || "batch"}, ${instructions}, ${notes}, ${JSON.stringify(formulaMetadata)}::jsonb, ${JSON.stringify(costProfile)}::jsonb, true)
+      `,
+      ...items.map((item, index) => {
+        const ingredientId = item.ingredientId || ingredientIdsByDraftName.get(importNameKey(item.ingredientName));
+        const prepStateJson = JSON.stringify(normalizeRecipeItemPrepState({
+          ...(item.prepState ?? {}),
+          sourceLineName: item.prepState?.sourceLineName || item.ingredientName,
+          sourceFile: item.prepState?.sourceFile || sourceName,
+          sourceType: item.prepState?.sourceType || source.type || "import",
+          sourceReference: item.prepState?.sourceReference || item.source?.text || sourceName,
+          sourceText: item.prepState?.sourceText || item.source?.text,
+          sequence: item.prepState?.sequence || index + 1
+        }));
+        return (txn) => txn`
+          insert into recipe_items (id, recipe_id, ingredient_id, quantity, unit, waste_percentage, notes, prep_state)
+          values (${id(`ri-import-${index}`)}, ${recipeId}, ${ingredientId}, ${num(item.quantity)}, ${normalizeUnit(item.unit)}, ${num(item.wastePercentage)}, ${item.notes || null}, ${prepStateJson}::jsonb)
+        `;
+      })
+    );
+  }
+
+  const conversionDrafts = Array.isArray(draft.conversionRules) ? draft.conversionRules.filter((item) => item && item.selected !== false) : [];
+  for (const rule of conversionDrafts) {
+    if (!canCommitConversionImports(actor)) {
+      skipped.push({ type: "conversion", name: `${rule.fromUnit} to ${rule.toUnit}`, reason: "Only Owner/Admin or Baker can import conversion rules." });
+      continue;
+    }
+    const ingredientId = rule.ingredientId || ingredientIdsByDraftName.get(importNameKey(rule.ingredientName));
+    if (!ingredientId) {
+      skipped.push({ type: "conversion", name: rule.ingredientName || `${rule.fromUnit} to ${rule.toUnit}`, reason: "Ingredient was not resolved." });
+      continue;
+    }
+    const ruleId = id("conv-import");
+    createdConversions.push({ id: ruleId, ingredientId, fromUnit: rule.fromUnit, toUnit: rule.toUnit });
+    const scope = normalizeConversionScope(rule);
+    statements.push((txn) => txn`
+      insert into conversion_rules (id, ingredient_id, from_unit, to_unit, conversion_factor, conversion_type, confidence_level, source, verified, active, ingredient_state, temperature_state, formula_context)
+      values (${ruleId}, ${ingredientId}, ${required(rule.fromUnit, "From unit")}, ${required(rule.toUnit, "To unit")}, ${num(rule.conversionFactor, 1)}, 'ingredient_specific', ${rule.confidenceLevel || "Medium"}, ${rule.sourceLabel || `Imported from ${sourceName}`}, ${bool(rule.verified)}, true, ${scope.ingredientState || null}, ${scope.temperatureState || null}, ${scope.formulaContext || null})
+    `);
+  }
+
+  statements.push((txn) => txn`
+    insert into import_batches (id, source_name, source_type, parser_version, actor, status, summary, warnings)
+    values (${importBatchId}, ${sourceName}, ${source.type || "import"}, ${draft.parserVersion || importParserVersion()}, ${actorLabel}, 'committed', ${JSON.stringify({ createdRecipes, createdIngredients, createdSuppliers, createdConversions, skipped })}::jsonb, ${JSON.stringify(warnings)}::jsonb)
+  `);
+
+  if (!statements.length) throw Object.assign(new Error("No selected import records were ready to commit."), { statusCode: 400 });
+  await sql.transaction((txn) => statements.map((statement) => statement(txn)));
+  await audit(sql, "import_batches", importBatchId, "commit", null, { sourceName, createdRecipes, createdIngredients, createdSuppliers, createdConversions, skipped, warnings });
+  return { ok: true, importBatchId, createdRecipes, createdIngredients, createdSuppliers, createdConversions, skipped, warnings };
 }
 
 export function planBatchDeductions(batches, quantity) {
@@ -940,6 +1155,15 @@ export async function handleAction(sql, body, actor) {
 
   if (action === "schema.ensure") {
     return { ok: true };
+  }
+
+  if (action === "import.extract") {
+    const context = await loadImportContext(sql);
+    return extractImportDraft(body, context);
+  }
+
+  if (action === "import.commit") {
+    return commitImportDraft(sql, body.draft, actor);
   }
 
   if (action === "archive.list") {

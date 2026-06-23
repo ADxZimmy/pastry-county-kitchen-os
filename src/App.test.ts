@@ -307,7 +307,10 @@ describe("route hash resolution", () => {
     expect(parseAppRoute("#recipes/recipe-classic/scale")).toEqual({ name: "recipes", recipeId: "recipe-classic", mode: "scale" });
     expect(parseAppRoute("#inventory/flour/edit")).toEqual({ name: "inventory", ingredientId: "flour", mode: "edit" });
     expect(parseAppRoute("#orders/ord-chika")).toEqual({ name: "orders", orderId: "ord-chika", mode: "detail" });
+    expect(parseAppRoute("#imports")).toEqual({ name: "imports", mode: "start", returnTo: undefined });
+    expect(parseAppRoute("#imports/review?returnTo=recipes")).toEqual({ name: "imports", mode: "review", returnTo: { name: "recipes" } });
     expect(serializeAppRoute({ name: "orders", orderId: "ord-chika", mode: "edit" })).toBe("#orders/ord-chika/edit");
+    expect(serializeAppRoute({ name: "imports", mode: "review", returnTo: { name: "recipes" } })).toBe("#imports/review?returnTo=recipes");
   });
 
   it("keeps legacy hashes compatible with saved selected IDs", () => {
@@ -322,6 +325,7 @@ describe("route hash resolution", () => {
     expect(shoppingRoute).toEqual({ name: "shopping", returnTo: { name: "production" } });
     expect(serializeAppRoute({ name: "shopping", returnTo: { name: "production", orderId: "ord-chika" } })).toBe("#shopping?returnTo=production%2Ford-chika");
     expect(routeParent({ name: "orders", orderId: "ord-chika", mode: "detail", returnTo: { name: "production", orderId: "ord-chika" } })).toEqual({ name: "production", orderId: "ord-chika" });
+    expect(routeParent({ name: "imports", mode: "review", returnTo: { name: "recipes" } })).toEqual({ name: "recipes" });
     expect(routeBackLabel({ name: "recipes", recipeId: "recipe-classic", mode: "edit" })).toBe("Back to Recipe Detail");
   });
 });

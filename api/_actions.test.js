@@ -99,6 +99,13 @@ describe("API role permissions", () => {
     expect(canRolePerformAction("Baker", "notification.lowStockEmail")).toBe(false);
     expect(canRolePerformAction("Viewer", "notification.lowStockEmail")).toBe(false);
   });
+
+  it("allows operational roles to extract imports but keeps viewers out", () => {
+    expect(canRolePerformAction("Owner/Admin", "import.extract")).toBe(true);
+    expect(canRolePerformAction("Baker", "import.extract")).toBe(true);
+    expect(canRolePerformAction("Inventory Manager", "import.extract")).toBe(true);
+    expect(canRolePerformAction("Viewer", "import.extract")).toBe(false);
+  });
 });
 
 describe("low-stock notification delivery guards", () => {
@@ -276,6 +283,10 @@ describe("recipe formula metadata normalization", () => {
       preparationNotes: "Fold gently",
       handlingWarning: "Do not overmix",
       sourceLineName: "Butter",
+      sourceFile: "onboarding.csv",
+      sourceType: "csv",
+      sourceReference: "onboarding.csv | sheet Recipes | row 2",
+      sourceText: "300,g,Butter",
       sourceSheet: "CAKES",
       sourceWorkbook: "Dish Costing",
       sourceWorkbookRevision: "3942",
@@ -283,6 +294,7 @@ describe("recipe formula metadata normalization", () => {
       sourcePackagePrice: "7000",
       sourceNeededQuantity: "113",
       sourceLineAmount: "3955",
+      sourceRow: "2",
       unknown: "drop me"
     })).toEqual({
       component: "Brownie base",
@@ -294,13 +306,18 @@ describe("recipe formula metadata normalization", () => {
       preparationNotes: "Fold gently",
       handlingWarning: "Do not overmix",
       sourceLineName: "Butter",
+      sourceFile: "onboarding.csv",
+      sourceType: "csv",
+      sourceReference: "onboarding.csv | sheet Recipes | row 2",
+      sourceText: "300,g,Butter",
       sourceSheet: "CAKES",
       sourceWorkbook: "Dish Costing",
       sourceWorkbookRevision: "3942",
       sourcePackageQuantity: 200,
       sourcePackagePrice: 7000,
       sourceNeededQuantity: 113,
-      sourceLineAmount: 3955
+      sourceLineAmount: 3955,
+      sourceRow: 2
     });
   });
 });

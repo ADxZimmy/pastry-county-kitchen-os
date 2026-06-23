@@ -14,6 +14,7 @@ export type Page =
   | "order-detail"
   | "production"
   | "shopping"
+  | "imports"
   | "costing"
   | "ai"
   | "conversions"
@@ -29,6 +30,7 @@ export type AppRoute =
   | { name: "orders"; orderId?: string; mode?: "detail" | "new" | "edit"; returnTo?: AppRoute }
   | { name: "production"; orderId?: string; batchId?: string }
   | { name: "shopping"; returnTo?: AppRoute }
+  | { name: "imports"; mode?: "start" | "review"; returnTo?: AppRoute }
   | { name: "costing"; recipeId?: string; returnTo?: AppRoute }
   | { name: "ai" }
   | { name: "conversions"; ruleId?: string }
@@ -57,6 +59,7 @@ export const pageIds = new Set<Page>([
   "order-detail",
   "production",
   "shopping",
+  "imports",
   "costing",
   "ai",
   "conversions",
@@ -73,6 +76,7 @@ export const topLevelPages = new Set<Page>([
   "orders",
   "production",
   "shopping",
+  "imports",
   "costing",
   "ai",
   "conversions",
@@ -89,6 +93,7 @@ const pageRouteNames = new Set([
   "orders",
   "production",
   "shopping",
+  "imports",
   "costing",
   "ai",
   "conversions",
@@ -180,6 +185,8 @@ export function parseAppRoute(hash: string, context: LegacyRouteContext = {}): A
       return { name: "production", orderId: first, batchId: second };
     case "shopping":
       return { name: "shopping", returnTo: parseReturnTo(params) };
+    case "imports":
+      return { name: "imports", mode: first === "review" ? "review" : "start", returnTo: parseReturnTo(params) };
     case "costing":
       return { name: "costing", recipeId: first, returnTo: parseReturnTo(params) };
     case "ai":
@@ -229,6 +236,10 @@ export function serializeRoutePath(route: AppRoute): string {
     }
     case "shopping":
       return appendRouteQuery("shopping", route);
+    case "imports": {
+      const path = route.mode === "review" ? "imports/review" : "imports";
+      return appendRouteQuery(path, route);
+    }
     case "costing": {
       const path = route.recipeId ? `costing/${encodePathSegment(route.recipeId)}` : "costing";
       return appendRouteQuery(path, route);
@@ -253,6 +264,7 @@ export function routeFromPage(page: Page, context: LegacyRouteContext = {}): App
     case "dashboard":
     case "production":
     case "shopping":
+    case "imports":
     case "costing":
     case "ai":
     case "conversions":
@@ -289,6 +301,7 @@ export function pageForRoute(route: AppRoute): Page {
     case "dashboard":
     case "production":
     case "shopping":
+    case "imports":
     case "costing":
     case "ai":
     case "conversions":
@@ -334,6 +347,8 @@ export function routeParent(route: AppRoute): AppRoute | undefined {
     case "production":
       return route.orderId ? { name: "production" } : undefined;
     case "shopping":
+    case "imports":
+      return route.returnTo;
     case "costing":
       return route.returnTo;
     case "conversions":
@@ -372,6 +387,8 @@ export function routeTitle(route: AppRoute): string {
       return "Production Plan";
     case "shopping":
       return "Shopping List";
+    case "imports":
+      return route.mode === "review" ? "Review Import" : "Import Recipes";
     case "costing":
       return "Costing & Margins";
     case "ai":
