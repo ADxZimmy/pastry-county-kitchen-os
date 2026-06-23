@@ -151,11 +151,14 @@ async function runBrowserChecks(user, flourName) {
     const purchaseUnitSelect = page.locator('select[name="purchaseUnit"]');
     await purchaseUnitSelect.selectOption("pcs");
     assert(await purchaseUnitSelect.inputValue() === "pcs", "Purchase Unit selector did not change to pcs.");
-    await clickVisible(page.getByRole("button", { name: "Cancel", exact: true }), "Cancel ingredient form");
+    await clickVisible(page.getByRole("button", { name: "Back to Inventory", exact: true }), "Back to Inventory ingredient form");
+    if (await page.getByRole("heading", { name: "Discard unsaved changes?" }).isVisible().catch(() => false)) {
+      await clickVisible(page.getByRole("button", { name: "Leave Page", exact: true }), "leave dirty ingredient form");
+    }
 
     await page.getByPlaceholder("Search ingredients").fill(flourName);
     await flourCard.click();
-    await page.getByRole("heading", { name: flourName, exact: true }).waitFor({ state: "visible" });
+    await page.getByRole("heading", { name: flourName, exact: true }).first().waitFor({ state: "visible" });
     await page.getByText(/4,800g/).first().waitFor({ state: "visible" });
     await page.getByText(/0\.50\/g/).first().waitFor({ state: "visible" });
     await clickVisible(page.getByRole("button", { name: "Adjust Stock", exact: true }), "Adjust Stock");

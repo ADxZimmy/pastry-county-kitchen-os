@@ -4,7 +4,7 @@ Last updated: 2026-06-23
 Repo: `F:\Pastry County Kitchen OS`
 Live app: `https://pastry-county-kitchen-os.vercel.app`
 Current local branch at time of this map: `main`
-Current local commit: run `git rev-parse --short HEAD` in the repo; this file is updated through Phase 005 planning.
+Current local commit: run `git rev-parse --short HEAD` in the repo; this file is updated through Phase 005 implementation.
 
 Use this file when starting a fresh chat context. It maps what the app is, where the important code lives, what has already been verified, and which docs are authoritative when older planning notes disagree.
 
@@ -16,7 +16,7 @@ Start with these files in this order:
 2. `docs/new-chat-context.md` for this whole-codebase map.
 3. `.planning/STATE.md` for the latest work status.
 4. `docs/audit-handoff.md` for the latest external-audit handoff.
-5. `.planning/phases/005-navigation-routing-overhaul/PLAN.md` for the active navigation/routing overhaul plan.
+5. `.planning/phases/005-navigation-routing-overhaul/VERIFICATION.md` for the completed navigation/routing verification.
 6. `.planning/phases/004-pastry-costing-qc-compliance/VERIFICATION.md` for the latest completed Phase 004 verification.
 7. `docs/certification/README.md` for the separate 100/100 certification evidence track.
 
@@ -36,8 +36,8 @@ After that, product-depth work continued:
 
 - Phase 003 Pastry Formula Depth was implemented, pushed, deployed, and production-smoke verified.
 - Phase 004 Pastry Costing, QC, and Compliance Depth was implemented, pushed, deployed, and production-smoke verified.
-- The umbrella `npm run smoke:live-audit` was updated to run Phase 002, Milestone 7, regression audit, Phase 003, and Phase 004 smoke coverage, and it passed against production after Phase 004.
-- Phase 005 Navigation And Routing Overhaul is now planned from the owner's critical navigation feedback. Treat it as the active product risk: page-per-action flows need route-aware hierarchy, direct record links, Back/Breadcrumb controls, contextual form exits, mobile nav cleanup, and navigation smoke coverage.
+- The umbrella `npm run smoke:live-audit` was updated to run Phase 002, Milestone 7, regression audit, Phase 003, Phase 004, and navigation-routing smoke coverage, and it passed against production after Phase 005.
+- Phase 005 Navigation And Routing Overhaul was implemented, pushed, deployed, and production-smoke verified. The former page-per-action risk is now corrected with route-aware hierarchy, direct record links, Back/Breadcrumb controls, contextual form exits, mobile nav cleanup, unsaved-change guards, and navigation smoke coverage.
 
 The app is not yet claimable as `100/100` because certification evidence still needs external email DNS/operator sign-offs, backup/restore or rollback drills, and other manual evidence. That is a certification evidence gap, not a current product-depth blocker.
 
@@ -100,14 +100,13 @@ Pages in `src/App.tsx`:
 
 Routing is hash-based and session-aware. Unknown hashes fall back safely instead of preserving stale private content. Signed-in users default to Dashboard; signed-out users default to Login or Welcome. Session data is stored in `localStorage` under `pastry-county-session`.
 
-Active routing problem: current hashes store page names, not durable records or workflow context. Details/forms such as `recipe-detail`, `recipe-form`, `ingredient-detail`, `ingredient-form`, `order-detail`, `order-create`, and `scaling` rely on selected IDs in React state/localStorage. Phase 005 should make record views and durable workflows route-aware, for example `#recipes/<id>`, `#recipes/<id>/edit`, `#recipes/<id>/scale`, `#inventory/<id>`, and `#orders/<id>`.
+Routing is now record-aware for durable workflows. Details/forms such as recipe detail/edit/scale, ingredient detail/edit, and order detail/edit/new serialize to hashes like `#recipes/<id>`, `#recipes/<id>/edit`, `#recipes/<id>/scale`, `#inventory/<id>`, `#inventory/<id>/edit`, `#orders/<id>`, and `#orders/<id>/edit`. Legacy page hashes still parse as compatibility aliases.
 
 Navigation:
 
 - Desktop uses a sidebar.
-- Mobile currently uses a bottom nav with Dashboard, Inventory, Orders, Production, Shopping, and More.
-- More opens access to Recipes, Costing, AI Assistant, Conversions, Suppliers, and Settings.
-- Phase 005 should reduce mobile primary bottom navigation to five or fewer items, with secondary modules behind More, per UIUX guidance.
+- Mobile uses a five-item bottom nav: Dashboard, Inventory, Orders, Production, and More.
+- More opens access to Recipes, Shopping, Costing, AI Assistant, Conversions, Suppliers, and Settings.
 
 Shared UI and interaction patterns:
 
@@ -291,7 +290,8 @@ Smoke/audit scripts:
 - `npm run smoke:phase2-rerun`: live checks for revoked Viewer bootstrap, Viewer filtering, fresh login persistence, exact AI conversions, Production 320px overflow, mobile structure.
 - `npm run smoke:phase3-pastry`: live checks for formula metadata, prep state, egg scaling, exports, reload behavior.
 - `npm run smoke:phase4-pastry-depth`: live checks for allergen/storage/cost/scoped conversion/QC fields and production completion with QC.
-- `npm run smoke:live-audit`: umbrella live audit smoke. As of Phase 004 it runs Phase 002, Milestone 7, regression audit, Phase 003, and Phase 004 smoke suites.
+- `npm run smoke:navigation-routing`: live navigation/routing smoke for durable record links, form exits, unsaved-change guard, return context, and five-item mobile nav.
+- `npm run smoke:live-audit`: umbrella live audit smoke. As of Phase 005 it runs Phase 002, Milestone 7, regression audit, Phase 003, Phase 004, and navigation routing smoke suites.
 - `npm run audit:reconcile-fefo`: checks/fixes FEFO overstatements.
 
 Current verified snapshot from `.planning/STATE.md` and Phase 004 verification:
@@ -301,8 +301,8 @@ Current verified snapshot from `.planning/STATE.md` and Phase 004 verification:
 - `node --check scripts/phase4-pastry-depth-smoke.mjs`: passed.
 - `git diff --check`: passed before Phase 004 commits and smoke hardening.
 - `npm.cmd run smoke:phase4-pastry-depth`: passed against production.
-- `npm.cmd run smoke:live-audit`: passed against production after Phase 004.
-- Phase 005 planning: created under `.planning/phases/005-navigation-routing-overhaul/`; implementation tests and smoke coverage are pending.
+- `npm.cmd run smoke:live-audit`: passed against production after Phase 005.
+- Phase 005 navigation routing: implemented under `.planning/phases/005-navigation-routing-overhaul/`, including `NAVIGATION-INVENTORY.md`, and production-smoke verified.
 
 Use the live deployment for browser smoke tests when local env vars are unavailable. Read live test credentials only from ignored `.env.local`.
 
@@ -358,12 +358,11 @@ The importer preserves source workbook metadata in recipe item prep state fields
 
 ## Backlog / Next Likely Work
 
-- Implement Phase 005 Navigation And Routing Overhaul before asking for another full external audit: audit every page/button, introduce route-aware hashes, add Back/Breadcrumb controls, contextual form save/cancel behavior, unsaved-change protection, mobile nav correction, and a production navigation smoke.
-- Run a fresh external audit against the current production deployment after Phase 005 ships if the user asks.
+- Run a fresh external audit against the current production deployment if the user wants independent validation of Phase 005.
 - Close the separate 100/100 certification evidence pack: email DNS/SPF/DKIM/DMARC proof, controlled email delivery, keyboard and screen-reader sign-off, backup/restore drill, rollback drill, monitoring/incident owner evidence.
 - Resolve stale planning/milestone docs if the user wants docs cleaned up beyond this map.
 - Finish any remaining personal/user-specific changes the owner had pending.
 
 ## Quick Orientation Summary
 
-This is a strong, late-stage bakery operations app. The 95+ release gate has been cleared (`96/100` after Phase 002), and later Phase 003/004 pastry-depth work has been implemented and live-smoke verified. The active risk is now navigation architecture: `src/App.tsx` treats task screens as peer pages and does not encode record/context in routes. Future changes should be conservative, audited, route-aware, role-aware, tested locally, and smoke-tested against production when they touch live workflows.
+This is a strong, late-stage bakery operations app. The 95+ release gate has been cleared (`96/100` after Phase 002), Phase 003/004 pastry-depth work is live-smoke verified, and Phase 005 corrected the navigation architecture. Future changes should be conservative, audited, route-aware, role-aware, tested locally, and smoke-tested against production when they touch live workflows.

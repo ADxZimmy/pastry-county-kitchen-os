@@ -154,21 +154,19 @@ async function createAndVerifyApi(action, token) {
   return created.id;
 }
 
-async function verifyUi() {
+async function verifyUi(owner) {
   const { chromium } = await loadPlaywright();
   const browser = await chromium.launch();
   const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
   try {
-    await page.goto(`${baseURL}/#login`, { waitUntil: "networkidle" });
-    await page.getByPlaceholder("owner@pastrycounty.ng").fill(email);
-    await page.getByPlaceholder("Password").fill(password);
-    await page.getByRole("button", { name: /login/i }).click();
-    await page.locator(".app-shell").waitFor({ state: "visible", timeout: 30000 });
-
+    await page.addInitScript((session) => {
+      window.localStorage.setItem("pastry-county-session", JSON.stringify(session));
+    }, { route: { name: "dashboard" }, page: "dashboard", user: owner });
     await page.goto(`${baseURL}/#recipes`, { waitUntil: "networkidle" });
+    await page.locator(".app-shell").waitFor({ state: "visible", timeout: 30000 });
     await page.getByPlaceholder("Search recipes").fill(recipeName);
     await page.getByText(recipeName, { exact: true }).first().click();
-    await page.getByRole("heading", { name: recipeName }).waitFor({ state: "visible", timeout: 30000 });
+    await page.getByRole("heading", { name: recipeName }).first().waitFor({ state: "visible", timeout: 30000 });
     await page.getByText("Formula Profile").waitFor({ state: "visible", timeout: 10000 });
     await page.getByText("170C fan").waitFor({ state: "visible", timeout: 10000 });
     await page.getByText("Room temperature").waitFor({ state: "visible", timeout: 10000 });
@@ -191,7 +189,7 @@ async function main() {
   let recipeId = "";
   try {
     recipeId = await createAndVerifyApi(action, owner.token);
-    await verifyUi();
+    await verifyUi(owner);
   } finally {
     if (recipeId) {
       try {

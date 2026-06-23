@@ -304,21 +304,19 @@ async function createAndVerifyApi(action, token, ids) {
   return ids;
 }
 
-async function verifyUi() {
+async function verifyUi(owner) {
   const { chromium } = await loadPlaywright();
   const browser = await chromium.launch();
   const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
   try {
-    await page.goto(`${baseURL}/#login`, { waitUntil: "networkidle" });
-    await page.getByPlaceholder("owner@pastrycounty.ng").fill(email);
-    await page.getByPlaceholder("Password").fill(password);
-    await page.getByRole("button", { name: /login/i }).click();
-    await page.locator(".app-shell").waitFor({ state: "visible", timeout: 30000 });
-
+    await page.addInitScript((session) => {
+      window.localStorage.setItem("pastry-county-session", JSON.stringify(session));
+    }, { route: { name: "dashboard" }, page: "dashboard", user: owner });
     await page.goto(`${baseURL}/#inventory`, { waitUntil: "networkidle" });
+    await page.locator(".app-shell").waitFor({ state: "visible", timeout: 30000 });
     await page.getByPlaceholder("Search ingredients").fill(ingredientName);
     await page.getByText(ingredientName, { exact: true }).first().click();
-    await page.getByRole("heading", { name: ingredientName }).waitFor({ state: "visible", timeout: 30000 });
+    await page.getByRole("heading", { name: ingredientName }).first().waitFor({ state: "visible", timeout: 30000 });
     await page.getByText("Allergen Profile").waitFor({ state: "visible", timeout: 10000 });
     await page.getByText("gluten").waitFor({ state: "visible", timeout: 10000 });
     await page.getByText("cool dry").waitFor({ state: "visible", timeout: 10000 });
@@ -327,7 +325,7 @@ async function verifyUi() {
     await page.goto(`${baseURL}/#recipes`, { waitUntil: "networkidle" });
     await page.getByPlaceholder("Search recipes").fill(recipeName);
     await page.getByText(recipeName, { exact: true }).first().click();
-    await page.getByRole("heading", { name: recipeName }).waitFor({ state: "visible", timeout: 30000 });
+    await page.getByRole("heading", { name: recipeName }).first().waitFor({ state: "visible", timeout: 30000 });
     await page.getByText("Production Cost Profile").waitFor({ state: "visible", timeout: 10000 });
     await page.getByText("Non-ingredient costs").waitFor({ state: "visible", timeout: 10000 });
     await page.getByText("5% failure allowance", { exact: false }).waitFor({ state: "visible", timeout: 10000 });
@@ -336,7 +334,7 @@ async function verifyUi() {
     await page.goto(`${baseURL}/#orders`, { waitUntil: "networkidle" });
     await page.getByPlaceholder("Search orders").fill(customerName);
     await page.getByText(customerName, { exact: true }).first().click();
-    await page.getByRole("heading", { name: customerName }).waitFor({ state: "visible", timeout: 30000 });
+    await page.getByRole("heading", { name: customerName }).first().waitFor({ state: "visible", timeout: 30000 });
     await page.getByText("Production QC Logs").waitFor({ state: "visible", timeout: 10000 });
     await page.getByText("QC passed", { exact: false }).waitFor({ state: "visible", timeout: 10000 });
     await page.getByText("Glossy top", { exact: false }).waitFor({ state: "visible", timeout: 10000 });
@@ -385,7 +383,7 @@ async function main() {
   try {
     await cleanupPreviousSmokeData(action, owner.token);
     await createAndVerifyApi(action, owner.token, ids);
-    await verifyUi();
+    await verifyUi(owner);
   } finally {
     await cleanup(action, ids);
   }

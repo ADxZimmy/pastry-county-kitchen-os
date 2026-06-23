@@ -15,12 +15,12 @@
   Notes: Dedicated Phase 005 smoke script now exists and parses successfully.
 
 - Command: `npm.cmd run smoke:navigation-routing`
-  Result: Not run yet.
-  Notes: Run after the Phase 005 commit deploys to production.
+  Result: Passed.
+  Notes: Passed against `https://pastry-county-kitchen-os.vercel.app` after Vercel deployed commit `db07191`.
 
 - Command: `npm.cmd run smoke:live-audit`
-  Result: Not run yet.
-  Notes: `scripts/live-audit-smoke.mjs` now includes the navigation routing smoke; run after the dedicated production smoke passes.
+  Result: Passed.
+  Notes: Passed against production with Phase 2 rerun, Milestone 7, regression audit, Phase 3 pastry, Phase 4 pastry depth, and navigation routing smokes.
 
 - Command: `git diff --check`
   Result: Passed.
@@ -45,11 +45,11 @@
   Notes: Added `NAVIGATION-INVENTORY.md`, based on `rg -n "setPage\(" src/App.tsx`, and classified top-level navigation, child-detail routes, form routes, modal/local interactions, and cross-feature return paths.
 
 - Check: Route-aware implementation.
-  Result: Completed locally.
+  Result: Completed and production-smoke verified.
   Notes: Added typed route helpers, durable hashes for recipe/inventory/order records, route-backed session persistence, breadcrumb/back controls, route-aware form cancel/save behavior, missing-record recovery, dirty-form guards, five-item mobile bottom nav, and Shopping return context.
 
 ## Residual Risk
 
-- Risk: Production still needs the post-deploy navigation smoke.
-  Owner: Next ship step.
-  Notes: Local implementation, tests, build, and syntax checks pass. Production verification should run after Vercel serves the Phase 005 bundle.
+- Risk: External audit has not rerun after Phase 005.
+  Owner: Future audit pass.
+  Notes: Product implementation and production smoke gates pass; a fresh external audit can now validate the corrected navigation model.

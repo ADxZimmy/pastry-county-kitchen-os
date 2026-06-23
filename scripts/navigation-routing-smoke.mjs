@@ -48,12 +48,24 @@ async function requestJson(path, options = {}, expectedOk = true) {
 }
 
 async function login() {
-  const { body } = await requestJson("/api/auth/login", {
-    method: "POST",
-    body: JSON.stringify({ email, password })
-  });
-  assert(body.token, "Login did not return a session token.");
-  return body;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const { response, body } = await requestJson("/api/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ email, password })
+    }, false);
+    if (response.ok) {
+      assert(body.token, "Login did not return a session token.");
+      return body;
+    }
+    if (response.status === 429 && attempt < 2) {
+      const retryAfter = Number(response.headers.get("Retry-After") || "60");
+      console.log(`Navigation smoke login was rate-limited; waiting ${retryAfter}s before retrying.`);
+      await new Promise((resolve) => setTimeout(resolve, (retryAfter + 1) * 1000));
+      continue;
+    }
+    throw new Error(body.error || `Login failed with ${response.status}.`);
+  }
+  throw new Error("Login failed after rate-limit retries.");
 }
 
 async function bootstrap(token) {
@@ -63,11 +75,11 @@ async function bootstrap(token) {
   return body;
 }
 
-async function uiLogin(page) {
-  await page.goto(`${baseURL}/#login`, { waitUntil: "networkidle" });
-  await page.getByPlaceholder("owner@pastrycounty.ng").fill(email);
-  await page.getByPlaceholder("Password").fill(password);
-  await page.getByRole("button", { name: /login/i }).click();
+async function seedUiSession(page, owner) {
+  await page.addInitScript((session) => {
+    window.localStorage.setItem("pastry-county-session", JSON.stringify(session));
+  }, { route: { name: "dashboard" }, page: "dashboard", user: owner });
+  await page.goto(`${baseURL}/#dashboard`, { waitUntil: "networkidle" });
   await page.locator(".app-shell").waitFor({ state: "visible", timeout: 30000 });
   await page.getByRole("heading", { name: "Kitchen Command Center" }).waitFor({ state: "visible", timeout: 30000 });
 }
@@ -100,21 +112,21 @@ function pickRecords(snapshot) {
 
 async function verifyRecipeRoutes(page, recipe) {
   await page.goto(`${baseURL}/#recipes/${encodeURIComponent(recipe.id)}`, { waitUntil: "networkidle" });
-  await page.getByRole("heading", { name: recipe.name }).waitFor({ state: "visible", timeout: 30000 });
+  await page.getByRole("heading", { name: recipe.name }).first().waitFor({ state: "visible", timeout: 30000 });
   await assertHash(page, `#recipes/${encodeURIComponent(recipe.id)}`);
 
   await page.getByRole("button", { name: /edit recipe/i }).click();
   await page.getByRole("heading", { name: `Edit ${recipe.name}` }).waitFor({ state: "visible", timeout: 10000 });
   await assertHash(page, `#recipes/${encodeURIComponent(recipe.id)}/edit`);
   await page.getByRole("button", { name: /back to recipe/i }).first().click();
-  await page.getByRole("heading", { name: recipe.name }).waitFor({ state: "visible", timeout: 10000 });
+  await page.getByRole("heading", { name: recipe.name }).first().waitFor({ state: "visible", timeout: 10000 });
   await assertHash(page, `#recipes/${encodeURIComponent(recipe.id)}`);
 
   await page.getByRole("button", { name: /^scale recipe$/i }).first().click();
   await page.getByRole("heading", { name: `Scale ${recipe.name}` }).waitFor({ state: "visible", timeout: 10000 });
   await assertHash(page, `#recipes/${encodeURIComponent(recipe.id)}/scale`);
   await page.getByRole("button", { name: /back to recipe detail/i }).click();
-  await page.getByRole("heading", { name: recipe.name }).waitFor({ state: "visible", timeout: 10000 });
+  await page.getByRole("heading", { name: recipe.name }).first().waitFor({ state: "visible", timeout: 10000 });
   await assertHash(page, `#recipes/${encodeURIComponent(recipe.id)}`);
 }
 
@@ -134,18 +146,18 @@ async function verifyUnsavedGuard(page) {
 
 async function verifyInventoryRoutes(page, ingredient) {
   await page.goto(`${baseURL}/#inventory/${encodeURIComponent(ingredient.id)}`, { waitUntil: "networkidle" });
-  await page.getByRole("heading", { name: ingredient.name }).waitFor({ state: "visible", timeout: 30000 });
+  await page.getByRole("heading", { name: ingredient.name }).first().waitFor({ state: "visible", timeout: 30000 });
   await assertHash(page, `#inventory/${encodeURIComponent(ingredient.id)}`);
   await page.getByRole("button", { name: new RegExp(`edit ${ingredient.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`, "i") }).click();
   await page.getByRole("heading", { name: `Edit ${ingredient.name}` }).waitFor({ state: "visible", timeout: 10000 });
   await assertHash(page, `#inventory/${encodeURIComponent(ingredient.id)}/edit`);
   await page.getByRole("button", { name: /back to ingredient/i }).first().click();
-  await page.getByRole("heading", { name: ingredient.name }).waitFor({ state: "visible", timeout: 10000 });
+  await page.getByRole("heading", { name: ingredient.name }).first().waitFor({ state: "visible", timeout: 10000 });
 }
 
 async function verifyOrderRoutes(page, order) {
   await page.goto(`${baseURL}/#orders/${encodeURIComponent(order.id)}`, { waitUntil: "networkidle" });
-  await page.getByRole("heading", { name: `${order.customerName} Order` }).waitFor({ state: "visible", timeout: 30000 });
+  await page.getByRole("heading", { name: `${order.customerName} Order` }).first().waitFor({ state: "visible", timeout: 30000 });
   await assertHash(page, `#orders/${encodeURIComponent(order.id)}`);
   const edit = page.getByRole("button", { name: /edit order/i });
   if (await edit.isEnabled().catch(() => false)) {
@@ -153,7 +165,7 @@ async function verifyOrderRoutes(page, order) {
     await page.getByRole("heading", { name: `Edit ${order.customerName} Order` }).waitFor({ state: "visible", timeout: 10000 });
     await assertHash(page, `#orders/${encodeURIComponent(order.id)}/edit`);
     await page.getByRole("button", { name: /back to order/i }).first().click();
-    await page.getByRole("heading", { name: `${order.customerName} Order` }).waitFor({ state: "visible", timeout: 10000 });
+    await page.getByRole("heading", { name: `${order.customerName} Order` }).first().waitFor({ state: "visible", timeout: 10000 });
   }
 }
 
@@ -161,7 +173,7 @@ async function verifyReturnContext(page) {
   await page.goto(`${baseURL}/#shopping?returnTo=production`, { waitUntil: "networkidle" });
   await page.getByRole("heading", { name: "Shopping List" }).waitFor({ state: "visible", timeout: 30000 });
   await page.getByText("Workflow return").waitFor({ state: "visible", timeout: 10000 });
-  await page.getByRole("button", { name: "Back" }).click();
+  await page.getByRole("button", { name: "Back", exact: true }).click();
   await page.getByRole("heading", { name: "Production Plan" }).waitFor({ state: "visible", timeout: 10000 });
   await assertHash(page, "#production");
 }
@@ -191,7 +203,7 @@ async function main() {
   const browser = await chromium.launch();
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   try {
-    await uiLogin(page);
+    await seedUiSession(page, owner);
     await verifyRecipeRoutes(page, records.recipe);
     await verifyUnsavedGuard(page);
     await verifyInventoryRoutes(page, records.ingredient);

@@ -4,7 +4,7 @@ Last updated: 2026-06-23
 
 ## Current Focus
 
-Phase 005 Navigation And Routing Overhaul is planned from the owner's critical navigation feedback. The app has a strong 95+ audit baseline, but the current page-per-action routing model is now the active product risk to fix before another external audit.
+Phase 005 Navigation And Routing Overhaul has been implemented, pushed, deployed, and production-smoke verified. The app has a strong 95+ audit baseline plus corrected route-aware navigation; the next backlog risk is the separate 100/100 certification evidence closeout.
 
 ## Completed
 
@@ -65,10 +65,12 @@ Phase 005 Navigation And Routing Overhaul is planned from the owner's critical n
 - Added `.planning/phases/005-navigation-routing-overhaul/NAVIGATION-INVENTORY.md` as the source-backed navigation inventory from `src/App.tsx`.
 - Added route helper unit tests and `scripts/navigation-routing-smoke.mjs`; wired `smoke:navigation-routing` into `package.json` and the umbrella live audit smoke.
 - Verified Phase 005 locally with `npm.cmd test`, `npm.cmd run build`, `node --check scripts/navigation-routing-smoke.mjs`, and `git diff --check`.
+- Pushed Phase 005 in commit `db07191`, confirmed GitHub/Vercel reported deployment success, and verified production with `npm.cmd run smoke:navigation-routing`.
+- Updated older smoke scripts for route-aware labels and duplicate detail headings, then verified `npm.cmd run smoke:live-audit` passed against production with Phase 2 rerun, Milestone 7, regression audit, Phase 3 pastry, Phase 4 pastry depth, and navigation routing coverage.
 
 ## In Progress
 
-- Phase 005 is implemented locally and ready to commit/push. Production verification is still pending until Vercel serves the Phase 005 bundle.
+- No active implementation phase. Phase 006 Certification Evidence Closeout is the next planned phase.
 
 ## Blocked
 
@@ -77,7 +79,7 @@ Phase 005 Navigation And Routing Overhaul is planned from the owner's critical n
 
 ## Next Action
 
-Commit and push Phase 005, wait for Vercel to serve the new bundle, then run `npm.cmd run smoke:navigation-routing` followed by `npm.cmd run smoke:live-audit`.
+Begin Phase 006 Certification Evidence Closeout when the user is ready, or request a fresh external audit against the current production deployment.
 
 ## Verification Snapshot
 

@@ -123,7 +123,10 @@ async function main() {
     if (selectedPurchaseUnit !== "pcs") {
       throw new Error(`Purchase unit selector did not change to pcs; current value is ${selectedPurchaseUnit}.`);
     }
-    await clickByText(page, "Cancel");
+    await clickByText(page, "Back to Inventory");
+    if (await page.getByRole("heading", { name: "Discard unsaved changes?" }).isVisible().catch(() => false)) {
+      await clickVisible(page.getByRole("button", { name: "Leave Page", exact: true }), "leave dirty ingredient form");
+    }
     await clickFirstVisible(page, ".mobile-table-cards .item-card, .responsive-table tbody tr", "first inventory ingredient");
     await clickByText(page, "Adjust Stock");
     await page.locator('input[name="quantity"]').fill("999999999");
@@ -154,6 +157,7 @@ async function main() {
       await clickVisible(page.getByRole("button", { name: "Close", exact: true }), "close production review");
     }
 
+    await openPage(page, "More");
     await openPage(page, "Shopping");
     await page.getByText("Suggested Purchases", { exact: true }).waitFor({ state: "visible" });
     await assertNoHorizontalOverflow(page, "Shopping");
