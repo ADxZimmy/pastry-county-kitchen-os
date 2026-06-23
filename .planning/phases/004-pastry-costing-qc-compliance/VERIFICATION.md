@@ -15,16 +15,16 @@
   Notes: New live smoke script parses successfully.
 
 - Command: `git diff --check`
-  Result: Pending.
-  Notes: Run immediately before commit.
+  Result: Passed.
+  Notes: Passed before the Phase 004 implementation commit and before the smoke hardening follow-up.
 
 - Command: `npm.cmd run smoke:phase4-pastry-depth`
-  Result: Pending live deploy.
-  Notes: Run after the pushed commit is available on the Vercel deployment.
+  Result: Passed against production.
+  Notes: Created temporary Phase 004 ingredient/recipe/order data, verified allergen/storage/cost/scoped conversion/QC fields through API and UI, produced the order with QC, and archived temporary records.
 
 - Command: `npm.cmd run smoke:live-audit`
-  Result: Pending live deploy.
-  Notes: The umbrella smoke now includes Phase 003 and Phase 004 pastry checks.
+  Result: Passed against production.
+  Notes: Phase 2 rerun, Milestone 7, regression audit, Phase 3 pastry, and Phase 4 pastry depth smokes all passed.
 
 ## Manual Checks
 
@@ -42,5 +42,5 @@
 
 ## Residual Risk
 
-- Risk: Live deployment has not yet run the new Phase 004 smoke.
-  Owner: Current implementation turn.
+- Risk: A fresh external Codex audit has not yet been run after Phase 004.
+  Owner: Next audit turn, when the user is ready.

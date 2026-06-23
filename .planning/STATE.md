@@ -4,7 +4,7 @@ Last updated: 2026-06-23
 
 ## Current Focus
 
-Phase 004 Pastry Costing, QC, and Compliance Depth is implemented locally and ready to ship. Live Vercel verification is the remaining gate.
+Phase 004 Pastry Costing, QC, and Compliance Depth is implemented, pushed, deployed, and verified against production. Next focus can be the user's remaining personal changes or a fresh external audit rerun.
 
 ## Completed
 
@@ -55,10 +55,12 @@ Phase 004 Pastry Costing, QC, and Compliance Depth is implemented locally and re
 - Implemented Phase 004 P2 scope locally: state-scoped conversion rules, conversion matching in scaling/costing/production requirements, ingredient allergen/storage profiles, recipe production cost profiles, production QC logs, order/production QC completion UI, and Phase 004 live smoke coverage.
 - Verified Phase 004 locally with `npm.cmd test`, `npm.cmd run build`, and `node --check scripts\phase4-pastry-depth-smoke.mjs`.
 - Updated `scripts/live-audit-smoke.mjs` so the umbrella live audit also runs Phase 003 and Phase 004 pastry smokes.
+- Pushed Phase 004 in commits `2a9794d` and `b0c8949`, then verified production with `npm.cmd run smoke:phase4-pastry-depth`.
+- Re-ran `npm.cmd run smoke:live-audit` after Phase 004; Phase 2 rerun, Milestone 7, regression audit, Phase 3 pastry, and Phase 4 pastry depth smokes all passed against production.
 
 ## In Progress
 
-- Phase 004 ship gate: commit and push the local implementation, wait for live deployment, then run `npm.cmd run smoke:phase4-pastry-depth` and `npm.cmd run smoke:live-audit`.
+- Awaiting the user's remaining personal changes or the next requested external audit rerun.
 
 ## Blocked
 
@@ -67,7 +69,7 @@ Phase 004 Pastry Costing, QC, and Compliance Depth is implemented locally and re
 
 ## Next Action
 
-Run final diff checks, commit and push Phase 004, then verify the live deployment.
+When the user is ready, either implement the remaining personal changes or run a fresh external audit against the current production deployment.
 
 ## Verification Snapshot
 
