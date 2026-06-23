@@ -4,13 +4,13 @@
 
 - Phase: 003 Pastry Formula Depth
   Outcome: Use the Baking and Pastry Arts audit to add pastry-grade recipe formula controls, starting with egg scaling correctness, formula metadata, and recipe-item prep state.
-  Status: Local implementation complete; deployment verification pending.
+  Status: Complete and verified in production.
 
 ## Next
 
 - Phase: 004 Pastry Costing, QC, and Compliance Depth
   Outcome: Extend costing beyond ingredients, add production QC logs, add structured allergen/storage controls, and deepen state-scoped conversion rules.
-  Status: Pending Phase 003.
+  Status: Ready to plan.
 
 ## Later
 
