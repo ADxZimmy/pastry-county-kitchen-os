@@ -4,7 +4,7 @@ Last updated: 2026-06-23
 
 ## Current Focus
 
-Phase 003 Pastry Formula Depth is planned; wait for the user's personal changes, then implement the P1 pastry findings.
+Phase 003 Pastry Formula Depth is implemented locally and ready for deployment/live smoke verification.
 
 ## Completed
 
@@ -47,10 +47,12 @@ Phase 003 Pastry Formula Depth is planned; wait for the user's personal changes,
 - Reviewed the follow-up external audit rerun 2 from Codex session `019eeee0-894f-7880-b3fa-4a7c002de3ab`: score `96/100`, ready for the 95+ release gate, with zero findings, failing checks, advisory failures, request failures, or console warnings/errors.
 - Reviewed the latest Baking and Pastry Arts audit from the same session: recipe/ingredient workflows need pastry formula depth, especially settings-aware egg scaling, structured formula metadata, recipe-item prep state, state-scoped conversions, expanded costing, allergen/storage controls, and production QC logging.
 - Created GSD Hybrid Phase 003 under `.planning/phases/003-pastry-formula-depth/`, using the Baking and Pastry Arts skill plus UI UX Pro Max guidance.
+- Implemented Phase 003 P1 scope locally: settings-aware egg scaling, additive recipe `formula_metadata`, additive recipe-item `prep_state`, formula/prep UI surfaces, recipe export expansion, duplicate preservation, and a repeatable live Phase 003 smoke script.
+- Verified Phase 003 locally with `npm.cmd test`, `npm.cmd run build`, `node --check scripts\phase3-pastry-smoke.mjs`, and `git diff --check`.
 
 ## In Progress
 
-- Phase 003 is planned and ready to implement after the user's personal changes.
+- Phase 003 deployment verification: commit/push, wait for Vercel to serve the new bundle/API, then run `npm.cmd run smoke:phase3-pastry` and the existing live audit smoke.
 
 ## Blocked
 
@@ -59,7 +61,7 @@ Phase 003 Pastry Formula Depth is planned; wait for the user's personal changes,
 
 ## Next Action
 
-After the user's personal changes, start Phase 003 Step 1: pin settings-aware egg scaling and recipe metadata compatibility with tests.
+Commit and push Phase 003, then verify the live deployment with the new Phase 003 pastry smoke.
 
 ## Verification Snapshot
 

@@ -2,8 +2,8 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { resolveSessionPage } from "./App";
 import { setKitchenSnapshot } from "./data";
 import { auditChangeSummary, auditDataJson, auditExportRows, auditRecordLabel, auditSearchText } from "./lib/audit";
-import { buildKitchenAssistantResponse, calculateMargin, calculateRecipeCost, checkStockAvailability, convertUnit, dashboardProductionQueue, formatNaira, formatQuantity, generateShoppingList, netSellingPrice, parseRecipeText, roundScaledQuantity, scaleRecipe, stockAdjustmentValidation } from "./lib/kitchen";
-import type { AuditLog } from "./types";
+import { buildKitchenAssistantResponse, calculateMargin, calculateRecipeCost, checkStockAvailability, convertUnit, dashboardProductionQueue, formatNaira, formatQuantity, formatScaledIngredientQuantity, generateShoppingList, netSellingPrice, parseRecipeText, roundScaledQuantity, scaleRecipe, stockAdjustmentValidation } from "./lib/kitchen";
+import type { AuditLog, Ingredient, Recipe, RecipeItem } from "./types";
 
 describe("kitchen calculations", () => {
   beforeEach(() => {
@@ -79,6 +79,24 @@ describe("kitchen calculations", () => {
     expect(roundScaledQuantity(2.25, "pcs")).toBe(3);
     expect(scaleRecipe("recipe-classic", 8).find((item) => item.ingredientName === "Dark Chocolate")?.scaledQuantity).toBe(125);
     expect(scaleRecipe("recipe-classic", 24).find((item) => item.ingredientName === "Dark Chocolate")?.scaledQuantity).toBe(375);
+  });
+
+  it("honors egg scaling settings for count and gram-weight production formulas", () => {
+    const recipeList: Recipe[] = [{ id: "recipe-half-egg", productId: "prod-half-egg", name: "Half Egg Test", category: "Brownies", baseYieldQuantity: 4, yieldUnit: "pieces", instructions: [], active: true, updatedAt: "2026-06-23" }];
+    const itemList: RecipeItem[] = [{ id: "ri-half-egg", recipeId: "recipe-half-egg", ingredientId: "eggs", quantity: 1, unit: "pcs", prepState: { ingredientState: "Lightly beaten", temperatureState: "Room temperature" } }];
+    const ingredientList: Ingredient[] = [{ id: "eggs", name: "Eggs", category: "Dairy", baseUnit: "pcs", currentStock: 10, reorderLevel: 2, latestUnitCost: 160 }];
+
+    const nearest = scaleRecipe("recipe-half-egg", 2, recipeList, itemList, ingredientList, { eggRoundingPreference: "nearest_whole_egg" })[0];
+    expect(nearest.scaledQuantity).toBe(1);
+    expect(nearest.displayQuantity).toBeUndefined();
+    expect(formatScaledIngredientQuantity(nearest)).toBe("1pcs");
+
+    const gramMode = scaleRecipe("recipe-half-egg", 2, recipeList, itemList, ingredientList, { eggRoundingPreference: "allow_gram_conversion" })[0];
+    expect(gramMode.scaledQuantity).toBe(0.5);
+    expect(gramMode.displayQuantity).toBe(25);
+    expect(gramMode.displayUnit).toBe("g");
+    expect(gramMode.prepState).toMatchObject({ ingredientState: "Lightly beaten", temperatureState: "Room temperature" });
+    expect(formatScaledIngredientQuantity(gramMode)).toBe("25g");
   });
 
   it("detects shortages against available stock", () => {

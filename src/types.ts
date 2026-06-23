@@ -61,6 +61,36 @@ export interface RecipeItem {
   unit: Unit;
   wastePercentage?: number;
   notes?: string;
+  prepState?: RecipeItemPrepState;
+}
+
+export interface RecipeItemPrepState {
+  component?: string;
+  stage?: string;
+  sequence?: number;
+  ingredientState?: string;
+  temperatureState?: string;
+  dividedUse?: string;
+  preparationNotes?: string;
+  handlingWarning?: string;
+}
+
+export interface RecipeFormulaMetadata {
+  productFamily?: string;
+  formulaVersion?: string;
+  panProfile?: string;
+  panCount?: number;
+  fillGuidance?: string;
+  ovenTemperature?: string;
+  bakeTimeRange?: string;
+  mixingMethod?: string;
+  restWindow?: string;
+  chillWindow?: string;
+  coolWindow?: string;
+  targetDoneness?: string;
+  sensoryCheckpoints?: string;
+  storageServiceNotes?: string;
+  testBakeStatus?: "untested" | "test_bake_needed" | "tested" | "production_ready";
 }
 
 export interface Recipe {
@@ -72,6 +102,7 @@ export interface Recipe {
   yieldUnit: string;
   instructions: string[];
   notes?: string;
+  formulaMetadata?: RecipeFormulaMetadata;
   active: boolean;
   updatedAt: string;
 }

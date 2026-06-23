@@ -183,6 +183,68 @@ export function safePurchasePersistenceError(error) {
   return error;
 }
 
+const recipeFormulaTextFields = [
+  "productFamily",
+  "formulaVersion",
+  "panProfile",
+  "fillGuidance",
+  "ovenTemperature",
+  "bakeTimeRange",
+  "mixingMethod",
+  "restWindow",
+  "chillWindow",
+  "coolWindow",
+  "targetDoneness",
+  "sensoryCheckpoints",
+  "storageServiceNotes"
+];
+const recipePrepTextFields = [
+  "component",
+  "stage",
+  "ingredientState",
+  "temperatureState",
+  "dividedUse",
+  "preparationNotes",
+  "handlingWarning"
+];
+const recipeTestBakeStatuses = new Set(["untested", "test_bake_needed", "tested", "production_ready"]);
+
+function trimmedString(value) {
+  const text = String(value ?? "").trim();
+  return text ? text : undefined;
+}
+
+function positiveOptionalNumber(value) {
+  const parsed = num(value);
+  return parsed > 0 ? parsed : undefined;
+}
+
+export function normalizeRecipeFormulaMetadata(value = {}) {
+  const source = value && typeof value === "object" ? value : {};
+  const metadata = {};
+  recipeFormulaTextFields.forEach((field) => {
+    const text = trimmedString(source[field]);
+    if (text) metadata[field] = text;
+  });
+  const panCount = positiveOptionalNumber(source.panCount);
+  if (panCount !== undefined) metadata.panCount = panCount;
+  const testBakeStatus = trimmedString(source.testBakeStatus);
+  if (testBakeStatus && recipeTestBakeStatuses.has(testBakeStatus)) metadata.testBakeStatus = testBakeStatus;
+  return metadata;
+}
+
+export function normalizeRecipeItemPrepState(value = {}) {
+  const source = value && typeof value === "object" ? value : {};
+  const prepState = {};
+  recipePrepTextFields.forEach((field) => {
+    const text = trimmedString(source[field]);
+    if (text) prepState[field] = text;
+  });
+  const sequence = positiveOptionalNumber(source.sequence);
+  if (sequence !== undefined) prepState.sequence = sequence;
+  return prepState;
+}
+
 export function archiveTableForEntity(entityType) {
   const tableMap = {
     ingredient: "ingredients",
@@ -861,6 +923,8 @@ export async function handleAction(sql, body, actor) {
   }
 
   if (action === "recipe.save") {
+    await sql`alter table recipes add column if not exists formula_metadata jsonb not null default '{}'`;
+    await sql`alter table recipe_items add column if not exists prep_state jsonb not null default '{}'`;
     const data = body.recipe ?? {};
     const productId = data.productId || id("prod");
     const recipeId = data.id || id("rec");
@@ -868,6 +932,8 @@ export async function handleAction(sql, body, actor) {
     const items = Array.isArray(data.items) ? data.items.filter((item) => item.ingredientId && num(item.quantity) > 0) : [];
     if (!items.length) throw Object.assign(new Error("Add at least one recipe ingredient."), { statusCode: 400 });
     const instructions = String(data.instructions || "").split(/\n+/).map((step) => step.trim()).filter(Boolean);
+    const formulaMetadata = normalizeRecipeFormulaMetadata(data.formulaMetadata);
+    const formulaMetadataJson = JSON.stringify(formulaMetadata);
     await sql.transaction((txn) => [
       txn`
         insert into products (id, name, category, description, active)
@@ -875,16 +941,19 @@ export async function handleAction(sql, body, actor) {
         on conflict (id) do update set name = excluded.name, category = excluded.category, description = excluded.description, updated_at = now()
       `,
       txn`
-        insert into recipes (id, product_id, name, category, base_yield_quantity, yield_unit, instructions, notes, active)
-        values (${recipeId}, ${productId}, ${required(data.name, "Recipe name")}, ${required(data.category, "Category")}, ${num(data.baseYieldQuantity, 1)}, ${data.yieldUnit || "pieces"}, ${instructions}, ${data.notes || null}, true)
+        insert into recipes (id, product_id, name, category, base_yield_quantity, yield_unit, instructions, notes, formula_metadata, active)
+        values (${recipeId}, ${productId}, ${required(data.name, "Recipe name")}, ${required(data.category, "Category")}, ${num(data.baseYieldQuantity, 1)}, ${data.yieldUnit || "pieces"}, ${instructions}, ${data.notes || null}, ${formulaMetadataJson}::jsonb, true)
         on conflict (id) do update set name = excluded.name, category = excluded.category, base_yield_quantity = excluded.base_yield_quantity,
-          yield_unit = excluded.yield_unit, instructions = excluded.instructions, notes = excluded.notes, updated_at = now()
+          yield_unit = excluded.yield_unit, instructions = excluded.instructions, notes = excluded.notes, formula_metadata = excluded.formula_metadata, updated_at = now()
       `,
       txn`delete from recipe_items where recipe_id = ${recipeId}`,
-      ...items.map((item, index) => txn`
-        insert into recipe_items (id, recipe_id, ingredient_id, quantity, unit, waste_percentage, notes)
-        values (${id(`ri-${index}`)}, ${recipeId}, ${item.ingredientId}, ${num(item.quantity)}, ${normalizeUnit(item.unit)}, ${num(item.wastePercentage)}, ${item.notes || null})
-      `)
+      ...items.map((item, index) => {
+        const prepStateJson = JSON.stringify(normalizeRecipeItemPrepState(item.prepState));
+        return txn`
+        insert into recipe_items (id, recipe_id, ingredient_id, quantity, unit, waste_percentage, notes, prep_state)
+        values (${id(`ri-${index}`)}, ${recipeId}, ${item.ingredientId}, ${num(item.quantity)}, ${normalizeUnit(item.unit)}, ${num(item.wastePercentage)}, ${item.notes || null}, ${prepStateJson}::jsonb)
+      `;
+      })
     ]);
     await audit(sql, "recipes", recipeId, data.id ? "update" : "create", before, await rowById(sql, "recipes", recipeId));
     return { ok: true, id: recipeId, productId };

@@ -442,6 +442,7 @@ tbody tr.is-expanded { background: #edf7f5; }
 .order-builder-row .btn { min-height: 46px; }
 .builder-field { display: grid; gap: 6px; min-width: 0; }
 .builder-field span { color: var(--muted); font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: .04em; }
+.builder-prep-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; min-width: 0; }
 .ingredient-picker { align-self: stretch; }
 .ingredient-picker input[type="search"] { margin-bottom: 2px; }
 .sticky-actions {
@@ -648,6 +649,8 @@ tbody tr.is-expanded { background: #edf7f5; }
   .form-grid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .builder-row { grid-template-columns: minmax(180px, 1.5fr) minmax(110px, .8fr) minmax(110px, .8fr) minmax(110px, .8fr) auto; }
   .order-builder-row { grid-template-columns: minmax(170px, 1.2fr) minmax(170px, 1.2fr) minmax(100px, .75fr) minmax(100px, .75fr) minmax(92px, .65fr) auto; }
+  .builder-prep-grid { grid-column: 1 / -1; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .prep-notes-wide { grid-column: span 2; }
   .more-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .audit-json-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }

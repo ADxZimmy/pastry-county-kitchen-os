@@ -1,5 +1,5 @@
 import { conversionRules, ingredients, inventoryMovements, orderItems, orders, products, recipeItems, recipes, settings, suppliers } from "../data";
-import type { ConversionRule, Ingredient, Order, OrderItem, Product, Recipe, RecipeItem, Unit } from "../types";
+import type { ConversionRule, Ingredient, Order, OrderItem, Product, Recipe, RecipeItem, RecipeItemPrepState, Settings, Unit } from "../types";
 
 export interface ScaledIngredient {
   ingredientId: string;
@@ -8,6 +8,14 @@ export interface ScaledIngredient {
   scaledQuantity: number;
   unit: Unit;
   scaleFactor: number;
+  displayQuantity?: number;
+  displayUnit?: Unit;
+  scalingNote?: string;
+  prepState?: RecipeItemPrepState;
+}
+
+export interface ScalingPreferences {
+  eggRoundingPreference?: Settings["eggRoundingPreference"];
 }
 
 export interface StockAvailability {
@@ -64,13 +72,50 @@ export function roundByPreference(value: number, unit: Unit) {
   return Number(value.toFixed(2));
 }
 
-export function roundScaledQuantity(value: number, unit: Unit) {
-  if (["pcs", "pack", "roll", "egg", "yolk", "white"].includes(unit)) return Math.ceil(value);
+const eggGramFactors: Record<"egg" | "yolk" | "white", number> = {
+  egg: 50,
+  yolk: 18,
+  white: 30
+};
+
+function activeEggPreference(preferences: ScalingPreferences = {}) {
+  return preferences.eggRoundingPreference ?? settings.eggRoundingPreference ?? "nearest_whole_egg";
+}
+
+function eggScalingUnit(unit: Unit, ingredient?: Pick<Ingredient, "id" | "name">): "egg" | "yolk" | "white" | undefined {
+  if (unit === "egg" || unit === "yolk" || unit === "white") return unit;
+  if (unit !== "pcs" || !ingredient) return undefined;
+  const label = `${ingredient.id} ${ingredient.name}`.toLowerCase();
+  if (/\byolks?\b/.test(label)) return "yolk";
+  if (/\bwhites?\b/.test(label)) return "white";
+  if (/\beggs?\b/.test(label)) return "egg";
+  return undefined;
+}
+
+function scaledEggDisplay(scaledQuantity: number, eggUnit: "egg" | "yolk" | "white") {
+  return {
+    displayQuantity: Number((scaledQuantity * eggGramFactors[eggUnit]).toFixed(1)),
+    displayUnit: "g" as Unit,
+    scalingNote: `${eggUnit === "egg" ? "whole egg" : eggUnit} converted at ${eggGramFactors[eggUnit]}g each`
+  };
+}
+
+export function roundScaledQuantity(value: number, unit: Unit, preferences: ScalingPreferences = {}, ingredient?: Pick<Ingredient, "id" | "name">) {
+  const eggUnit = eggScalingUnit(unit, ingredient);
+  if (eggUnit) {
+    if (activeEggPreference(preferences) === "allow_gram_conversion") return Number(value.toFixed(3));
+    return value <= 0 ? 0 : Math.max(1, Math.round(value));
+  }
+  if (["pcs", "pack", "roll"].includes(unit)) return Math.ceil(value);
   if (["g", "kg", "ml", "litre", "cup", "tablespoon", "teaspoon"].includes(unit)) return Number(value.toFixed(1));
   return Number(value.toFixed(2));
 }
 
-export function scaleRecipe(recipeId: string, requestedYieldQuantity: number, recipeList = recipes, itemList = recipeItems, ingredientList = ingredients): ScaledIngredient[] {
+export function formatScaledIngredientQuantity(item: Pick<ScaledIngredient, "scaledQuantity" | "unit" | "displayQuantity" | "displayUnit">) {
+  return formatQuantity(item.displayQuantity ?? item.scaledQuantity, item.displayUnit ?? item.unit);
+}
+
+export function scaleRecipe(recipeId: string, requestedYieldQuantity: number, recipeList = recipes, itemList = recipeItems, ingredientList = ingredients, preferences: ScalingPreferences = settings): ScaledIngredient[] {
   const recipe = recipeList.find((item) => item.id === recipeId);
   if (!recipe) throw new Error(`Recipe ${recipeId} was not found`);
   const scaleFactor = requestedYieldQuantity / recipe.baseYieldQuantity;
@@ -80,13 +125,20 @@ export function scaleRecipe(recipeId: string, requestedYieldQuantity: number, re
       const ingredient = ingredientList.find((candidate) => candidate.id === item.ingredientId);
       if (!ingredient) throw new Error(`Ingredient ${item.ingredientId} was not found`);
       const withWaste = item.quantity * (1 + (item.wastePercentage ?? 0) / 100);
+      const scaledQuantity = roundScaledQuantity(withWaste * scaleFactor, item.unit, preferences, ingredient);
+      const eggUnit = eggScalingUnit(item.unit, ingredient);
+      const display = eggUnit && activeEggPreference(preferences) === "allow_gram_conversion"
+        ? scaledEggDisplay(scaledQuantity, eggUnit)
+        : {};
       return {
         ingredientId: ingredient.id,
         ingredientName: ingredient.name,
         originalQuantity: item.quantity,
-        scaledQuantity: roundScaledQuantity(withWaste * scaleFactor, item.unit),
+        scaledQuantity,
         unit: item.unit,
-        scaleFactor
+        scaleFactor,
+        prepState: item.prepState,
+        ...display
       };
     });
 }
@@ -96,7 +148,12 @@ export function combineRequirements(requirements: ScaledIngredient[]) {
   requirements.forEach((item) => {
     const key = `${item.ingredientId}:${item.unit}`;
     const existing = map.get(key);
-    if (existing) existing.scaledQuantity += item.scaledQuantity;
+    if (existing) {
+      existing.scaledQuantity += item.scaledQuantity;
+      if (existing.displayUnit && existing.displayUnit === item.displayUnit && item.displayQuantity !== undefined) {
+        existing.displayQuantity = (existing.displayQuantity ?? 0) + item.displayQuantity;
+      }
+    }
     else map.set(key, { ...item });
   });
   return Array.from(map.values());
@@ -368,6 +425,9 @@ export function buildKitchenAssistantResponse(prompt: string) {
 
 export function convertUnit(quantity: number, fromUnit: Unit, toUnit: Unit, ingredientId?: string, rules: ConversionRule[] = conversionRules) {
   if (fromUnit === toUnit) return { convertedQuantity: quantity, confidenceLevel: "High" as const, source: "direct", needsReview: false };
+  if (String(ingredientId ?? "").toLowerCase().includes("egg") && ((fromUnit === "egg" && toUnit === "pcs") || (fromUnit === "pcs" && toUnit === "egg"))) {
+    return { convertedQuantity: quantity, confidenceLevel: "High" as const, source: "direct egg count", needsReview: false };
+  }
   const direct: Record<string, number> = {
     "kg:g": 1000,
     "g:kg": 0.001,

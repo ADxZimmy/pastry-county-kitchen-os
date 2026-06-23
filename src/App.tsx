@@ -30,7 +30,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import { apiBaseUrl, backendMode } from "./lib/backend";
 import { auditChangedFields, auditChangeSummary, auditDataJson, auditExportRows, auditFieldLabel, auditRecordLabel, auditSearchText, type AuditRecordNameLookup } from "./lib/audit";
 import { appUsers, auditLogs, conversionRules, ingredientBatches, ingredients, inventoryMovements, orderItems, orders, products, recipeItems, recipes, settings, suppliers, setKitchenSnapshot } from "./data";
-import type { AppStaffUser, AuditLog, ConversionRule, Ingredient, Order, Recipe, StockStatus, Supplier, Unit } from "./types";
+import type { AppStaffUser, AuditLog, ConversionRule, Ingredient, Order, Recipe, RecipeFormulaMetadata, RecipeItemPrepState, StockStatus, Supplier, Unit } from "./types";
 import {
   calculateMargin,
   calculateOrderCost,
@@ -42,6 +42,7 @@ import {
   dashboardProductionQueue,
   formatNaira,
   formatQuantity,
+  formatScaledIngredientQuantity,
   generateShoppingList,
   netSellingPrice,
   parseRecipeText,
@@ -446,8 +447,56 @@ function formNumber(form: HTMLFormElement, name: string, fallback = 0) {
   return Number.isFinite(value) ? value : fallback;
 }
 
+function optionalFormNumber(form: HTMLFormElement, name: string) {
+  const value = formValue(form, name).trim();
+  if (!value) return undefined;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+}
+
 function formValues(form: HTMLFormElement, name: string) {
   return new FormData(form).getAll(name).map(String).filter(Boolean);
+}
+
+function hasFormulaMetadata(metadata?: RecipeFormulaMetadata) {
+  return Boolean(metadata && Object.values(metadata).some((value) => value !== undefined && value !== null && String(value).trim() !== ""));
+}
+
+function formulaMetadataRows(metadata?: RecipeFormulaMetadata) {
+  if (!metadata) return [];
+  const rows: [string, string | number | undefined][] = [
+    ["Family", metadata.productFamily],
+    ["Version", metadata.formulaVersion],
+    ["Pan", [metadata.panCount, metadata.panProfile].filter(Boolean).join(" x ")],
+    ["Fill", metadata.fillGuidance],
+    ["Oven", metadata.ovenTemperature],
+    ["Bake", metadata.bakeTimeRange],
+    ["Mixing", metadata.mixingMethod],
+    ["Rest/Chill/Cool", [metadata.restWindow, metadata.chillWindow, metadata.coolWindow].filter(Boolean).join(" / ")],
+    ["Doneness", metadata.targetDoneness],
+    ["Checkpoints", metadata.sensoryCheckpoints],
+    ["Storage", metadata.storageServiceNotes],
+    ["Test bake", metadata.testBakeStatus?.replace(/_/g, " ")]
+  ];
+  return rows.filter((row): row is [string, string | number] => row[1] !== undefined && row[1] !== "");
+}
+
+function formulaMetadataSummary(metadata?: RecipeFormulaMetadata) {
+  const rows = formulaMetadataRows(metadata).slice(0, 4).map(([label, value]) => `${label}: ${value}`);
+  return rows.length ? rows.join(" | ") : "No formula profile yet";
+}
+
+function prepStateSummary(prepState?: RecipeItemPrepState) {
+  if (!prepState) return "";
+  return [
+    prepState.component,
+    prepState.stage,
+    prepState.ingredientState,
+    prepState.temperatureState,
+    prepState.dividedUse,
+    prepState.preparationNotes,
+    prepState.handlingWarning ? `Warning: ${prepState.handlingWarning}` : ""
+  ].filter(Boolean).join(" | ");
 }
 
 async function apiAction(action: string, payload: Record<string, unknown> = {}) {
@@ -1380,7 +1429,7 @@ function Recipes({ setPage, setSelectedRecipeId, query, setQuery }: any) {
   const list = recipes.filter((recipe) => (filter === "All" || recipe.category === filter) && recipe.name.toLowerCase().includes(query.toLowerCase()));
   return (
     <>
-      <Toolbar query={query} setQuery={setQuery} placeholder="Search recipes" action={<div className="button-row"><Button variant="secondary" onClick={() => exportCsv("pastry-county-recipes.csv", ["Recipe", "Category", "Base Yield", "Yield Unit", "Batch Cost", "Cost Per Unit"], list.map((recipe) => { const cost = calculateRecipeCost(recipe.id, recipe.baseYieldQuantity); return [recipe.name, recipe.category, recipe.baseYieldQuantity, recipe.yieldUnit, cost.totalRecipeCost, cost.costPerYieldUnit]; }))}>Export CSV</Button><Button onClick={() => { setSelectedRecipeId(""); setPage("recipe-form"); }}><Plus size={18} /> Add Recipe</Button></div>} />
+      <Toolbar query={query} setQuery={setQuery} placeholder="Search recipes" action={<div className="button-row"><Button variant="secondary" onClick={() => exportCsv("pastry-county-recipes.csv", ["Recipe", "Category", "Base Yield", "Yield Unit", "Product Family", "Pan Profile", "Oven", "Bake Time", "Batch Cost", "Cost Per Unit"], list.map((recipe) => { const cost = calculateRecipeCost(recipe.id, recipe.baseYieldQuantity); const formula = recipe.formulaMetadata ?? {}; return [recipe.name, recipe.category, recipe.baseYieldQuantity, recipe.yieldUnit, formula.productFamily ?? "", formula.panProfile ?? "", formula.ovenTemperature ?? "", formula.bakeTimeRange ?? "", cost.totalRecipeCost, cost.costPerYieldUnit]; }))}>Export CSV</Button><Button onClick={() => { setSelectedRecipeId(""); setPage("recipe-form"); }}><Plus size={18} /> Add Recipe</Button></div>} />
       <Chips items={categories} active={filter} setActive={setFilter} />
       <div className="card-grid">
         {list.map((recipe) => {
@@ -1390,6 +1439,7 @@ function Recipes({ setPage, setSelectedRecipeId, query, setQuery }: any) {
               <div className="item-card-head"><Cookie size={22} /><Badge tone="caramel">{recipe.category}</Badge></div>
               <h3>{recipe.name}</h3>
               <p>Base yield: {recipe.baseYieldQuantity} {recipe.yieldUnit}</p>
+              <small>{formulaMetadataSummary(recipe.formulaMetadata)}</small>
               <div className="mini-stats"><span>{formatNaira(cost.totalRecipeCost)} batch</span><span>{formatNaira(cost.costPerYieldUnit)} each</span></div>
               <Button variant="secondary" onClick={(event) => { event.stopPropagation(); setSelectedRecipeId(recipe.id); setPage("scaling"); }}><Scale size={18} /> Scale Recipe</Button>
             </article>
@@ -1404,18 +1454,20 @@ function RecipeDetail({ recipeId, user, setPage, notify, askConfirm, reloadData 
   const recipe = recipes.find((item) => item.id === recipeId);
   if (!recipe) return <EmptyState title="Recipe not found" message="Select a recipe from the database-backed recipe library." />;
   const cost = calculateRecipeCost(recipeId, recipe.baseYieldQuantity);
+  const currentRecipeItems = recipeItems.filter((item) => item.recipeId === recipeId);
   return (
     <div className="detail-layout">
       <article className="detail-hero">
         <div><p className="eyebrow">{recipe.category}</p><h2>{recipe.name}</h2><p>Base yield {recipe.baseYieldQuantity} {recipe.yieldUnit} · {formatNaira(cost.totalRecipeCost)} batch cost</p></div>
-        <div className="button-row"><Button onClick={() => setPage("scaling")}><Scale size={18} /> Scale Recipe</Button><Button variant="secondary" onClick={() => setPage("recipe-form")} disabled={!canUser(user, "manageRecipes")}>Edit Recipe</Button><Button variant="secondary" onClick={() => setPage("order-create")} disabled={!canUser(user, "manageOrders")}>Create Order</Button><Button variant="ghost" onClick={async () => { await apiAction("recipe.save", { recipe: { name: `${recipe.name} Copy`, category: recipe.category, baseYieldQuantity: recipe.baseYieldQuantity, yieldUnit: recipe.yieldUnit, notes: recipe.notes, instructions: recipe.instructions.join("\n"), items: recipeItems.filter((item) => item.recipeId === recipe.id) } }); notify("Recipe duplicated in Neon."); await reloadData(); setPage("recipes"); }} disabled={!canUser(user, "manageRecipes")}>Duplicate</Button><Button variant="danger" onClick={() => askConfirm({ title: `Archive ${recipe.name}?`, message: "It will disappear from active recipes. Linked order history stays intact.", confirmLabel: "Archive Recipe", tone: "danger", onConfirm: async () => { await apiAction("recipe.delete", { recipeId }); notify(`${recipe.name} archived from active recipes.`); await reloadData(); setPage("recipes"); } })} disabled={!canUser(user, "deleteRecords")}>Archive</Button></div>
+        <div className="button-row"><Button onClick={() => setPage("scaling")}><Scale size={18} /> Scale Recipe</Button><Button variant="secondary" onClick={() => setPage("recipe-form")} disabled={!canUser(user, "manageRecipes")}>Edit Recipe</Button><Button variant="secondary" onClick={() => setPage("order-create")} disabled={!canUser(user, "manageOrders")}>Create Order</Button><Button variant="ghost" onClick={async () => { await apiAction("recipe.save", { recipe: { name: `${recipe.name} Copy`, category: recipe.category, baseYieldQuantity: recipe.baseYieldQuantity, yieldUnit: recipe.yieldUnit, notes: recipe.notes, instructions: recipe.instructions.join("\n"), formulaMetadata: recipe.formulaMetadata ?? {}, items: currentRecipeItems.map((item) => ({ ...item, prepState: item.prepState ?? {} })) } }); notify("Recipe duplicated in Neon."); await reloadData(); setPage("recipes"); }} disabled={!canUser(user, "manageRecipes")}>Duplicate</Button><Button variant="danger" onClick={() => askConfirm({ title: `Archive ${recipe.name}?`, message: "It will disappear from active recipes. Linked order history stays intact.", confirmLabel: "Archive Recipe", tone: "danger", onConfirm: async () => { await apiAction("recipe.delete", { recipeId }); notify(`${recipe.name} archived from active recipes.`); await reloadData(); setPage("recipes"); } })} disabled={!canUser(user, "deleteRecords")}>Archive</Button></div>
       </article>
+      {hasFormulaMetadata(recipe.formulaMetadata) && <Section title="Formula Profile"><div className="compact-list">{formulaMetadataRows(recipe.formulaMetadata).map(([label, value]) => <div className="row-card" key={label}><span>{label}</span><strong>{value}</strong></div>)}</div></Section>}
       <div className="split">
-        <Section title="Ingredients"><div className="compact-list">{recipeItems.filter((item) => item.recipeId === recipeId).map((item) => <div className="row-card" key={item.id}><strong>{ingredients.find((ingredient) => ingredient.id === item.ingredientId)?.name}</strong><span>{item.quantity}{item.unit}</span></div>)}</div></Section>
+        <Section title="Ingredients"><div className="compact-list">{currentRecipeItems.map((item) => <div className="row-card" key={item.id}><span><strong>{ingredients.find((ingredient) => ingredient.id === item.ingredientId)?.name}</strong><small>{prepStateSummary(item.prepState) || "No prep state recorded"}</small></span><strong>{formatQuantity(item.quantity, item.unit)}</strong></div>)}</div></Section>
         <Section title="Instructions"><ol className="method-list">{recipe.instructions.map((step) => <li key={step}>{step}</li>)}</ol></Section>
       </div>
       <div className="split">
-        <Section title="Cost Breakdown"><div className="compact-list">{cost.ingredientCostBreakdown.map((item) => <div className="row-card" key={item.ingredientId}><span>{item.ingredientName}<small>{item.scaledQuantity}{item.unit}</small></span><strong>{formatNaira(item.cost)}</strong></div>)}</div></Section>
+        <Section title="Cost Breakdown"><div className="compact-list">{cost.ingredientCostBreakdown.map((item) => <div className="row-card" key={item.ingredientId}><span>{item.ingredientName}<small>{formatScaledIngredientQuantity(item)}</small></span><strong>{formatNaira(item.cost)}</strong></div>)}</div></Section>
         <Section title="Inventory Availability"><div className="metric-grid small">{[1, 2, 3].map((batch) => <article className="metric-card" key={batch}><span>{batch} batch{batch > 1 ? "es" : ""}</span><strong>{checkStockAvailability(scaleRecipe(recipeId, recipe.baseYieldQuantity * batch)).some((item) => item.status === "shortage") ? "Shortage" : "Ready"}</strong></article>)}</div></Section>
       </div>
     </div>
@@ -1449,7 +1501,18 @@ function RecipeForm({ recipeId, setPage, notify, reloadData }: { recipeId: strin
         ingredientId: formValue(form, `ingredientId-${index}`),
         quantity: formNumber(form, `quantity-${index}`),
         unit: formValue(form, `unit-${index}`),
-        wastePercentage: formNumber(form, `wastePercentage-${index}`)
+        wastePercentage: formNumber(form, `wastePercentage-${index}`),
+        notes: formValue(form, `itemNotes-${index}`),
+        prepState: {
+          component: formValue(form, `component-${index}`),
+          stage: formValue(form, `stage-${index}`),
+          sequence: optionalFormNumber(form, `sequence-${index}`),
+          ingredientState: formValue(form, `ingredientState-${index}`),
+          temperatureState: formValue(form, `temperatureState-${index}`),
+          dividedUse: formValue(form, `dividedUse-${index}`),
+          preparationNotes: formValue(form, `preparationNotes-${index}`),
+          handlingWarning: formValue(form, `handlingWarning-${index}`)
+        }
       })).filter((item) => item.ingredientId && item.quantity > 0).map((item) => {
         const ingredient = ingredients.find((candidate) => candidate.id === item.ingredientId);
         if (!ingredient || item.unit === ingredient.baseUnit) return item;
@@ -1470,6 +1533,23 @@ function RecipeForm({ recipeId, setPage, notify, reloadData }: { recipeId: strin
           yieldUnit: formValue(form, "yieldUnit"),
           notes: formValue(form, "notes"),
           instructions: formValue(form, "instructions"),
+          formulaMetadata: {
+            productFamily: formValue(form, "productFamily"),
+            formulaVersion: formValue(form, "formulaVersion"),
+            panProfile: formValue(form, "panProfile"),
+            panCount: optionalFormNumber(form, "panCount"),
+            fillGuidance: formValue(form, "fillGuidance"),
+            ovenTemperature: formValue(form, "ovenTemperature"),
+            bakeTimeRange: formValue(form, "bakeTimeRange"),
+            mixingMethod: formValue(form, "mixingMethod"),
+            restWindow: formValue(form, "restWindow"),
+            chillWindow: formValue(form, "chillWindow"),
+            coolWindow: formValue(form, "coolWindow"),
+            targetDoneness: formValue(form, "targetDoneness"),
+            sensoryCheckpoints: formValue(form, "sensoryCheckpoints"),
+            storageServiceNotes: formValue(form, "storageServiceNotes"),
+            testBakeStatus: formValue(form, "testBakeStatus")
+          },
           items
         }
       });
@@ -1479,19 +1559,51 @@ function RecipeForm({ recipeId, setPage, notify, reloadData }: { recipeId: strin
     }}>
       <Section title="Product information"><div className="form-grid"><Field label="Product name"><input name="name" defaultValue={recipe?.name ?? ""} placeholder="Product name" required /></Field><Field label="Category"><select name="category" defaultValue={recipe?.category ?? ""} required><option value="" disabled>Select category</option><option>Brownies</option><option>Blondies</option><option>Cookies</option><option>Loaves</option><option>Cakes</option></select></Field><Field label="Batch notes"><textarea name="notes" defaultValue={recipe?.notes ?? ""} placeholder="Cooling, cutting, baking, or packaging notes" /></Field></div></Section>
       <Section title="Yield information"><div className="form-grid two"><Field label="Base yield quantity"><input name="baseYieldQuantity" type="number" step="0.001" defaultValue={recipe?.baseYieldQuantity ?? 16} placeholder="0" /></Field><Field label="Yield unit"><select name="yieldUnit" defaultValue={recipe?.yieldUnit ?? "pieces"}><option>pieces</option><option>cookies</option><option>loaves</option><option>boxes</option><option>trays</option></select></Field></div></Section>
+      <Section title="Formula Profile">
+        <p className="section-note">Record the pan, oven, timing, sensory checkpoints, and test-bake status that make this a repeatable pastry formula.</p>
+        <div className="form-grid">
+          <Field label="Product family"><input name="productFamily" defaultValue={recipe?.formulaMetadata?.productFamily ?? ""} placeholder="Brownie, loaf, cookie, cake" /></Field>
+          <Field label="Formula version"><input name="formulaVersion" defaultValue={recipe?.formulaMetadata?.formulaVersion ?? ""} placeholder="v1, test bake 2, Eid batch" /></Field>
+          <Field label="Pan profile"><input name="panProfile" defaultValue={recipe?.formulaMetadata?.panProfile ?? ""} placeholder="9x13 tray, 500g loaf tin" /></Field>
+          <Field label="Pan count"><input name="panCount" type="number" min="0" step="1" defaultValue={recipe?.formulaMetadata?.panCount ?? ""} placeholder="1" /></Field>
+          <Field label="Fill guidance"><input name="fillGuidance" defaultValue={recipe?.formulaMetadata?.fillGuidance ?? ""} placeholder="Fill to 2/3, 650g batter per tin" /></Field>
+          <Field label="Oven temperature"><input name="ovenTemperature" defaultValue={recipe?.formulaMetadata?.ovenTemperature ?? ""} placeholder="170C fan / 180C deck" /></Field>
+          <Field label="Bake time range"><input name="bakeTimeRange" defaultValue={recipe?.formulaMetadata?.bakeTimeRange ?? ""} placeholder="24-28 min" /></Field>
+          <Field label="Mixing method"><input name="mixingMethod" defaultValue={recipe?.formulaMetadata?.mixingMethod ?? ""} placeholder="Creaming, melted, muffin method" /></Field>
+          <Field label="Rest window"><input name="restWindow" defaultValue={recipe?.formulaMetadata?.restWindow ?? ""} placeholder="Rest batter 15 min" /></Field>
+          <Field label="Chill window"><input name="chillWindow" defaultValue={recipe?.formulaMetadata?.chillWindow ?? ""} placeholder="Chill dough 2 hr" /></Field>
+          <Field label="Cool window"><input name="coolWindow" defaultValue={recipe?.formulaMetadata?.coolWindow ?? ""} placeholder="Cool fully before cutting" /></Field>
+          <Field label="Target doneness"><input name="targetDoneness" defaultValue={recipe?.formulaMetadata?.targetDoneness ?? ""} placeholder="Set edges, fudgy centre" /></Field>
+          <Field label="Sensory checkpoints"><textarea name="sensoryCheckpoints" defaultValue={recipe?.formulaMetadata?.sensoryCheckpoints ?? ""} placeholder="Glossy batter, no dry flour, skewer with moist crumbs" /></Field>
+          <Field label="Storage/service notes"><textarea name="storageServiceNotes" defaultValue={recipe?.formulaMetadata?.storageServiceNotes ?? ""} placeholder="Wrap after cooling; best within 3 days" /></Field>
+          <Field label="Test bake status"><select name="testBakeStatus" defaultValue={recipe?.formulaMetadata?.testBakeStatus ?? "untested"}><option value="untested">Untested</option><option value="test_bake_needed">Test bake needed</option><option value="tested">Tested</option><option value="production_ready">Production ready</option></select></Field>
+        </div>
+      </Section>
       <Section title="Ingredients" action={<Button variant="secondary" onClick={() => setBuilderRows((rows) => [...rows, Date.now()])}><Plus size={18} /> Add Ingredient</Button>}>
         <div className="compact-list">
           {builderRows.map((row, index) => {
             const item = existingItems[index];
+            const prep = item?.prepState ?? {};
             const searchValue = ingredientSearches[row] ?? "";
             const ingredientGroups = ingredientPickerGroups(searchValue, item?.ingredientId);
             return (
               <div className="builder-row" key={row}>
                 <label className="builder-field ingredient-picker"><span>Ingredient</span><input type="search" aria-label={`Search ingredients for recipe row ${index + 1}`} value={searchValue} onChange={(event) => setIngredientSearches((current) => ({ ...current, [row]: event.target.value }))} placeholder="Search ingredient or category" /><select name={`ingredientId-${index}`} defaultValue={item?.ingredientId ?? ""} required><option value="" disabled>Select ingredient</option>{ingredientGroups.map(([category, group]) => <optgroup key={category} label={category}>{group.map((ingredient) => <option key={ingredient.id} value={ingredient.id}>{ingredient.name}</option>)}</optgroup>)}</select></label>
                 <label className="builder-field"><span>Quantity</span><input name={`quantity-${index}`} type="number" step="0.001" defaultValue={item?.quantity ?? ""} placeholder="0" /></label>
-                <label className="builder-field"><span>Unit</span><select name={`unit-${index}`} defaultValue={item?.unit ?? "g"}><option>g</option><option>ml</option><option>pcs</option><option>cup</option><option>tablespoon</option><option>teaspoon</option><option>pack</option><option>roll</option></select></label>
+                <label className="builder-field"><span>Unit</span><select name={`unit-${index}`} defaultValue={item?.unit ?? "g"}><option>g</option><option>kg</option><option>ml</option><option>litre</option><option>pcs</option><option>egg</option><option>yolk</option><option>white</option><option>cup</option><option>tablespoon</option><option>teaspoon</option><option>pack</option><option>roll</option></select></label>
                 <label className="builder-field"><span>Waste %</span><input name={`wastePercentage-${index}`} type="number" min="0" step="0.001" defaultValue={item?.wastePercentage ?? 0} placeholder="0" /></label>
                 <Button variant="ghost" onClick={() => setBuilderRows((rows) => rows.length === 1 ? rows : rows.filter((_, rowIndex) => rowIndex !== index))}>Remove</Button>
+                <div className="builder-prep-grid">
+                  <label className="builder-field"><span>Component</span><input name={`component-${index}`} defaultValue={prep.component ?? ""} placeholder="Brownie base, streusel" /></label>
+                  <label className="builder-field"><span>Stage</span><input name={`stage-${index}`} defaultValue={prep.stage ?? ""} placeholder="Mise, mix, fold, finish" /></label>
+                  <label className="builder-field"><span>Sequence</span><input name={`sequence-${index}`} type="number" min="1" step="1" defaultValue={prep.sequence ?? ""} placeholder="1" /></label>
+                  <label className="builder-field"><span>State</span><input name={`ingredientState-${index}`} defaultValue={prep.ingredientState ?? ""} placeholder="Sifted, melted, roasted, packed" /></label>
+                  <label className="builder-field"><span>Temperature</span><input name={`temperatureState-${index}`} defaultValue={prep.temperatureState ?? ""} placeholder="Cold cubed, room temp" /></label>
+                  <label className="builder-field"><span>Divided use</span><input name={`dividedUse-${index}`} defaultValue={prep.dividedUse ?? ""} placeholder="Half in batter, half on top" /></label>
+                  <label className="builder-field"><span>Prep notes</span><input name={`preparationNotes-${index}`} defaultValue={prep.preparationNotes ?? ""} placeholder="Toast, cool, chop medium" /></label>
+                  <label className="builder-field"><span>Handling warning</span><input name={`handlingWarning-${index}`} defaultValue={prep.handlingWarning ?? ""} placeholder="Keep cold; do not overmix" /></label>
+                  <label className="builder-field prep-notes-wide"><span>Line notes</span><input name={`itemNotes-${index}`} defaultValue={item?.notes ?? ""} placeholder="Supplier, substitution, or production note" /></label>
+                </div>
               </div>
             );
           })}
@@ -1525,8 +1637,9 @@ function RecipeScaling({ recipeId, setPage, setSelectedOrderId, setOrderDraft, n
           <Field label="Scale factor"><input readOnly value={`${(desired / recipe.baseYieldQuantity).toFixed(2)}x`} /></Field>
         </div>
       </Section>
-      <div className="metric-grid small"><Metric label="Estimated cost" value={formatNaira(cost.totalRecipeCost)} /><Metric label="Cost per piece" value={formatNaira(cost.costPerYieldUnit)} /><Metric label="Stock availability" value={availability.some((item) => item.status === "shortage") ? "Shortage" : "Ready"} /></div>
-      <Section title="Scaled Ingredients"><div className="compact-list">{scaled.map((item) => <div className="row-card" key={item.ingredientId}><span>{item.ingredientName}<small>Original {item.originalQuantity}{item.unit}</small></span><strong>{item.scaledQuantity}{item.unit}</strong></div>)}</div></Section>
+      <div className="metric-grid small"><Metric label="Estimated cost" value={formatNaira(cost.totalRecipeCost)} /><Metric label="Cost per piece" value={formatNaira(cost.costPerYieldUnit)} /><Metric label="Stock availability" value={availability.some((item) => item.status === "shortage") ? "Shortage" : "Ready"} /><Metric label="Egg scaling" value={settings.eggRoundingPreference === "allow_gram_conversion" ? "Gram weights" : "Whole counts"} /></div>
+      {hasFormulaMetadata(recipe.formulaMetadata) && <Section title="Formula Profile"><div className="compact-list">{formulaMetadataRows(recipe.formulaMetadata).slice(0, 8).map(([label, value]) => <div className="row-card" key={label}><span>{label}</span><strong>{value}</strong></div>)}</div></Section>}
+      <Section title="Scaled Ingredients"><div className="compact-list">{scaled.map((item) => <div className="row-card" key={item.ingredientId}><span>{item.ingredientName}<small>Original {formatQuantity(item.originalQuantity, item.unit)}{prepStateSummary(item.prepState) ? ` | ${prepStateSummary(item.prepState)}` : ""}{item.scalingNote ? ` | ${item.scalingNote}` : ""}</small></span><strong>{formatScaledIngredientQuantity(item)}</strong></div>)}</div></Section>
       {availability.some((item) => item.status === "shortage") && <article className="warning-card"><AlertTriangle size={22} /> Some ingredients are short. Update stock before production is completed.</article>}
       <div className="sticky-actions"><Button onClick={() => { notify("Scaled recipe added to production planning view."); setPage("production"); }}>Save as production plan</Button><Button variant="secondary" onClick={() => { setSelectedOrderId(""); setOrderDraft({ recipeId, requestedYieldQuantity: desired }); setPage("order-create"); }}>Create order</Button><Button variant="secondary" onClick={() => window.print()}>Print recipe</Button><Button variant="ghost" onClick={() => shareText(`${recipe.name} scaled to ${desired} ${recipe.yieldUnit}`, notify)}>Share recipe</Button></div>
     </div>
@@ -1627,7 +1740,7 @@ function CreateOrder({ orderId, orderDraft, setOrderDraft, setPage, notify, relo
         </div>
       </Section>
       <div className="split">
-        <Section title="Ingredient Requirement Preview"><div className="compact-list">{requirements.map((item) => <div className="row-card" key={item.ingredientId}><span>{item.ingredientName}</span><strong>{item.scaledQuantity}{item.unit}</strong></div>)}</div></Section>
+      <Section title="Ingredient Requirement Preview"><div className="compact-list">{requirements.map((item) => <div className="row-card" key={item.ingredientId}><span>{item.ingredientName}</span><strong>{formatScaledIngredientQuantity(item)}</strong></div>)}</div></Section>
       <Section title="Stock Availability"><div className="compact-list">{availability.map((item) => {
         const unit = requirements.find((requirement) => requirement.ingredientId === item.ingredientId)?.unit ?? "g";
         return <div className="row-card" key={item.ingredientId}><span>{item.ingredientName}<small>Available {formatQuantity(item.availableStock, unit)}</small></span><Badge tone={item.status === "shortage" ? "danger" : "success"}>{item.status.replace(/_/g, " ")}</Badge></div>;
@@ -1671,7 +1784,7 @@ function OrderDetail({ orderId, user, setPage, notify, askConfirm, reloadData }:
       </article>
       {hasShortage && <article className="warning-card"><AlertTriangle size={22} /> Resolve ingredient shortages before reserving stock, starting production, or marking this order produced.</article>}
       <div className="split"><SummaryCard title="Customer Info" items={[["Name", order.customerName], ["Phone", order.customerPhone], ["Payment", order.paymentStatus], ["Notes", order.notes ?? "None"]]} /><SummaryCard title="Cost Summary" items={[["Production cost", formatNaira(cost)], ["Stock status", order.stockStatus], ["Production status", order.productionStatus], ["Order status", order.status]]} /></div>
-      <Section title="Required Ingredients"><div className="compact-list">{requirements.map((item) => <div className="row-card" key={item.ingredientId}><span>{item.ingredientName}</span><strong>{item.scaledQuantity}{item.unit}</strong></div>)}</div></Section>
+      <Section title="Required Ingredients"><div className="compact-list">{requirements.map((item) => <div className="row-card" key={item.ingredientId}><span>{item.ingredientName}</span><strong>{formatScaledIngredientQuantity(item)}</strong></div>)}</div></Section>
       <Section title="Stock Check"><div className="compact-list">{availability.map((item) => {
         const unit = requirements.find((requirement) => requirement.ingredientId === item.ingredientId)?.unit ?? "g";
         return <div className="row-card" key={item.ingredientId}><span>{item.ingredientName}<small>Required {formatQuantity(item.requiredQuantity, unit)}, available {formatQuantity(item.availableStock, unit)}</small></span><Badge tone={item.shortageQuantity > 0 ? "danger" : "success"}>{item.shortageQuantity > 0 ? "Shortage" : "Enough Stock"}</Badge></div>;
@@ -1727,7 +1840,7 @@ function Production({ user, setPage, setSelectedOrderId, notify, reloadData }: a
                 <div className="item-card-head"><ChefHat size={20} /><Badge tone={stockTone(stage)}>{stage}</Badge></div>
                 <h3>{recipe?.name ?? "Recipe"}</h3>
                 <p>{batch.totalYield} {recipe?.yieldUnit ?? "units"} · due {batch.dueDate}</p>
-                <small>{batch.orderIds.length} order{batch.orderIds.length === 1 ? "" : "s"} · {batchRequirements.slice(0, 3).map((item) => `${item.ingredientName} ${item.scaledQuantity}${item.unit}`).join(", ")}</small>
+                <small>{batch.orderIds.length} order{batch.orderIds.length === 1 ? "" : "s"} | {batchRequirements.slice(0, 3).map((item) => `${item.ingredientName} ${formatScaledIngredientQuantity(item)}`).join(", ")}</small>
                 {hasShortage && <small className="field-error">Resolve before production: {shortageText(shortages)}.</small>}
                 <div className="button-row">
                   <Button variant="secondary" onClick={() => setReviewBatchKey(batch.key)}>Review Batch</Button>
@@ -1753,7 +1866,7 @@ function Production({ user, setPage, setSelectedOrderId, notify, reloadData }: a
                   <div className="item-card-head"><ChefHat size={20} /><Badge tone={stockTone(hasShortage ? "Shortage" : order.stockStatus)}>{hasShortage ? "Shortage" : order.stockStatus}</Badge></div>
                   <h3>{orderItems.filter((item) => item.orderId === order.id).map((item) => products.find((product) => product.id === item.productId)?.name).join(", ")}</h3>
                   <p>{order.customerName} · due {order.dueDate}</p>
-                  <small>Required: {requirements.slice(0, 3).map((item) => `${item.ingredientName} ${item.scaledQuantity}${item.unit}`).join(", ")}</small>
+                  <small>Required: {requirements.slice(0, 3).map((item) => `${item.ingredientName} ${formatScaledIngredientQuantity(item)}`).join(", ")}</small>
                   {hasShortage && <small className="field-error">Resolve before production: {shortageText(orderShortages)}.</small>}
                   <div className="button-row"><Button variant="secondary" onClick={async (event) => { event.stopPropagation(); try { if (hasShortage) { notify(`Cannot start production: ${shortageText(orderShortages)}.`); setPage("shopping"); return; } await apiAction("order.status", { orderId: order.id, status: "In Production", productionStatus: "In Progress" }); notify("Production started for this order."); await reloadData(); } catch (error) { notify(error instanceof Error ? error.message : "Unable to start production."); } }} disabled={!canStartProduction || !canUser(user, "runProduction")}>Start Production</Button><Button variant="secondary" onClick={(event) => { event.stopPropagation(); setScaledOrderId(order.id); }}>View Scaled Recipe</Button><Button onClick={async (event) => { event.stopPropagation(); try { if (hasShortage) { notify(`Cannot deduct inventory: ${shortageText(orderShortages)}.`); setPage("shopping"); return; } await markOrderProduced(order.id, notify); await reloadData(); } catch (error) { notify(error instanceof Error ? error.message : "Unable to deduct inventory."); } }} disabled={!canDeductInventory || !canUser(user, "runProduction")}>Deduct Inventory</Button></div>
                 </article>
@@ -1808,7 +1921,7 @@ function ProductionScaledRecipeModal({ orderId, onClose }: { orderId: string; on
                 ["Scale factor", recipe ? `${(requested / recipe.baseYieldQuantity).toFixed(2)}x` : "Unknown"],
                 ["Estimated cost", formatNaira(cost.totalRecipeCost)]
               ]} />
-              <ResponsiveTable headers={["Ingredient", "Original", "Scaled"]} rows={scaled.map((item) => ({ key: item.ingredientId, cells: [item.ingredientName, formatQuantity(item.originalQuantity, item.unit), formatQuantity(item.scaledQuantity, item.unit)] }))} />
+              <ResponsiveTable headers={["Ingredient", "Original", "Scaled"]} rows={scaled.map((item) => ({ key: item.ingredientId, cells: [item.ingredientName, formatQuantity(item.originalQuantity, item.unit), formatScaledIngredientQuantity(item)] }))} />
             </section>
           );
         })}

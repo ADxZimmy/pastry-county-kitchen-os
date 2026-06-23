@@ -65,6 +65,7 @@ create table if not exists recipes (
   yield_unit text not null,
   instructions text[] not null default '{}',
   notes text,
+  formula_metadata jsonb not null default '{}',
   active boolean not null default true,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -78,6 +79,7 @@ create table if not exists recipe_items (
   unit text not null check (unit in ('g','kg','ml','litre','pcs','cup','tablespoon','teaspoon','pack','roll','egg','yolk','white')),
   waste_percentage numeric(6,3) not null default 0 check (waste_percentage >= 0),
   notes text,
+  prep_state jsonb not null default '{}',
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );

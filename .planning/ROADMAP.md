@@ -4,7 +4,7 @@
 
 - Phase: 003 Pastry Formula Depth
   Outcome: Use the Baking and Pastry Arts audit to add pastry-grade recipe formula controls, starting with egg scaling correctness, formula metadata, and recipe-item prep state.
-  Status: Planned.
+  Status: Local implementation complete; deployment verification pending.
 
 ## Next
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { allowedRolesForAction, archiveTableForEntity, canRolePerformAction, normalizeShoppingPurchaseInput, planBatchDeductions, productionCompletionPreflight, productionShortageForRequirement, safePurchasePersistenceError, sendResendEmail, sessionAccessError } from "./_actions.js";
+import { allowedRolesForAction, archiveTableForEntity, canRolePerformAction, normalizeRecipeFormulaMetadata, normalizeRecipeItemPrepState, normalizeShoppingPurchaseInput, planBatchDeductions, productionCompletionPreflight, productionShortageForRequirement, safePurchasePersistenceError, sendResendEmail, sessionAccessError } from "./_actions.js";
 
 describe("FEFO batch deduction planning", () => {
   it("deducts stock removals or production use across lots in the provided FEFO order", () => {
@@ -236,6 +236,55 @@ describe("shopping purchase validation", () => {
     expect(error).toMatchObject({
       message: "Unable to save this purchase. Check the quantity and unit cost, then try again.",
       statusCode: 400
+    });
+  });
+});
+
+describe("recipe formula metadata normalization", () => {
+  it("keeps pastry formula fields and removes empty or unsupported values", () => {
+    expect(normalizeRecipeFormulaMetadata({
+      productFamily: " Brownie ",
+      formulaVersion: "v2",
+      panProfile: "9x13 tray",
+      panCount: "2",
+      ovenTemperature: "170C fan",
+      bakeTimeRange: "24-28 min",
+      sensoryCheckpoints: "Glossy top, moist crumbs",
+      testBakeStatus: "production_ready",
+      ignored: "drop me",
+      coolWindow: ""
+    })).toEqual({
+      productFamily: "Brownie",
+      formulaVersion: "v2",
+      panProfile: "9x13 tray",
+      panCount: 2,
+      ovenTemperature: "170C fan",
+      bakeTimeRange: "24-28 min",
+      sensoryCheckpoints: "Glossy top, moist crumbs",
+      testBakeStatus: "production_ready"
+    });
+  });
+
+  it("keeps recipe-item prep state fields for pastry-specific ingredient handling", () => {
+    expect(normalizeRecipeItemPrepState({
+      component: "Brownie base",
+      stage: "Mix",
+      sequence: "3",
+      ingredientState: "Sifted",
+      temperatureState: "Room temperature",
+      dividedUse: "Half batter, half topping",
+      preparationNotes: "Fold gently",
+      handlingWarning: "Do not overmix",
+      unknown: "drop me"
+    })).toEqual({
+      component: "Brownie base",
+      stage: "Mix",
+      sequence: 3,
+      ingredientState: "Sifted",
+      temperatureState: "Room temperature",
+      dividedUse: "Half batter, half topping",
+      preparationNotes: "Fold gently",
+      handlingWarning: "Do not overmix"
     });
   });
 });

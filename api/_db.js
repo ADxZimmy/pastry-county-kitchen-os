@@ -25,6 +25,8 @@ export async function loadKitchenSnapshot(sql = getSql()) {
   await sql`alter table ingredients alter column purchase_unit set default 'g'`;
   await sql`alter table ingredients alter column purchase_unit set not null`;
   await sql`alter table conversion_rules add column if not exists active boolean not null default true`;
+  await sql`alter table recipes add column if not exists formula_metadata jsonb not null default '{}'`;
+  await sql`alter table recipe_items add column if not exists prep_state jsonb not null default '{}'`;
   await sql`alter table settings add column if not exists safety_margin_percentage numeric(6,3) not null default 10`;
   await sql`alter table settings add column if not exists default_tax_percentage numeric(6,3) not null default 0`;
   await sql`alter table settings add column if not exists low_stock_notification_email text`;
@@ -107,14 +109,14 @@ export async function loadKitchenSnapshot(sql = getSql()) {
     sql`select id, name, category, description, active from products where active = true order by category, name`,
     sql`
       select id, product_id as "productId", name, category, base_yield_quantity::float as "baseYieldQuantity",
-        yield_unit as "yieldUnit", instructions, notes, active, updated_at::date::text as "updatedAt"
+        yield_unit as "yieldUnit", instructions, notes, coalesce(formula_metadata, '{}'::jsonb) as "formulaMetadata", active, updated_at::date::text as "updatedAt"
       from recipes
       where active = true
       order by name
     `,
     sql`
       select recipe_items.id, recipe_id as "recipeId", ingredient_id as "ingredientId", quantity::float, unit,
-        waste_percentage::float as "wastePercentage", recipe_items.notes
+        waste_percentage::float as "wastePercentage", recipe_items.notes, coalesce(prep_state, '{}'::jsonb) as "prepState"
       from recipe_items
       join recipes on recipes.id = recipe_items.recipe_id
       where recipes.active = true
@@ -191,9 +193,10 @@ export async function loadKitchenSnapshot(sql = getSql()) {
     products: productRows,
     recipes: recipeRows.map((recipe) => ({
       ...recipe,
-      instructions: Array.isArray(recipe.instructions) ? recipe.instructions : String(recipe.instructions ?? "").split("\n").filter(Boolean)
+      instructions: Array.isArray(recipe.instructions) ? recipe.instructions : String(recipe.instructions ?? "").split("\n").filter(Boolean),
+      formulaMetadata: recipe.formulaMetadata ?? {}
     })),
-    recipeItems: recipeItemRows,
+    recipeItems: recipeItemRows.map((item) => ({ ...item, prepState: item.prepState ?? {} })),
     orders: orderRows,
     orderItems: orderItemRows,
     inventoryMovements: movementRows,
