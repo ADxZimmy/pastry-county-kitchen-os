@@ -2,18 +2,18 @@
 
 ## Now
 
-- Phase: 003 Pastry Formula Depth
-  Outcome: Use the Baking and Pastry Arts audit to add pastry-grade recipe formula controls, starting with egg scaling correctness, formula metadata, and recipe-item prep state.
-  Status: Complete and verified in production.
+- Phase: 005 Navigation And Routing Overhaul
+  Outcome: Replace page-per-action dead ends with route-aware hierarchy, browser Back support, breadcrumbs, contextual form exits, direct record links, and mobile navigation that follows UIUX guidance.
+  Status: Planned and ready for implementation.
 
 ## Next
 
-- Phase: 004 Pastry Costing, QC, and Compliance Depth
-  Outcome: Extend costing beyond ingredients, add production QC logs, add structured allergen/storage controls, and deepen state-scoped conversion rules.
-  Status: Ready to plan.
+- Phase: 006 Certification Evidence Closeout
+  Outcome: Complete external SPF/DNS, controlled email delivery, backup/restore or rollback drills, keyboard/screen-reader sign-off, and manual operator evidence for a 100/100 certification claim.
+  Status: Backlog.
 
 ## Later
 
-- Phase: 005 Certification Evidence Closeout
-  Outcome: Complete external SPF/DNS, controlled email delivery, and manual operator sign-offs for 100/100 certification evidence.
-  Status: Backlog.
+- Phase: Fresh External Audit Rerun
+  Outcome: Re-run the full external audit against production after Phase 005 ships, so the 95+ baseline is checked against the corrected navigation model.
+  Status: Pending user request.

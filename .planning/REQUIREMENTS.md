@@ -38,6 +38,21 @@
 - Requirement: Replace raw server errors with user-safe messages.
   Acceptance: SQL/internal errors are logged server-side but surfaced to users as clear operational messages with no raw database syntax.
 
+- Requirement: Replace page-per-action dead ends with route-aware navigation.
+  Acceptance: recipe, ingredient, and order lists, details, forms, scaling, and production/shopping handoffs have explicit parent routes, browser Back behavior, and visible Back/Breadcrumb controls.
+
+- Requirement: Make durable record views deep-linkable.
+  Acceptance: recipe, ingredient, and order detail/edit URLs include record IDs, survive refresh, show the intended record, and fall back safely when a record is missing or archived.
+
+- Requirement: Preserve workflow origin across forms and cross-feature jumps.
+  Acceptance: edit forms return to the edited detail record, new forms return to the parent list or new detail, and production/recipe/AI jumps to Shopping, Costing, Conversions, or Orders provide a clear way back.
+
+- Requirement: Protect users from accidental form data loss.
+  Acceptance: Add/Edit Recipe, Ingredient, and Order flows warn before leaving with unsaved changes via Cancel, Back, top/bottom navigation, browser Back, or tab close where feasible.
+
+- Requirement: Fix mobile primary navigation structure.
+  Acceptance: mobile bottom navigation has no more than five primary items, secondary modules live behind More, active state is reliable, and 320/360/390/414/430px viewports have usable touch targets and no horizontal overflow.
+
 ## Non-Functional
 
 - Requirement: Pastry-depth changes must preserve the 96/100 release-gate baseline.
@@ -45,6 +60,9 @@
 
 - Requirement: Production readiness must be proven by repeatable checks.
   Acceptance: unit/API tests, production build, authenticated live smoke, unauthenticated API security checks, mobile/a11y smoke, and cleanup checks pass before another external audit.
+
+- Requirement: Navigation readiness must be proven by repeatable checks.
+  Acceptance: route helper tests, workflow navigation tests, mobile navigation checks, and a production Playwright navigation smoke pass before Phase 005 is considered complete.
 
 - Requirement: Live test data must be temporary and recoverable.
   Acceptance: smoke-created users and `AUDIT-*` records are archived or deleted, and cleanup checks report zero active temporary records unless a test intentionally preserves evidence.
@@ -54,6 +72,7 @@
 - A full multi-tenant permission redesign unless role-filtered bootstrap becomes necessary.
 - Sending real low-stock emails during automated audit unless the recipient is a controlled test inbox.
 - Large visual redesign outside the audit findings.
+- Backend schema changes for the navigation overhaul unless implementation discovers a durable routing requirement that cannot be handled in the frontend.
 
 ## Open Questions
 
@@ -62,3 +81,6 @@
 
 - Question: Is the live database schema still carrying an older integer column/type despite repo schema using numeric purchase prices?
   Status: Verify with a safe schema introspection or migration check before coding the decimal-cost fix.
+
+- Question: Should large add/edit flows stay as full-page routes, modal sheets, or a hybrid by workflow?
+  Status: Phase 005 defaults to durable routes for recipe, ingredient, and order forms, while keeping quick secondary edits in accessible modals.

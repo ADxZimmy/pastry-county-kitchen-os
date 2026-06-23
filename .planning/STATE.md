@@ -4,7 +4,7 @@ Last updated: 2026-06-23
 
 ## Current Focus
 
-Phase 004 Pastry Costing, QC, and Compliance Depth is implemented, pushed, deployed, and verified against production. Next focus can be the user's remaining personal changes or a fresh external audit rerun.
+Phase 005 Navigation And Routing Overhaul is planned from the owner's critical navigation feedback. The app has a strong 95+ audit baseline, but the current page-per-action routing model is now the active product risk to fix before another external audit.
 
 ## Completed
 
@@ -57,10 +57,14 @@ Phase 004 Pastry Costing, QC, and Compliance Depth is implemented, pushed, deplo
 - Updated `scripts/live-audit-smoke.mjs` so the umbrella live audit also runs Phase 003 and Phase 004 pastry smokes.
 - Pushed Phase 004 in commits `2a9794d` and `b0c8949`, then verified production with `npm.cmd run smoke:phase4-pastry-depth`.
 - Re-ran `npm.cmd run smoke:live-audit` after Phase 004; Phase 2 rerun, Milestone 7, regression audit, Phase 3 pastry, and Phase 4 pastry depth smokes all passed against production.
+- Created and pushed `docs/new-chat-context.md` in commit `e7937df` so a fresh chat can understand the current app/codebase state.
+- Reviewed GSD Hybrid and UI UX Pro Max guidance for the owner's navigation/routing complaint.
+- Audited the current `src/App.tsx` navigation shape: page-only hash routing, selected record IDs outside URLs, static form cancel targets, task pages as peer pages, and cross-feature jumps without return context.
+- Created GSD Hybrid Phase 005 under `.planning/phases/005-navigation-routing-overhaul/` for the navigation and routing overhaul.
 
 ## In Progress
 
-- Awaiting the user's remaining personal changes or the next requested external audit rerun.
+- Phase 005 is ready for implementation: complete the source-backed button/page inventory, then add typed route helpers, route-aware navigation state, breadcrumbs/back controls, contextual form exits, mobile nav corrections, unsaved-change guards, and production smoke coverage.
 
 ## Blocked
 
@@ -69,7 +73,7 @@ Phase 004 Pastry Costing, QC, and Compliance Depth is implemented, pushed, deplo
 
 ## Next Action
 
-When the user is ready, either implement the remaining personal changes or run a fresh external audit against the current production deployment.
+Implement Phase 005 Step 1: inventory every `setPage`, card click, row click, toolbar action, form cancel/save, modal trigger, and cross-feature shortcut in `src/App.tsx`, then begin the route helper migration.
 
 ## Verification Snapshot
 
@@ -157,3 +161,7 @@ When the user is ready, either implement the remaining personal changes or run a
   Result: Passed release gate; latest scored audit is 96/100 and ready for 95+ release gate.
 - Command/check: Baking and Pastry Arts audit review
   Result: New product-depth backlog identified and mapped into Phase 003.
+- Command/check: UI UX Pro Max path resolution
+  Result: Installed skill body found at `C:\Users\User\.codex\skills\ui-ux-pro-max\SKILL.md`; `scripts` and `data` are pointer files to missing targets under `C:\Users\User\src\ui-ux-pro-max\`.
+- Command/check: Phase 005 planning
+  Result: Created GSD Hybrid planning artifacts for the navigation/routing overhaul; implementation and app tests are still pending.
