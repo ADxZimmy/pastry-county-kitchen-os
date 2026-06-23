@@ -53,10 +53,28 @@
 - Requirement: Fix mobile primary navigation structure.
   Acceptance: mobile bottom navigation has no more than five primary items, secondary modules live behind More, active state is reliable, and 320/360/390/414/430px viewports have usable touch targets and no horizontal overflow.
 
+- Requirement: Import existing recipe and costing sources during onboarding.
+  Acceptance: authenticated users can import pasted text, spreadsheets, PDFs, Word documents, and images into a reviewable draft; the system identifies recipes, ingredient lines, costing values, instructions, yields, formula metadata, and source evidence before any records are saved.
+
+- Requirement: Import adjacent onboarding data when present.
+  Acceptance: import drafts can classify and preview ingredient masters, supplier references, unit conversion rules, allergen/storage notes, product categories, and optional customer/order templates without forcing the user to commit all detected record types at once.
+
+- Requirement: Prevent silent bad imports.
+  Acceptance: low-confidence quantities, unknown ingredients, unknown units, duplicate recipe names, ambiguous costs, and unverified conversions are flagged for review; uncertain records cannot be committed until the user resolves or explicitly skips them.
+
+- Requirement: Preserve import traceability.
+  Acceptance: committed recipes and recipe items retain source filename/type plus sheet/page/row/line or OCR evidence where available; audit logs identify import-created or import-updated records.
+
+- Requirement: Keep imported costing trustworthy.
+  Acceptance: imported source line amounts continue to drive recipe costing where approved, while missing or suspect costs are marked incomplete instead of being silently estimated as authoritative.
+
 ## Non-Functional
 
 - Requirement: Pastry-depth changes must preserve the 96/100 release-gate baseline.
   Acceptance: existing live-audit smoke checks still pass after formula-depth implementation, and existing recipes continue to load, scale, cost, duplicate, and archive.
+
+- Requirement: Import processing must protect private business data.
+  Acceptance: file uploads are authenticated, size/type-limited, not committed as raw secrets, and processed through a provider abstraction with documented data-retention/cost risks before any external OCR/vision service is enabled in production.
 
 - Requirement: Production readiness must be proven by repeatable checks.
   Acceptance: unit/API tests, production build, authenticated live smoke, unauthenticated API security checks, mobile/a11y smoke, and cleanup checks pass before another external audit.

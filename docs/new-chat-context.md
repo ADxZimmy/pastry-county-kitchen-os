@@ -16,9 +16,10 @@ Start with these files in this order:
 2. `docs/new-chat-context.md` for this whole-codebase map.
 3. `.planning/STATE.md` for the latest work status.
 4. `docs/audit-handoff.md` for the latest external-audit handoff.
-5. `.planning/phases/005-navigation-routing-overhaul/VERIFICATION.md` for the completed navigation/routing verification.
-6. `.planning/phases/004-pastry-costing-qc-compliance/VERIFICATION.md` for the latest completed Phase 004 verification.
-7. `docs/certification/README.md` for the separate 100/100 certification evidence track.
+5. `.planning/phases/006-recipe-import-onboarding/PLAN.md` for the planned import/onboarding work.
+6. `.planning/phases/005-navigation-routing-overhaul/VERIFICATION.md` for the completed navigation/routing verification.
+7. `.planning/phases/004-pastry-costing-qc-compliance/VERIFICATION.md` for the latest completed Phase 004 verification.
+8. `docs/certification/README.md` for the separate 100/100 certification evidence track.
 
 Important repository rule: after any local code or documentation change in this repo, commit and push before ending the turn unless the user explicitly says not to. Deployment-triggering commits should use the repo owner identity:
 
@@ -38,6 +39,7 @@ After that, product-depth work continued:
 - Phase 004 Pastry Costing, QC, and Compliance Depth was implemented, pushed, deployed, and production-smoke verified.
 - The umbrella `npm run smoke:live-audit` was updated to run Phase 002, Milestone 7, regression audit, Phase 003, Phase 004, and navigation-routing smoke coverage, and it passed against production after Phase 005.
 - Phase 005 Navigation And Routing Overhaul was implemented, pushed, deployed, and production-smoke verified. The former page-per-action risk is now corrected with route-aware hierarchy, direct record links, Back/Breadcrumb controls, contextual form exits, mobile nav cleanup, unsaved-change guards, and navigation smoke coverage.
+- Phase 006 Recipe Import Onboarding is planned under `.planning/phases/006-recipe-import-onboarding/`. It is not implemented yet. The intended direction is a review-first import pipeline for pasted text, spreadsheets, PDFs, Word documents, and images/camera captures, with support for recipes, costing sheets, ingredient masters, suppliers, conversion rules, allergen/storage notes, and source traceability.
 
 The app is not yet claimable as `100/100` because certification evidence still needs external email DNS/operator sign-offs, backup/restore or rollback drills, and other manual evidence. That is a certification evidence gap, not a current product-depth blocker.
 
@@ -61,6 +63,7 @@ The app supports these core workflows:
 - Conversion library for ingredient-specific and state-scoped conversions, including import/export, verification, archive, and measured-source metadata.
 - Supplier management with contact details, currency, lead times, supplied ingredient IDs, linked-record delete guard, and search.
 - Settings, staff, audit reports, compliance exports, operations reports, archive recovery, and guarded Resend low-stock email logging/sending.
+- Planned, not yet built: review-first import onboarding for existing recipe/costing documents across text, spreadsheets, PDFs, Word documents, and camera/image inputs.
 
 ## Frontend Shape
 

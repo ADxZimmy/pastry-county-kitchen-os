@@ -4,170 +4,38 @@ Last updated: 2026-06-23
 
 ## Current Focus
 
-Phase 005 Navigation And Routing Overhaul has been implemented, pushed, deployed, and production-smoke verified. The app has a strong 95+ audit baseline plus corrected route-aware navigation; the next backlog risk is the separate 100/100 certification evidence closeout.
+Phase 006 Recipe Import Onboarding is planned. The goal is a review-first import pipeline for recipes, costing sheets, ingredient masters, suppliers, conversions, PDFs, Word documents, text, and camera/image inputs so public onboarding is much smoother.
 
 ## Completed
 
-- Synced local `main` with GitHub `origin/main` at `bb4fd77`.
-- Read current progress docs: `docs/audit-milestone.md` and `docs/audit-handoff.md`.
-- Read the June 22 live audit report from the provided Codex session `019eeee0-894f-7880-b3fa-4a7c002de3ab`.
-- Initialized GSD Hybrid planning artifacts under `.planning/`.
-- Implemented Phase 001 Step 1 locally: `/api/bootstrap` now requires a signed bearer session in both serverless and Express entry points, and the React app sends the saved session token only after login.
-- Added bootstrap auth unit coverage for unauthenticated and authenticated reads.
-- Pushed `13c5008` and verified the live deployment: unauthenticated `/api/bootstrap` returns 401, while authenticated owner login plus bootstrap returns 200.
-- Reproduced the live decimal purchase failure with a temporary `AUDIT-Decimal` ingredient, then implemented local schema drift repair for decimal purchase/stock columns and user-safe purchase persistence errors.
-- After the first decimal patch deployed, live fractional purchases returned the new user-safe message but still failed; removed an unnecessary SQL `case when unitCost > 0` comparison that could force integer parameter inference.
-- Pushed `1bd7f3e` and verified live shopping purchases with unit costs `0.5`, `0.64`, `2.75`, and `10`; purchase logs, latest ingredient cost, inventory movements, and FEFO batches all persisted expected values, then cleanup archived the probe ingredient.
-- Reproduced live conversion drift: Flour had two active verified `cup -> g` rules at `125g`; implemented conversion-rule reconciliation to restore audit values and archive duplicate active verified rules.
-- Implemented natural conversion prompt parsing for questions such as `Convert 1 cup sugar to grams`, including flour, sugar, cocoa, egg, yolk, white, and coconut oil audit cases.
-- Pushed `f08ebdf`, ran live `schema.ensure`, and verified production now has one active verified conversion rule for each audit ingredient with expected values: Flour `120g`, Sugar `200g`, Cocoa `85g`, Egg `50g`, Yolk `18g`, White `30g`, and Coconut Oil `240ml`.
-- Confirmed production serves frontend bundle `assets/index-CokzK8DM.js`, matching the local build that passed natural AI conversion parsing tests.
-- Used UI UX Pro Max guidance for the mobile/accessibility pass, then implemented Phase 001 Step 4: shopping purchase controls now use 44px hit targets, responsive tables render only the active desktop or mobile representation, and mobile table rows are constrained to prevent 320px overflow.
-- Pushed `6c863ca`, `715df84`, and `ac3e4ce`; production now serves `assets/index-C2zAVjqJ.js` and `assets/index-BFPzob9P.css`.
-- Verified live Shopping at 320, 360, 390, 414, and 430px: 14 purchase controls, minimum target `44x44`, unique purchase labels, mobile card representation only, and no horizontal overflow.
-- Implemented Phase 001 Step 5: shared modal keyboard behavior now gives dialog panels Escape close handling, focus trapping, trigger focus return, and inert background state.
-- Pushed `53b5e49`; production now serves `assets/index-BfoHVrrm.js`.
-- Verified live modal behavior for Review Batch, View Scaled Recipe, stock adjustment, conversion edit, conversion import, and confirm dialogs: each kept focus inside, made background shell elements inert, closed on Escape, restored trigger focus, and restored inert state after close.
-- Implemented Phase 001 Step 6: invalid hashes now resolve to a safe fallback instead of preserving stale content, and Dashboard production cards are split into true due-today work plus overdue/carryover work.
-- Pushed `25533f9`; production now serves `assets/index-BjJDLwTr.js`.
-- Verified live route/date behavior: direct invalid hash and popstate invalid hash both normalized to `#dashboard`, and Dashboard showed no May 2026 orders in the today's production card list on the June 22 audit date.
-- Implemented Phase 001 Step 7: audit search, table rows, expanded details, and CSV export now use safe human-readable record labels with ID fallback while preserving sensitive-value redaction.
-- Pushed `6e8f716`; production now serves `assets/index-D3DM9y2d.js`.
-- Verified live audit display-name behavior with a temporary archived `AUDIT-Display-*` ingredient: Audit Reports search found the display label, CSV export included the display label, and no sensitive keys were exposed.
-- Implemented Phase 001 Step 8: added explicit tests for repeated production idempotency, signed Viewer bootstrap access, low-stock email no-send guards, low-stock email role boundaries, and retained user-safe purchase persistence error coverage.
-- Pushed `eb2a1ab` for final verification coverage and `eb8afe4` to authenticate the regression smoke's bootstrap reads.
-- Verified live Step 8 behavior: unauthenticated bootstrap remains 401, authenticated bootstrap remains available, repeated `order.produce` on already-produced `ord-chika` returned `{ produced: false, alreadyProduced: true }`, and `$env:REGRESSION_AUDIT_SMOKE_MUTATE='1'; npm.cmd run smoke:regression-audit` passed against production with temporary ingredients archived.
-- Updated `scripts/live-audit-smoke.mjs` to support the configured live test account when a database URL is not present, updated smoke scripts to seed authenticated sessions/bootstrap tokens, and verified `npm.cmd run smoke:live-audit` passed against production.
-- Reviewed the external audit rerun from session `019eeee0-894f-7880-b3fa-4a7c002de3ab`: score `76/100`, not ready for 95+ release.
-- Created GSD Hybrid Phase 002 under `.planning/phases/002-rerun-blocker-fixes/` for revoked bootstrap sessions, fresh UI login persistence, AI conversion prompts, Production 320px overflow, and mobile structural accessibility.
-- Implemented Phase 002: `/api/bootstrap` now uses DB-backed active/revoked-session validation, non-admin snapshots redact staff/audit/private settings, fresh login writes the session token before first bootstrap, exact AI conversion prompts with punctuation parse through verified rules, mobile table cards use semantic list markup, and Production small-screen layout is constrained.
-- Pushed `d292aab` for the Phase 002 implementation and `d9d85b1` for the Phase 002 smoke selector fix.
-- Verified production serves `assets/index-Cvb2sp8C.js` / `assets/index-DrJx3I71.css`.
-- Verified `npm.cmd run smoke:phase2-rerun` and `npm.cmd run smoke:live-audit` both passed against production.
-- Reviewed the follow-up external audit rerun 2 from Codex session `019eeee0-894f-7880-b3fa-4a7c002de3ab`: score `96/100`, ready for the 95+ release gate, with zero findings, failing checks, advisory failures, request failures, or console warnings/errors.
-- Reviewed the latest Baking and Pastry Arts audit from the same session: recipe/ingredient workflows need pastry formula depth, especially settings-aware egg scaling, structured formula metadata, recipe-item prep state, state-scoped conversions, expanded costing, allergen/storage controls, and production QC logging.
-- Created GSD Hybrid Phase 003 under `.planning/phases/003-pastry-formula-depth/`, using the Baking and Pastry Arts skill plus UI UX Pro Max guidance.
-- Implemented Phase 003 P1 scope locally: settings-aware egg scaling, additive recipe `formula_metadata`, additive recipe-item `prep_state`, formula/prep UI surfaces, recipe export expansion, duplicate preservation, and a repeatable live Phase 003 smoke script.
-- Verified Phase 003 locally with `npm.cmd test`, `npm.cmd run build`, `node --check scripts\phase3-pastry-smoke.mjs`, and `git diff --check`.
-- Pushed Phase 003 in commit `4c262b4`, confirmed production served `assets/index-B6OWEJUw.js` / `assets/index-DVmOTeuQ.css`, and verified live with `npm.cmd run smoke:phase3-pastry`.
-- Re-ran `npm.cmd run smoke:live-audit` after the Phase 003 deployment; Phase 2 rerun, Milestone 7, and regression audit smokes all passed against production.
-- Created GSD Hybrid Phase 004 under `.planning/phases/004-pastry-costing-qc-compliance/`, using Baking and Pastry Arts plus UI UX Pro Max guidance.
-- Implemented Phase 004 P2 scope locally: state-scoped conversion rules, conversion matching in scaling/costing/production requirements, ingredient allergen/storage profiles, recipe production cost profiles, production QC logs, order/production QC completion UI, and Phase 004 live smoke coverage.
-- Verified Phase 004 locally with `npm.cmd test`, `npm.cmd run build`, and `node --check scripts\phase4-pastry-depth-smoke.mjs`.
-- Updated `scripts/live-audit-smoke.mjs` so the umbrella live audit also runs Phase 003 and Phase 004 pastry smokes.
-- Pushed Phase 004 in commits `2a9794d` and `b0c8949`, then verified production with `npm.cmd run smoke:phase4-pastry-depth`.
-- Re-ran `npm.cmd run smoke:live-audit` after Phase 004; Phase 2 rerun, Milestone 7, regression audit, Phase 3 pastry, and Phase 4 pastry depth smokes all passed against production.
-- Created and pushed `docs/new-chat-context.md` in commit `e7937df` so a fresh chat can understand the current app/codebase state.
-- Reviewed GSD Hybrid and UI UX Pro Max guidance for the owner's navigation/routing complaint.
-- Audited the current `src/App.tsx` navigation shape: page-only hash routing, selected record IDs outside URLs, static form cancel targets, task pages as peer pages, and cross-feature jumps without return context.
-- Created GSD Hybrid Phase 005 under `.planning/phases/005-navigation-routing-overhaul/` for the navigation and routing overhaul.
-- Implemented Phase 005 locally: added typed route helpers, route-backed session/hash state, durable recipe/inventory/order URLs, route-aware breadcrumbs/back controls, contextual form cancel/save destinations, missing-record recovery, dirty-form guards, five-item mobile bottom navigation, Shopping return context, and explicit Production shortage links to Shopping.
-- Added `.planning/phases/005-navigation-routing-overhaul/NAVIGATION-INVENTORY.md` as the source-backed navigation inventory from `src/App.tsx`.
-- Added route helper unit tests and `scripts/navigation-routing-smoke.mjs`; wired `smoke:navigation-routing` into `package.json` and the umbrella live audit smoke.
-- Verified Phase 005 locally with `npm.cmd test`, `npm.cmd run build`, `node --check scripts/navigation-routing-smoke.mjs`, and `git diff --check`.
-- Pushed Phase 005 in commit `db07191`, confirmed GitHub/Vercel reported deployment success, and verified production with `npm.cmd run smoke:navigation-routing`.
-- Updated older smoke scripts for route-aware labels and duplicate detail headings, then verified `npm.cmd run smoke:live-audit` passed against production with Phase 2 rerun, Milestone 7, regression audit, Phase 3 pastry, Phase 4 pastry depth, and navigation routing coverage.
+- Local `main` is synced with GitHub `origin/main` through Phase 005 verification commit `7ef097d`.
+- Phase 001 Live Audit Production Readiness was implemented and production-smoke verified.
+- Phase 002 Rerun Blocker Fixes was implemented and production-smoke verified; the follow-up external audit rerun scored `96/100`.
+- Phase 003 Pastry Formula Depth was implemented, pushed, deployed, and production-smoke verified.
+- Phase 004 Pastry Costing, QC, and Compliance Depth was implemented, pushed, deployed, and production-smoke verified.
+- Phase 005 Navigation And Routing Overhaul was implemented, pushed, deployed, and production-smoke verified; `npm.cmd run smoke:live-audit` passed after the routing smoke was added.
+- Planned Phase 006 Recipe Import Onboarding under `.planning/phases/006-recipe-import-onboarding/`.
+- Used GSD Hybrid planning flow plus UI UX Pro Max guidance for the import/onboarding UX shape.
+- Source-checked parser options: OpenAI file inputs/vision/structured outputs, Azure Document Intelligence, Google Document AI, and Amazon Textract.
 
 ## In Progress
 
-- No active implementation phase. Phase 006 Certification Evidence Closeout is the next planned phase.
+- Phase 006 is planned but not implemented.
 
 ## Blocked
 
 - Item: 100/100 certification claim.
-  Reason: Separate certification evidence still needs external email DNS/operator sign-offs; this does not block Phase 003 product-depth work.
+  Reason: Separate certification evidence still needs external email DNS/operator sign-offs, backup/restore or rollback drills, and manual operator evidence. This does not block Phase 006 product onboarding work.
 
 ## Next Action
 
-Begin Phase 006 Certification Evidence Closeout when the user is ready, or request a fresh external audit against the current production deployment.
+Implement Phase 006 Step 1: define import contracts, sample fixtures, and deterministic pasted-text/CSV normalization tests before adding OCR or external parser dependencies.
 
 ## Verification Snapshot
 
-- Command/check: `git pull --ff-only origin main`
-  Result: Passed; fast-forwarded from `97cf912` to `bb4fd77`.
-- Command/check: Audit comparison
-  Result: Current repo marks Milestones 7 and 8 done, but June 22 live audit scored 72/100 and added a new recovery backlog.
-- Command/check: `npm.cmd test`
-  Result: Passed; 38 tests, including new bootstrap authentication coverage.
-- Command/check: `npm.cmd run build`
-  Result: Passed; TypeScript and Vite production build completed.
-- Command/check: Live unauthenticated `GET /api/bootstrap`
-  Result: Passed; production returned 401 with `Sign in again to continue.`.
-- Command/check: Live authenticated login plus `GET /api/bootstrap`
-  Result: Passed; owner login returned 200 and authenticated bootstrap returned 200 with recipes, ingredients, orders, and settings loaded.
-- Command/check: Live decimal purchase reproduction
-  Result: Failed as expected before the fix; production returned `invalid input syntax for type integer: "0.5"` for a temporary fractional shopping purchase, and cleanup archived the probe ingredient.
-- Command/check: `npm.cmd test`
-  Result: Passed; 40 tests, including fractional shopping-cost normalization and safe purchase-error mapping.
-- Command/check: `npm.cmd run build`
-  Result: Passed; TypeScript and Vite production build completed after the decimal purchase fix.
-- Command/check: Live decimal purchase post-deploy probe
-  Result: Partial; raw SQL error is no longer exposed, but `unitCost: 0.5` still failed with the user-safe purchase message before the SQL parameter-inference follow-up patch.
-- Command/check: `npm.cmd test`
-  Result: Passed; 40 tests after replacing the latest-cost SQL branch with direct decimal assignment.
-- Command/check: `npm.cmd run build`
-  Result: Passed; TypeScript and Vite production build completed after the SQL parameter-inference follow-up patch.
-- Command/check: Live decimal purchase verification
-  Result: Passed; production accepted `0.5`, `0.64`, `2.75`, and `10` unit costs, updated latest cost to `10`, created four purchase movements and four FEFO batches with total remaining quantity `4`, and cleanup archived the probe ingredient.
-- Command/check: Live conversion snapshot
-  Result: Drift reproduced; Flour had two active verified `cup -> g` rules and both were `125g`, while the audit expects a single active `120g` rule.
-- Command/check: `npm.cmd test`
-  Result: Passed; 42 tests, including natural conversion prompt parsing and AI response coverage for audit ingredients.
-- Command/check: `npm.cmd run build`
-  Result: Passed; TypeScript and Vite production build completed after the conversion/AI fix.
-- Command/check: Live `schema.ensure` and conversion snapshot
-  Result: Passed; production has canonical active verified conversion rules for the audit ingredient set and no duplicate active ingredient/from/to rules.
-- Command/check: Live frontend bundle check
-  Result: Passed; production serves `assets/index-CokzK8DM.js`, the same build artifact produced after the natural AI conversion parser tests passed.
-- Command/check: `npm.cmd test`
-  Result: Passed; 42 tests after the mobile shopping accessibility fix.
-- Command/check: `npm.cmd run build`
-  Result: Passed; TypeScript and Vite production build completed after the mobile shopping accessibility fix.
-- Command/check: Live mobile Shopping viewport smoke
-  Result: Passed; production served `assets/index-C2zAVjqJ.js` / `assets/index-BFPzob9P.css`, and Playwright verified widths 320/360/390/414/430 had unique purchase labels, 44x44 purchase checkbox targets, mobile cards only, and no horizontal overflow.
-- Command/check: `npm.cmd test`
-  Result: Passed; 42 tests after the modal keyboard accessibility fix.
-- Command/check: `npm.cmd run build`
-  Result: Passed; TypeScript and Vite production build completed after the modal keyboard accessibility fix, producing `assets/index-BfoHVrrm.js`.
-- Command/check: Live modal keyboard smoke
-  Result: Passed; production served `assets/index-BfoHVrrm.js`, and Playwright verified Review Batch, View Scaled Recipe, stock adjustment, conversion edit/import, and confirm dialogs for Escape close, focus trap, trigger focus return, inert background state, and inert restoration.
-- Command/check: `npm.cmd test`
-  Result: Passed; 44 tests, including dashboard production-date and invalid-hash fallback coverage.
-- Command/check: `npm.cmd run build`
-  Result: Passed; TypeScript and Vite production build completed after the route/date fix, producing `assets/index-BjJDLwTr.js`.
-- Command/check: Live route/dashboard smoke
-  Result: Passed; production served `assets/index-BjJDLwTr.js`, direct invalid hashes and popstate invalid hashes normalized to `#dashboard`, stale Production content was not shown, and Dashboard displayed an explicit no-orders-due-today empty state with overdue/carryover work separated.
-- Command/check: `npm.cmd test`
-  Result: Passed; 45 tests, including safe audit display-name search/export coverage.
-- Command/check: `npm.cmd run build`
-  Result: Passed; TypeScript and Vite production build completed after the audit display-name fix, producing `assets/index-D3DM9y2d.js`.
-- Command/check: Live audit display-name smoke
-  Result: Passed; production served `assets/index-D3DM9y2d.js`, a temporary `AUDIT-Display-*` ingredient was created and archived, Audit Reports search found its display label, CSV export included the display label, and no sensitive keys were exposed.
-- Command/check: `npm.cmd test`
-  Result: Passed; 50 tests, including repeated production idempotency, signed Viewer bootstrap access, low-stock notification role/no-send guards, and user-safe purchase persistence error mapping.
-- Command/check: `npm.cmd run build`
-  Result: Passed; TypeScript and Vite production build completed after the final verification coverage.
-- Command/check: Live verification-gap API smoke
-  Result: Passed; unauthenticated bootstrap returned 401, authenticated bootstrap returned 200, and repeated production on `ord-chika` returned `alreadyProduced: true` without another deduction.
-- Command/check: `$env:REGRESSION_AUDIT_SMOKE_MUTATE='1'; npm.cmd run smoke:regression-audit`
-  Result: Passed against production after updating the script to send the authenticated bootstrap bearer token.
-- Command/check: `npm.cmd run smoke:live-audit`
-  Result: Passed against production using the configured live test account fallback; Milestone 7 smoke passed, regression-audit mutation smoke passed, and child smokes archived their temporary data.
-- Command/check: External audit rerun review
-  Result: Failed production-readiness gate; latest score is 76/100 with Critical revoked-token bootstrap access, High fresh-login persistence failure, High AI conversion prompt failure, Medium Production 320px overflow, and Medium mobile structural accessibility findings.
-- Command/check: `npm.cmd test`
-  Result: Passed; 54 tests, including Phase 002 bootstrap revocation/filtering and exact AI conversion prompt coverage.
-- Command/check: `npm.cmd run build`
-  Result: Passed; production build completed with `assets/index-Cvb2sp8C.js` and `assets/index-DrJx3I71.css`.
-- Command/check: `npm.cmd run smoke:phase2-rerun`
-  Result: Passed against production; verified revoked Viewer bootstrap 401, Viewer snapshot filtering, fresh login token persistence, exact AI conversion outputs, Production 320px no-overflow, and mobile structural checks.
-- Command/check: `npm.cmd run smoke:live-audit`
-  Result: Passed against production; Phase 002 rerun smoke, Milestone 7 smoke, and regression-audit mutation smoke all passed.
-- Command/check: External audit rerun 2 review
-  Result: Passed release gate; latest scored audit is 96/100 and ready for 95+ release gate.
-- Command/check: Baking and Pastry Arts audit review
-  Result: New product-depth backlog identified and mapped into Phase 003.
-- Command/check: UI UX Pro Max path resolution
-  Result: Installed skill body found at `C:\Users\User\.codex\skills\ui-ux-pro-max\SKILL.md`; `scripts` and `data` are pointer files to missing targets under `C:\Users\User\src\ui-ux-pro-max\`.
-- Command/check: Phase 005 planning
-  Result: Created GSD Hybrid planning artifacts for the navigation/routing overhaul; implementation and app tests are still pending.
+- Check: GSD plan artifacts for Phase 006
+  Result: Created locally.
+- Check: UI UX Pro Max design-system search
+  Result: Completed for bakery SaaS import onboarding; guidance favored an operations-focused import wizard with clear progress, review states, confidence badges, and compact correction UI.
+- Check: Current implementation tests
+  Result: Not run for this planning-only change.
