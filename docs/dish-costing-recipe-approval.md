@@ -4,7 +4,7 @@ Source workbook: [Dish Costing](https://docs.google.com/spreadsheets/d/1LYbXObhU
 
 Source revision: `3942`, modified `2026-04-18T11:28:32Z`.
 
-Status: extracted for owner approval only. No recipe records have been updated from this list.
+Status: recipes 1-29 were owner-approved and imported into Neon on 2026-06-23. Recipes 30-34 remain pending owner approval.
 
 Use the `Approval` field for each recipe:
 - `approve`: ready to import/update in Pastry County Kitchen OS.
@@ -15,7 +15,7 @@ Use the `Approval` field for each recipe:
 
 ### 1. Job with Symbees - CRAQUELIN
 
-Approval:
+Approval: approve - imported to Neon on 2026-06-23.
 
 Source: `Job with Symbees !A1:E8`
 
@@ -29,7 +29,7 @@ Ingredients:
 
 ### 2. Job with Symbees - CHOUX
 
-Approval:
+Approval: approve - imported to Neon on 2026-06-23.
 
 Source: `Job with Symbees !A10:E20`
 
@@ -46,7 +46,7 @@ Ingredients:
 
 ### 3. Job with Symbees - ORANGE CREAM
 
-Approval:
+Approval: approve - imported to Neon on 2026-06-23.
 
 Source: `Job with Symbees !A22:E34`
 
@@ -65,7 +65,7 @@ Ingredients:
 
 ### 4. Job with Symbees - BROWN BUTTER PISTACHIO FINANCIER
 
-Approval:
+Approval: approve - imported to Neon on 2026-06-23.
 
 Source: `Job with Symbees !A36:E48`
 
@@ -84,7 +84,7 @@ Ingredients:
 
 ### 5. Job with Symbees - Lemon Blueberry Cake
 
-Approval:
+Approval: approve - imported to Neon on 2026-06-23.
 
 Source: `Job with Symbees !A50:E71`
 
@@ -111,7 +111,7 @@ Ingredients:
 
 ### 6. CAKES - Banana Bread
 
-Approval:
+Approval: approve - imported to Neon on 2026-06-23.
 
 Source: `CAKES!A1:E14`
 
@@ -131,7 +131,7 @@ Ingredients:
 
 ### 7. CAKES - Carrot Cake
 
-Approval:
+Approval: approve - imported to Neon on 2026-06-23.
 
 Source: `CAKES!A16:E35`
 
@@ -157,7 +157,7 @@ Ingredients:
 
 ### 8. CAKES - Red Velvet
 
-Approval:
+Approval: approve - imported to Neon on 2026-06-23.
 
 Source: `CAKES!A37:E50`
 
@@ -178,7 +178,7 @@ Ingredients:
 
 ### 9. CAKES - Chocolate Cake
 
-Approval:
+Approval: approve - imported to Neon on 2026-06-23.
 
 Source: `CAKES!A53:E67`
 
@@ -200,7 +200,7 @@ Ingredients:
 
 ### 10. CAKES - Vanilla Cake
 
-Approval:
+Approval: approve - imported to Neon on 2026-06-23.
 
 Source: `CAKES!A70:E82`
 
@@ -220,7 +220,7 @@ Ingredients:
 
 ### 11. CAKES - Frosting A
 
-Approval:
+Approval: approve - imported to Neon on 2026-06-23.
 
 Source: `CAKES!A85:E98`
 
@@ -240,7 +240,7 @@ Ingredients:
 
 ### 12. CAKES - Coconut Cake
 
-Approval:
+Approval: approve - imported to Neon on 2026-06-23.
 
 Source: `CAKES!A102:E115`
 
@@ -262,7 +262,7 @@ Ingredients:
 
 ### 13. CAKES - Lemon Blueberry Cake
 
-Approval:
+Approval: approve - imported to Neon on 2026-06-23.
 
 Source: `CAKES!A118:E133`
 
@@ -285,7 +285,7 @@ Ingredients:
 
 ### 14. CAKES - Cookies & Cream Cake
 
-Approval:
+Approval: approve - imported to Neon on 2026-06-23.
 
 Source: `CAKES!A136:E150`
 
@@ -306,7 +306,7 @@ Ingredients:
 
 ### 15. CAKES - Frosting B
 
-Approval:
+Approval: approve - imported to Neon on 2026-06-23.
 
 Source: `CAKES!A153:E166`
 
@@ -325,7 +325,7 @@ Ingredients:
 
 ### 16. BAO BUN - The Bun
 
-Approval:
+Approval: approve - imported to Neon on 2026-06-23.
 
 Source: `BAO BUN!A1:E11`
 
@@ -342,7 +342,7 @@ Ingredients:
 
 ### 17. BREADS - BUN
 
-Approval:
+Approval: approve - imported to Neon on 2026-06-23.
 
 Source: `BREADS!A1:E11`
 
@@ -359,7 +359,7 @@ Ingredients:
 
 ### 18. BREADS - BAGUETTE
 
-Approval:
+Approval: approve - imported to Neon on 2026-06-23.
 
 Source: `BREADS!A13:E20`
 
@@ -373,7 +373,7 @@ Ingredients:
 
 ### 19. BREADS - SOURDOUGH BREAD
 
-Approval:
+Approval: approve - imported to Neon on 2026-06-23.
 
 Source: `BREADS!A22:E30`
 
@@ -388,7 +388,7 @@ Ingredients:
 
 ### 20. BREADS - GARLIC ROLLS
 
-Approval:
+Approval: approve - imported to Neon on 2026-06-23.
 
 Source: `BREADS!A32:E44`
 
@@ -408,7 +408,7 @@ Ingredients:
 
 ### 21. CHOUX - CHURROS
 
-Approval:
+Approval: approve - imported to Neon on 2026-06-23.
 
 Source: `CHOUX!A1:E15`
 
@@ -430,7 +430,7 @@ Ingredients:
 
 ### 22. CHOUX - CRAQUELIN
 
-Approval:
+Approval: approve - imported to Neon on 2026-06-23.
 
 Source: `CHOUX!A18:E24`
 
@@ -444,7 +444,7 @@ Ingredients:
 
 ### 23. CHOUX - ECLAIRS
 
-Approval:
+Approval: approve - imported to Neon on 2026-06-23.
 
 Source: `CHOUX!A27:E35`
 
@@ -463,7 +463,7 @@ Ingredients:
 
 ### 24. CHOUX - CHOUX
 
-Approval:
+Approval: approve - imported to Neon on 2026-06-23.
 
 Source: `CHOUX!A39:E48`
 
@@ -480,7 +480,7 @@ Ingredients:
 
 ### 25. CHOUX - ORANGE CREAM
 
-Approval:
+Approval: approve - imported to Neon on 2026-06-23.
 
 Source: `CHOUX!A51:E61`
 
@@ -502,7 +502,7 @@ These current blocks have recipe names and ingredient names, but no quantities/p
 
 ### 26. BAO BUN - Braised Pork
 
-Approval:
+Approval: approve - imported to Neon on 2026-06-23.
 
 Source: `BAO BUN!A13:E28`
 
@@ -510,7 +510,7 @@ Ingredients listed: Pork Belly; Stock Cubes; Ginger; Garlic; Rice Wine; Sugar; O
 
 ### 27. BAO BUN - ASUN
 
-Approval:
+Approval: approve - imported to Neon on 2026-06-23.
 
 Source: `BAO BUN!A31:E49`
 
@@ -518,7 +518,7 @@ Ingredients listed: Goat Meat; Pepper; Onion; Garlic; Stock Cubes; Salt; Brown S
 
 ### 28. BAO BUN - Minced Beef
 
-Approval:
+Approval: approve - imported to Neon on 2026-06-23.
 
 Source: `BAO BUN!A53:E68`
 
@@ -526,7 +526,7 @@ Ingredients listed: Minced Beef; Carrot; Red Wine; Salt; Pepper; Corn Flour; Gar
 
 ### 29. BAO BUN - Slow Cooked BBQ Chicken
 
-Approval:
+Approval: approve - imported to Neon on 2026-06-23.
 
 Source: `BAO BUN!A72:E87`
 

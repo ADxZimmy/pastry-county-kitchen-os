@@ -92,6 +92,14 @@ export interface RecipeItemPrepState {
   dividedUse?: string;
   preparationNotes?: string;
   handlingWarning?: string;
+  sourceLineName?: string;
+  sourceSheet?: string;
+  sourceWorkbook?: string;
+  sourceWorkbookRevision?: string;
+  sourcePackageQuantity?: number;
+  sourcePackagePrice?: number;
+  sourceNeededQuantity?: number;
+  sourceLineAmount?: number;
 }
 
 export interface RecipeFormulaMetadata {

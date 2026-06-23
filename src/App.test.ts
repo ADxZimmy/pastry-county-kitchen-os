@@ -24,12 +24,14 @@ describe("kitchen calculations", () => {
       products: [
         { id: "classic-brownies", name: "Classic Brownies", category: "Brownies", description: "", active: true },
         { id: "lemon-blueberry-loaf", name: "Lemon Blueberry Loaf", category: "Loaves", description: "", active: true },
-        { id: "cup-test-cake", name: "Cup Test Cake", category: "Cakes", description: "", active: true }
+        { id: "cup-test-cake", name: "Cup Test Cake", category: "Cakes", description: "", active: true },
+        { id: "source-cost-cake", name: "Source Cost Cake", category: "Cakes", description: "", active: true }
       ],
       recipes: [
         { id: "recipe-classic", productId: "classic-brownies", name: "Classic Brownies", category: "Brownies", baseYieldQuantity: 16, yieldUnit: "pieces", instructions: [], active: true, updatedAt: "2026-05-18" },
         { id: "recipe-lemon", productId: "lemon-blueberry-loaf", name: "Lemon Blueberry Loaf", category: "Loaves", baseYieldQuantity: 1, yieldUnit: "loaf", instructions: [], active: true, updatedAt: "2026-05-18" },
-        { id: "recipe-cup-test", productId: "cup-test-cake", name: "Cup Test Cake", category: "Cakes", baseYieldQuantity: 1, yieldUnit: "cake", instructions: [], active: true, updatedAt: "2026-05-18" }
+        { id: "recipe-cup-test", productId: "cup-test-cake", name: "Cup Test Cake", category: "Cakes", baseYieldQuantity: 1, yieldUnit: "cake", instructions: [], active: true, updatedAt: "2026-05-18" },
+        { id: "recipe-source-cost-test", productId: "source-cost-cake", name: "Source Cost Cake", category: "Cakes", baseYieldQuantity: 1, yieldUnit: "cake", instructions: [], active: true, updatedAt: "2026-05-18" }
       ],
       recipeItems: [
         { id: "ri-1", recipeId: "recipe-classic", ingredientId: "flour", quantity: 300, unit: "g" },
@@ -41,7 +43,8 @@ describe("kitchen calculations", () => {
         { id: "ri-20", recipeId: "recipe-lemon", ingredientId: "flour", quantity: 420, unit: "g" },
         { id: "ri-22", recipeId: "recipe-lemon", ingredientId: "eggs", quantity: 3, unit: "pcs" },
         { id: "ri-24", recipeId: "recipe-lemon", ingredientId: "blueberries", quantity: 400, unit: "g" },
-        { id: "ri-cup-test", recipeId: "recipe-cup-test", ingredientId: "flour", quantity: 2, unit: "cup" }
+        { id: "ri-cup-test", recipeId: "recipe-cup-test", ingredientId: "flour", quantity: 2, unit: "cup" },
+        { id: "ri-source-cost-test", recipeId: "recipe-source-cost-test", ingredientId: "flour", quantity: 100, unit: "g", prepState: { sourceLineAmount: 250 } }
       ],
       orders: [
         { id: "ord-chika", customerName: "Chika", customerPhone: "", dueDate: "2026-05-18", deliveryMethod: "Pickup", status: "Confirmed", paymentStatus: "Paid", productionStatus: "Ready", stockStatus: "Shortage" },
@@ -143,6 +146,12 @@ describe("kitchen calculations", () => {
     const cost = calculateRecipeCost("recipe-cup-test", 1);
     expect(cost.ingredientCostBreakdown[0]).toMatchObject({ ingredientName: "Flour", scaledQuantity: 240, unit: "g" });
     expect(cost.totalRecipeCost).toBeCloseTo(120);
+  });
+
+  it("uses approved source line amounts when present on imported recipe items", () => {
+    const cost = calculateRecipeCost("recipe-source-cost-test", 2);
+    expect(cost.ingredientCostBreakdown[0]).toMatchObject({ ingredientName: "Flour", cost: 500 });
+    expect(cost.totalRecipeCost).toBeCloseTo(500);
   });
 
   it("adds labor, packaging, overhead, failure allowance, and yield-loss basis to recipe costing", () => {

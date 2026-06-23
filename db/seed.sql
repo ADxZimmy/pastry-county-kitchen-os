@@ -81,6 +81,7 @@ insert into conversion_rules (id, ingredient_id, from_unit, to_unit, conversion_
   ('cr-cocoa', 'cocoa', 'cup', 'g', 85, 'ingredient_specific', 'High', 'seed rule', true),
   ('cr-oil', 'coconut-oil', 'cup', 'ml', 240, 'ingredient_specific', 'High', 'seed rule', true),
   ('cr-egg', 'eggs', 'egg', 'g', 50, 'ingredient_specific', 'Medium', 'seed rule', true),
+  ('cr-egg-g-to-pcs', 'eggs', 'g', 'pcs', 0.02, 'ingredient_specific', 'Medium', 'seed rule', true),
   ('cr-yolk', 'egg-yolks', 'yolk', 'g', 18, 'ingredient_specific', 'Medium', 'seed rule', true),
   ('cr-white', 'egg-whites', 'white', 'g', 30, 'ingredient_specific', 'Medium', 'seed rule', true)
 on conflict (id) do update set ingredient_id = excluded.ingredient_id, from_unit = excluded.from_unit, to_unit = excluded.to_unit, conversion_factor = excluded.conversion_factor, conversion_type = excluded.conversion_type, confidence_level = excluded.confidence_level, source = excluded.source, verified = excluded.verified, updated_at = now();

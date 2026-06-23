@@ -205,7 +205,17 @@ const recipePrepTextFields = [
   "temperatureState",
   "dividedUse",
   "preparationNotes",
-  "handlingWarning"
+  "handlingWarning",
+  "sourceLineName",
+  "sourceSheet",
+  "sourceWorkbook",
+  "sourceWorkbookRevision"
+];
+const recipePrepNumberFields = [
+  "sourcePackageQuantity",
+  "sourcePackagePrice",
+  "sourceNeededQuantity",
+  "sourceLineAmount"
 ];
 const recipeTestBakeStatuses = new Set(["untested", "test_bake_needed", "tested", "production_ready"]);
 const allergenFields = ["contains", "mayContain", "dietaryFlags"];
@@ -278,6 +288,10 @@ export function normalizeRecipeItemPrepState(value = {}) {
   });
   const sequence = positiveOptionalNumber(source.sequence);
   if (sequence !== undefined) prepState.sequence = sequence;
+  recipePrepNumberFields.forEach((field) => {
+    const parsed = nonNegativeOptionalNumber(source[field]);
+    if (parsed !== undefined) prepState[field] = parsed;
+  });
   return prepState;
 }
 

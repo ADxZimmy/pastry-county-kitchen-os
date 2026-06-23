@@ -249,7 +249,15 @@ export function calculateRecipeCost(recipeId: string, requestedYieldQuantity: nu
   const scaled = scaleRecipe(recipeId, requestedYieldQuantity);
   const ingredientCostBreakdown = scaled.map(normalizeRequirementToBase).map((item) => {
     const ingredient = ingredients.find((candidate) => candidate.id === item.ingredientId)!;
-    return { ...item, unitCost: ingredient.latestUnitCost, cost: item.scaledQuantity * ingredient.latestUnitCost };
+    const sourceLineAmount = Number(item.prepState?.sourceLineAmount);
+    const sourceCost = Number.isFinite(sourceLineAmount) && sourceLineAmount >= 0
+      ? sourceLineAmount * item.scaleFactor
+      : undefined;
+    const sourceQuantity = item.originalQuantity * item.scaleFactor;
+    const unitCost = sourceCost !== undefined && sourceQuantity > 0
+      ? sourceCost / sourceQuantity
+      : ingredient.latestUnitCost;
+    return { ...item, unitCost, cost: sourceCost ?? item.scaledQuantity * ingredient.latestUnitCost };
   });
   const ingredientSubtotal = ingredientCostBreakdown.reduce((sum, item) => sum + item.cost, 0);
   const costProfile = recipe?.costProfile ?? {};

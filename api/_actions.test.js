@@ -275,6 +275,14 @@ describe("recipe formula metadata normalization", () => {
       dividedUse: "Half batter, half topping",
       preparationNotes: "Fold gently",
       handlingWarning: "Do not overmix",
+      sourceLineName: "Butter",
+      sourceSheet: "CAKES",
+      sourceWorkbook: "Dish Costing",
+      sourceWorkbookRevision: "3942",
+      sourcePackageQuantity: "200",
+      sourcePackagePrice: "7000",
+      sourceNeededQuantity: "113",
+      sourceLineAmount: "3955",
       unknown: "drop me"
     })).toEqual({
       component: "Brownie base",
@@ -284,7 +292,15 @@ describe("recipe formula metadata normalization", () => {
       temperatureState: "Room temperature",
       dividedUse: "Half batter, half topping",
       preparationNotes: "Fold gently",
-      handlingWarning: "Do not overmix"
+      handlingWarning: "Do not overmix",
+      sourceLineName: "Butter",
+      sourceSheet: "CAKES",
+      sourceWorkbook: "Dish Costing",
+      sourceWorkbookRevision: "3942",
+      sourcePackageQuantity: 200,
+      sourcePackagePrice: 7000,
+      sourceNeededQuantity: 113,
+      sourceLineAmount: 3955
     });
   });
 });
