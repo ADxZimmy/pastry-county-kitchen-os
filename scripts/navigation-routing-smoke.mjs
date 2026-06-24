@@ -132,8 +132,10 @@ async function verifyRecipeRoutes(page, recipe) {
 
 async function verifyUnsavedGuard(page) {
   await page.goto(`${baseURL}/#recipes/new`, { waitUntil: "networkidle" });
-  await page.getByRole("heading", { name: "Add Recipe" }).waitFor({ state: "visible", timeout: 10000 });
-  await page.getByLabel("Product name").fill(`Unsaved Smoke ${Date.now()}`);
+  await page.locator("main h1").filter({ hasText: /^Add Recipe$/ }).waitFor({ state: "visible", timeout: 10000 });
+  const productName = page.getByLabel("Product name");
+  assert(await productName.inputValue() === "", "Expected #recipes/new to open with a blank product name.");
+  await productName.fill(`Unsaved Smoke ${Date.now()}`);
   await page.getByRole("button", { name: "Back to Recipes" }).first().click();
   await page.getByRole("heading", { name: "Discard unsaved changes?" }).waitFor({ state: "visible", timeout: 10000 });
   await page.getByRole("button", { name: "Keep it" }).click();
