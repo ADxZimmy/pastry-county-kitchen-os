@@ -1,14 +1,14 @@
 # State
 
-Last updated: 2026-06-23
+Last updated: 2026-06-24
 
 ## Current Focus
 
-Phase 006 Recipe Import Onboarding is implemented, pushed, deployed, and production-smoke verified. The app now has a review-first import pipeline for recipes, costing rows, ingredient masters, suppliers, conversions, customer/order-template preview data, and source traceability.
+Phase 006 Recipe Import Onboarding is implemented, pushed, deployed, and production-smoke verified. The audit handoff docs have been refreshed for the next external audit after the owner adds the next requested feature batch.
 
 ## Completed
 
-- Local `main` is synced with GitHub `origin/main` through final Phase 006 verification-doc commit `f448c9d`; the Phase 006 implementation/deployment commit was `a862c50`.
+- Local `main` was checked against GitHub `origin/main` on 2026-06-24; latest app-code copy-polish commit before the audit-doc refresh was `3df5500`, and Vercel reported success.
 - Phase 001 Live Audit Production Readiness was implemented and production-smoke verified.
 - Phase 002 Rerun Blocker Fixes was implemented and production-smoke verified; the follow-up external audit rerun scored `96/100`.
 - Phase 003 Pastry Formula Depth was implemented, pushed, deployed, and production-smoke verified.
@@ -21,10 +21,12 @@ Phase 006 Recipe Import Onboarding is implemented, pushed, deployed, and product
 - Added parser dependencies `read-excel-file`, `mammoth`, and `pdf-parse`; `exceljs` was rejected and removed after audit showed a vulnerable transitive `uuid`.
 - Pushed Phase 006 through commits `4ac395f` and `a862c50`; Vercel deployment for `a862c50` succeeded.
 - Production-smoke verified Phase 006 with `npm.cmd run smoke:import-onboarding` and the umbrella `npm.cmd run smoke:live-audit`.
+- Refined import-page copy after Phase 006 so the upload surface uses operator-friendly language and avoids backend/process terms.
+- Refreshed `docs/audit-handoff.md` and `docs/audit-milestone.md` for the next external audit.
 
 ## In Progress
 
-- No active Phase 006 implementation work remains. The next product track is the separate certification evidence closeout unless the owner wants a deeper OCR/provider or direct order-import phase.
+- Waiting for the owner's next feature batch before a fresh external audit rerun.
 
 ## Blocked
 
@@ -33,7 +35,7 @@ Phase 006 Recipe Import Onboarding is implemented, pushed, deployed, and product
 
 ## Next Action
 
-Start Certification Evidence Closeout, or scope a follow-up OCR/provider-quality and direct order-template import phase if the business wants active order creation from uploaded files.
+Add the next requested feature batch, then re-run local checks and relevant production smoke before starting the new external audit.
 
 ## Verification Snapshot
 

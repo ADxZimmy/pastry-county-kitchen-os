@@ -1,10 +1,10 @@
 # Pastry County Kitchen OS - New Chat Context
 
-Last updated: 2026-06-23
+Last updated: 2026-06-24
 Repo: `C:\Users\PC\Documents\Nitech\Personal\Pastry County Kitchen OS`
 Live app: `https://pastry-county-kitchen-os.vercel.app`
 Current local branch at time of this map: `main`
-Current local commit: run `git rev-parse --short HEAD`; Phase 006 implementation/deployment commit was `a862c50`.
+Current local commit: run `git rev-parse --short HEAD`; latest app-code copy-polish commit before the June 24 audit-doc refresh was `3df5500`.
 
 Use this file when starting a fresh chat context. It maps what the app is, where the important code lives, what has already been verified, and which docs are authoritative when older planning notes disagree.
 
@@ -46,7 +46,7 @@ The app is not yet claimable as `100/100` because certification evidence still n
 
 Some older docs may be stale:
 
-- `docs/audit-milestone.md` still has Milestone 11 items marked Todo, but Phase 003 and Phase 004 implemented those areas. Prefer `.planning/STATE.md` plus phase verification docs for current status.
+- Historical audit PDFs and older session notes may describe pre-Phase-003 behavior. As of the June 24 audit-doc refresh, `docs/audit-handoff.md` and `docs/audit-milestone.md` are current through Phase 006 and the import-page copy polish.
 
 ## Product Map
 

@@ -161,17 +161,36 @@ Latest audit source: Codex audit session `019eeee0-894f-7880-b3fa-4a7c002de3ab`,
 
 ## Milestone 11 - Pastry Formula Depth
 
-Latest source: Codex session `019eeee0-894f-7880-b3fa-4a7c002de3ab`, Baking and Pastry Arts audit on June 23, 2026. Context: the preceding external audit rerun 2 scored `96/100` and cleared the 95+ release gate; this milestone tracks product-depth work needed to make ingredient and recipe workflows behave like professional pastry formula systems.
+Latest source: Codex session `019eeee0-894f-7880-b3fa-4a7c002de3ab`, Baking and Pastry Arts audit on June 23, 2026. Context: the preceding external audit rerun 2 scored `96/100` and cleared the 95+ release gate; this milestone tracks product-depth work needed to make ingredient and recipe workflows behave like professional pastry formula systems. Phase 003 and Phase 004 implemented and production-smoke verified this milestone.
 
 | Status | Area | Audit Finding | Completion Criteria |
 | --- | --- | --- | --- |
-| Todo | Egg scaling preference | Settings expose egg rounding/gram conversion, but egg/yolk/white scaling always rounds up. | `nearest_whole_egg` and `allow_gram_conversion` produce distinct tested outputs; UI copy explains count vs gram behavior; existing non-egg scaling stays stable. |
-| Todo | Recipe formula metadata | Recipes store yield, instructions, and notes but no structured oven temp, bake time, pan profile, mixing method, rest/chill/cool windows, target doneness, or sensory checkpoints. | Recipes save/load structured formula profile metadata; existing recipes remain compatible; recipe detail/scaling views surface the profile without mobile overflow. |
-| Todo | Recipe ingredient prep state | Recipe items only store ingredient, quantity, unit, waste %, and notes, losing state such as cold cubed butter, melted butter, sifted flour, divided sugar, roasted nuts, or room-temperature eggs. | Recipe item lines can capture component/stage/sequence/prep-state metadata and show it in recipe detail and scaling outputs. |
-| Todo | State-scoped conversions | Conversion rules are ingredient-specific but not state-specific enough for flour, cocoa, powdered sugar, nuts, brown sugar, and chocolate. | Conversion rules can document measured state/standard such as sifted, packed, chopped, melted, brand, sample count, and source confidence. |
-| Todo | Expanded costing | Costing only sums scaled ingredient usage against latest unit cost. | Recipe/order costing can include configurable labor, packaging, oven/fuel overhead, failed-batch allowance, trim loss, and actual yield variance. |
-| Todo | Allergen and storage controls | Ingredient master lacks structured allergen, dietary, cross-contact, storage-zone, shelf-life, and temperature fields. | Ingredients can record common allergen/dietary/storage controls and expose them in recipe/production/shopping contexts. |
-| Todo | Production QC logging | Production completion deducts stock and marks orders produced but does not capture actual yield, temperature, bake time, defects, rework, retained sample, or sensory notes. | Production completion can record a QC log with actual vs expected yield, process temperatures/times, defects/rework, sensory notes, and next adjustment. |
+| Done | Egg scaling preference | Settings expose egg rounding/gram conversion, but egg/yolk/white scaling always rounds up. | `nearest_whole_egg` and `allow_gram_conversion` produce distinct tested outputs; UI copy explains count vs gram behavior; existing non-egg scaling stays stable. |
+| Done | Recipe formula metadata | Recipes store yield, instructions, and notes but no structured oven temp, bake time, pan profile, mixing method, rest/chill/cool windows, target doneness, or sensory checkpoints. | Recipes save/load structured formula profile metadata; existing recipes remain compatible; recipe detail/scaling views surface the profile without mobile overflow. |
+| Done | Recipe ingredient prep state | Recipe items only store ingredient, quantity, unit, waste %, and notes, losing state such as cold cubed butter, melted butter, sifted flour, divided sugar, roasted nuts, or room-temperature eggs. | Recipe item lines can capture component/stage/sequence/prep-state metadata and show it in recipe detail and scaling outputs. |
+| Done | State-scoped conversions | Conversion rules are ingredient-specific but not state-specific enough for flour, cocoa, powdered sugar, nuts, brown sugar, and chocolate. | Conversion rules can document measured state/standard such as sifted, packed, chopped, melted, brand, sample count, and source confidence. |
+| Done | Expanded costing | Costing only sums scaled ingredient usage against latest unit cost. | Recipe/order costing can include configurable labor, packaging, oven/fuel overhead, failed-batch allowance, trim loss, and actual yield variance. |
+| Done | Allergen and storage controls | Ingredient master lacks structured allergen, dietary, cross-contact, storage-zone, shelf-life, and temperature fields. | Ingredients can record common allergen/dietary/storage controls and expose them in recipe/production/shopping contexts. |
+| Done | Production QC logging | Production completion deducts stock and marks orders produced but does not capture actual yield, temperature, bake time, defects, rework, retained sample, or sensory notes. | Production completion can record a QC log with actual vs expected yield, process temperatures/times, defects/rework, sensory notes, and next adjustment. |
+
+## Milestone 12 - Navigation And Import Onboarding
+
+Latest source: GSD Hybrid Phase 005 and Phase 006 work completed after the June 22 `96/100` external audit baseline. Context: these are new product capabilities added before the next planned external audit, not fixes for failed June 22 release-gate findings.
+
+| Status | Area | Audit Finding | Completion Criteria |
+| --- | --- | --- | --- |
+| Done | Durable app routing | The app previously depended heavily on page-only state, making direct links, refresh, and browser Back fragile. | Recipe, inventory, order, costing, conversion, shopping, and import routes serialize to durable hashes; direct detail/edit/scale links load the intended record or recover safely. |
+| Done | Route-aware task exits | Form Cancel/Save and cross-feature jumps could dump users into generic pages or stale contexts. | Back/Breadcrumb/Cancel/Save use route return context, including recipe/order/scaling/shopping/import flows. |
+| Done | Unsaved form guardrails | Navigating away from edited forms could discard work silently. | Dirty form state warns before navigation and supports safe continuation. |
+| Done | Mobile navigation model | More top-level modules were added than fit comfortably on mobile. | Mobile bottom nav keeps five primary items and moves secondary modules, including Import, under More. |
+| Done | Import entry points | Public onboarding requires importing from where operators already work. | Import actions exist from Recipes, Inventory, Costing, Conversions, desktop Import navigation, and More/Onboarding. |
+| Done | Review-first import flow | Imported recipes/costing data should not silently mutate the kitchen database. | Users paste text or upload a file/photo, review found recipes/ingredients/suppliers/conversions, resolve uncertain ingredient lines, skip unwanted items, and save selected items only. |
+| Done | Source-cost preservation | Imported costing sheets need to retain original costing evidence. | Recipe item prep state preserves source file/type/reference/text/sheet/row/page/package quantity/package price/needed quantity/source line amount, and live smoke verified source line amount reload. |
+| Done | Import parser coverage | Businesses may bring text, spreadsheets, PDFs, Word docs, and photos. | Deterministic support covers pasted text, CSV/TSV, XLSX, DOCX, and text PDFs; provider-backed path exists for images/scanned/legacy `.xls`/`.doc` files, with deterministic mock coverage in tests. |
+| Done | Import commit controls | Imported data needs role checks, validation, duplicate handling, and audit trail. | `import.extract`/`import.commit` enforce roles, block unresolved lines, block duplicate recipes unless explicitly allowed, save through existing domain semantics, create `import_batches`, and audit the commit. |
+| Done | Import UI language | Import copy briefly exposed backend/process terms such as snap, extract draft, commit, OCR provider, and hidden-setting language. | Import page now uses operator-friendly copy such as `Upload file or photo`, `Review Import`, `Save Selected`, `Things To Check`, and `Choose a spreadsheet, document, PDF, or clear photo of the recipe.` |
+| Partial | Photo/legacy OCR readiness | The app can accept photo/scanned/legacy files, but production OCR quality depends on external provider configuration. | Provider path exists and tests cover a deterministic mock; external audit should claim photo/scanned import quality only if `OPENAI_API_KEY`/provider configuration is enabled and reviewed for cost/data retention. |
+| Partial | Direct order/customer import | Imported workbooks may contain customer/order rows. | Phase 006 detects and previews customer/order templates but intentionally does not create active orders or mutate stock from those rows. |
 
 ## Validation Checklist
 
@@ -242,12 +261,19 @@ Latest source: Codex session `019eeee0-894f-7880-b3fa-4a7c002de3ab`, Baking and 
 - [x] Phase 002 full live-audit smoke passed against production with Phase 002, Milestone 7, and regression-audit checks.
 - [x] External audit rerun 2 passed after Phase 002: score `96/100`, ready for 95+ release gate, zero findings/failing checks/advisory failures/request failures/console warnings.
 - [x] Baking and Pastry Arts audit reviewed and mapped into Milestone 11 plus GSD Hybrid Phase 003.
-- [ ] Implement Phase 003 Pastry Formula Depth.
+- [x] Phase 003 Pastry Formula Depth implemented and production-smoke verified.
+- [x] Phase 004 Pastry Costing, QC, and Compliance Depth implemented and production-smoke verified.
+- [x] Phase 005 Navigation And Routing Overhaul implemented and production-smoke verified with `npm run smoke:navigation-routing`.
+- [x] Phase 006 Recipe Import Onboarding implemented and production-smoke verified with `npm run smoke:import-onboarding`.
+- [x] `npm run smoke:live-audit` updated to include Phase 3, Phase 4, navigation routing, and import onboarding smoke coverage, and passed against production after Phase 006.
+- [x] Import page copy was polished after Phase 006 so user-facing labels avoid backend terms such as snap, extract draft, commit, OCR provider, and hidden photo-reading settings.
+- [x] Latest GitHub/Vercel check before this audit-doc refresh: local `main` matched `origin/main` at `3df5500`, and Vercel reported deployment success.
 
 ## Next Recommended Work
 
-1. After the user's personal changes, implement GSD Hybrid Phase 003: egg scaling correctness, recipe formula metadata, and recipe-item prep state.
-2. Sequence the remaining Milestone 11 P2 items into a follow-up phase: state-scoped conversions, expanded costing, allergen/storage controls, and production QC logging.
-3. Keep `npm run smoke:live-audit` green before production handoff.
-4. Close separate 100/100 certification evidence by adding SPF/DNS proof and completing manual operator sign-offs.
-5. Restore durable `LIVE_TEST_EMAIL` and `LIVE_TEST_PASSWORD` in the ignored local env file only if routine non-temporary smoke accounts are preferred.
+1. Add the next requested feature batch before starting the new external audit, then re-run local tests/build and the relevant production smoke.
+2. Keep `npm run smoke:live-audit` green before production handoff; it should remain the umbrella pre-audit smoke.
+3. If photo/scanned import will be marketed as production-ready, configure and audit the OCR/vision provider path, including quality, cost, and data-retention behavior.
+4. If customer/order workbook rows should create active orders, scope that as a follow-up phase because Phase 006 currently previews them only.
+5. Close separate 100/100 certification evidence by adding SPF/DKIM/DMARC/DNS proof, controlled email delivery evidence, backup/restore or rollback drill evidence, keyboard/screen-reader sign-off, and manual operator sign-offs.
+6. Restore durable `LIVE_TEST_EMAIL` and `LIVE_TEST_PASSWORD` in the ignored local env file only if routine non-temporary smoke accounts are preferred.

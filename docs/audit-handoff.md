@@ -1,40 +1,49 @@
 # External Audit Handoff
 
 Date: 2026-06-16
-Last verified: 2026-06-22
+Last updated: 2026-06-24
+Last verified: 2026-06-24
 Live URL: https://pastry-county-kitchen-os.vercel.app
-Verification baseline commit: `23bcd18`
-Verification baseline deployment: latest Vercel deployment for `main`
+Current audit-prep app commit: `3df5500`
+Latest checked deployment: Vercel success for `main`
 
 ## Current Status
 
 The June 22 external audit rerun 2 from session `019eeee0-894f-7880-b3fa-4a7c002de3ab` scored `96/100` and cleared the 95+ release gate with zero findings, failing checks, advisory failures, request failures, or console warnings/errors.
 
-After that release-gate pass, the latest Baking and Pastry Arts audit in the same session identified product-depth improvements for ingredient and recipe workflows. Those are now tracked in GSD Hybrid Phase 003, not as emergency production blockers.
+After that release-gate pass, the Baking and Pastry Arts audit identified product-depth improvements for ingredient and recipe workflows. Those follow-up phases have now been implemented, pushed, deployed, and smoke-verified through Phase 006:
+
+- Phase 003 Pastry Formula Depth: egg scaling preferences, recipe formula metadata, and recipe-item prep state.
+- Phase 004 Pastry Costing, QC, and Compliance Depth: scoped conversions, expanded recipe costing, allergen/storage profiles, and production QC logging.
+- Phase 005 Navigation and Routing Overhaul: durable hash routes, refresh-safe record links, route-aware Back/Cancel/Save behavior, five-item mobile nav, unsaved-change guards, and navigation smoke coverage.
+- Phase 006 Recipe Import Onboarding: import entry points from operational pages, paste/file intake, CSV template, review-before-save flow, parser-backed text/CSV/TSV/XLSX/DOCX/text-PDF imports, provider-backed image/legacy file path, source-cost traceability, duplicate handling, role-checked commit, import batch audit logging, and plain-language import UI copy.
+
+A fresh external audit has not yet been run after Phases 003-006. Treat the June 22 `96/100` as the previous release-gate baseline and this document as the handoff for the next audit pass.
 
 ## Fresh Verification
 
-These checks passed after the Phase 002 recovery:
+Latest checked state:
 
-- `npm test`: 54/54 tests passed.
-- `npm run build`: production build passed.
-- Live bundle check: production served `assets/index-Cvb2sp8C.js` and `assets/index-DrJx3I71.css`.
-- `npm run smoke:phase2-rerun`: passed against production, covering revoked Viewer bootstrap, Viewer snapshot filtering, fresh UI login persistence, exact AI conversion prompts, Production 320px no-overflow, and mobile structural checks.
-- `npm run smoke:live-audit`: passed against production after adding the Phase 002 gate.
-- `npm run audit:reconcile-fefo`: no FEFO lot overstatements found.
-- Live health: `/api/health` returned `{"ok":true,"database":"neon"}`.
-- Targeted June 22 recovery smokes passed against production: bootstrap auth, decimal shopping purchases, conversion rule repair, AI conversion parsing, mobile shopping accessibility, modal keyboard behavior, invalid-route fallback, dashboard date freshness, audit display-name search/export, repeated production idempotency, revoked-session bootstrap blocking, fresh login persistence, and regression audit mutation checks.
-- Documentation-only handoff commits may create newer Vercel deployments; use GitHub/Vercel status as the source of truth for the current latest deployment.
+- GitHub: local `main` is synced with `origin/main` at `3df5500`.
+- Vercel: GitHub commit status for `3df5500` reports `success`.
+- Live app: production bundle contains the latest import-page copy and no longer contains the rejected `Upload or snap`, `Extract Draft`, `photo reading`, or fallback-blame copy.
+- `npm.cmd test`: 75/75 tests passed after the latest import-page copy polish.
+- `npm.cmd run build`: production build passed after the latest import-page copy polish.
+- `npm.cmd audit --audit-level=moderate`: passed during Phase 006 after replacing `exceljs` with `read-excel-file`.
 
-When a live database URL is configured, the live audit smoke runner creates a temporary Owner/Admin user, runs authenticated Milestone 7 and regression-audit smoke suites, removes the user, and verifies cleanup:
+Phase-specific production smokes already passed:
 
-- temporary smoke users: `0`
-- active `AUDIT-Smoke` ingredients: `0`
-- FEFO overstatements: `0`
+- `npm.cmd run smoke:phase3-pastry`: passed against production; created, reloaded, displayed, scaled, and archived a temporary formula-depth recipe.
+- `npm.cmd run smoke:phase4-pastry-depth`: passed against production; created temporary ingredient/recipe/order data, verified allergen/storage/cost/scoped conversion/QC fields through API and UI, produced the order with QC, and archived temporary records.
+- `npm.cmd run smoke:navigation-routing`: passed against production after Vercel deployed Phase 005.
+- `npm.cmd run smoke:import-onboarding`: passed against production on Phase 006 deployment; imported a safe recipe/costing text sample, verified source-line amount/source-file metadata after reload, checked the mobile import page at 390px, and archived the temporary recipe.
+- `npm.cmd run smoke:live-audit`: passed against production after Phase 006; umbrella coverage included Phase 2 rerun, Milestone 7, regression audit, Phase 3, Phase 4, navigation routing, and import onboarding.
+
+Documentation-only commits or copy-only commits may create newer Vercel deployments than a phase implementation commit. Use GitHub/Vercel status as the source of truth for the current latest deployment, and use the phase verification files under `.planning/phases/*/VERIFICATION.md` for detailed command evidence.
 
 ## External Audit Focus
 
-Ask the next external audit to retest the Phase 002 blocker cases first:
+Ask the next external audit to retest the previous release-gate/security cases first:
 
 - Revoked low-privilege tokens cannot call authenticated `/api/bootstrap`; the response is 401 and contains no kitchen snapshot.
 - Viewer or other low-privilege bootstrap responses do not include admin-only staff/session/audit data.
@@ -64,6 +73,41 @@ Also retest the former 72/100 June 22 live-audit cases:
 - Staff disable/revoke-session behavior invalidates stale sessions.
 - Audit exports redact passwords, tokens, sessions, hashes, and API keys.
 
-## Known Remaining Action
+Then audit the new work since the June 22 `96/100` baseline:
 
-Implement `.planning/phases/003-pastry-formula-depth/PLAN.md` after the user's personal changes. Separately, close the 100/100 certification evidence items by adding external SPF/DNS proof and completing the manual operator sign-offs.
+- Phase 003 formula depth:
+  - Egg scaling preference changes visible behavior between whole-egg rounding and gram conversion.
+  - Recipe formula metadata saves/loads and displays oven, bake time, pan, method, rest/chill/cool, doneness, and sensory checkpoints without mobile overflow.
+  - Recipe ingredient prep state saves/loads and appears in recipe detail/scaling where useful.
+
+- Phase 004 costing/QC/compliance depth:
+  - Costing includes labor, packaging, overhead, utility, failure allowance, and yield loss fields.
+  - Ingredient allergen/storage fields save/load and are visible in ingredient/recipe/production contexts where relevant.
+  - Conversion rules can be scoped by ingredient state, temperature state, and formula context.
+  - Production completion captures QC fields and remains idempotent/stock-safe.
+
+- Phase 005 navigation:
+  - Direct hashes for recipe, ingredient, and order detail/edit/scale routes load correctly after refresh.
+  - Back/Breadcrumb/Cancel/Save behavior returns users to the right workflow context.
+  - Unknown/missing records recover safely.
+  - Unsaved form changes warn before navigation.
+  - Mobile bottom nav exposes only five primary items and keeps secondary pages under More.
+
+- Phase 006 import onboarding:
+  - Import entry points exist from Recipes, Inventory, Costing, Conversions, desktop Import nav, and More/Onboarding.
+  - Paste-text and file upload paths support the review-first flow.
+  - CSV/TSV/XLSX/DOCX/text-PDF parsing preserves source evidence and costing lines where available.
+  - Image/photo and legacy `.xls`/`.doc` files use the configured provider path; audit should verify actual provider behavior only if provider environment variables are configured.
+  - Users can review, correct, skip, and save selected recipes, ingredients, suppliers, and conversions.
+  - Duplicate recipes are blocked unless the user explicitly saves another copy.
+  - Imported recipe items preserve source file/reference/cost fields after reload.
+  - `import.extract` and `import.commit` enforce roles, validate unresolved lines, write import batch summaries, and audit the commit.
+  - Customer/order rows are previewed only; they do not create active orders or mutate stock in this phase.
+  - Import UI copy is operator-friendly: no `Upload or snap`, `Extract Draft`, `commit`, `OCR/vision provider`, or hidden-setting language.
+
+## Known Remaining Actions
+
+- Run a fresh external audit after the owner finishes the next requested feature batch.
+- If the business wants to market photo/scanned import as production-ready, configure and audit the OCR/vision provider path, including quality, cost, and data-retention behavior.
+- If the business wants direct customer/order import, scope a follow-up phase because Phase 006 currently previews customer/order rows but does not create active orders.
+- Close the separate 100/100 certification evidence items: external SPF/DKIM/DMARC/DNS proof, controlled email delivery evidence, backup/restore or rollback drill, keyboard/screen-reader sign-off, monitoring/incident owner evidence, and manual operator sign-offs.
