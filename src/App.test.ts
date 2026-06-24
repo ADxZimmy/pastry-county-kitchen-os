@@ -3,7 +3,7 @@ import { resolveSessionPage } from "./App";
 import { recipes as kitchenRecipes, setKitchenSnapshot } from "./data";
 import { auditChangeSummary, auditDataJson, auditExportRows, auditRecordLabel, auditSearchText } from "./lib/audit";
 import { buildKitchenAssistantResponse, calculateMargin, calculateRecipeCost, checkStockAvailability, convertUnit, dashboardProductionQueue, formatNaira, formatQuantity, formatScaledIngredientQuantity, generateShoppingList, netSellingPrice, parseRecipeText, roundScaledQuantity, scaleRecipe, stockAdjustmentValidation } from "./lib/kitchen";
-import { parseAppRoute, routeBackLabel, routeParent, serializeAppRoute } from "./lib/routes";
+import { activeSelectedIdsForRoute, parseAppRoute, routeBackLabel, routeParent, serializeAppRoute } from "./lib/routes";
 import type { AuditLog, ConversionRule, Ingredient, Recipe, RecipeItem } from "./types";
 
 describe("kitchen calculations", () => {
@@ -327,6 +327,13 @@ describe("route hash resolution", () => {
     expect(routeParent({ name: "orders", orderId: "ord-chika", mode: "detail", returnTo: { name: "production", orderId: "ord-chika" } })).toEqual({ name: "production", orderId: "ord-chika" });
     expect(routeParent({ name: "imports", mode: "review", returnTo: { name: "recipes" } })).toEqual({ name: "recipes" });
     expect(routeBackLabel({ name: "recipes", recipeId: "recipe-classic", mode: "edit" })).toBe("Back to Recipe Detail");
+  });
+
+  it("does not reuse stale selected IDs for new-record routes", () => {
+    expect(activeSelectedIdsForRoute({ name: "recipes", mode: "new" }, { selectedRecipeId: "recipe-classic" }).selectedRecipeId).toBe("");
+    expect(activeSelectedIdsForRoute({ name: "inventory", mode: "new" }, { selectedIngredientId: "flour" }).selectedIngredientId).toBe("");
+    expect(activeSelectedIdsForRoute({ name: "orders", mode: "new" }, { selectedOrderId: "ord-chika" }).selectedOrderId).toBe("");
+    expect(activeSelectedIdsForRoute({ name: "recipes", recipeId: "recipe-classic", mode: "edit" }, { selectedRecipeId: "recipe-other" }).selectedRecipeId).toBe("recipe-classic");
   });
 });
 

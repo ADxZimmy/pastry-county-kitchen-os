@@ -1,4 +1,4 @@
-const IMPORT_PARSER_VERSION = "phase006.1";
+const IMPORT_PARSER_VERSION = "phase006.2";
 const MAX_IMPORT_BYTES = 4 * 1024 * 1024;
 
 const supportedUnits = new Set(["g", "kg", "ml", "litre", "pcs", "cup", "tablespoon", "teaspoon", "pack", "roll", "egg", "yolk", "white"]);
@@ -87,6 +87,114 @@ function sourceReference(span = {}) {
     span.row ? `row ${span.row}` : "",
     span.line ? `line ${span.line}` : ""
   ].filter(Boolean).join(" | ");
+}
+
+async function installPdfGeometryPolyfills() {
+  if (globalThis.DOMMatrix && globalThis.ImageData && globalThis.Path2D) return;
+  try {
+    const canvas = await import("@napi-rs/canvas");
+    if (!globalThis.DOMMatrix && canvas.DOMMatrix) globalThis.DOMMatrix = canvas.DOMMatrix;
+    if (!globalThis.ImageData && canvas.ImageData) globalThis.ImageData = canvas.ImageData;
+    if (!globalThis.Path2D && canvas.Path2D) globalThis.Path2D = canvas.Path2D;
+  } catch {
+    // Serverless bundles can omit native canvas bindings. Text extraction only needs
+    // enough geometry surface for pdf.js to initialize.
+  }
+  if (!globalThis.DOMMatrix) {
+    globalThis.DOMMatrix = class DOMMatrix {
+      constructor(init) {
+        const values = Array.isArray(init) || ArrayBuffer.isView(init) ? Array.from(init) : [];
+        this.a = Number(values[0] ?? init?.a ?? init?.m11 ?? 1);
+        this.b = Number(values[1] ?? init?.b ?? init?.m12 ?? 0);
+        this.c = Number(values[2] ?? init?.c ?? init?.m21 ?? 0);
+        this.d = Number(values[3] ?? init?.d ?? init?.m22 ?? 1);
+        this.e = Number(values[4] ?? init?.e ?? init?.m41 ?? 0);
+        this.f = Number(values[5] ?? init?.f ?? init?.m42 ?? 0);
+        this.is2D = true;
+        this.refreshIdentity();
+      }
+      get m11() { return this.a; }
+      get m12() { return this.b; }
+      get m21() { return this.c; }
+      get m22() { return this.d; }
+      get m41() { return this.e; }
+      get m42() { return this.f; }
+      refreshIdentity() {
+        this.isIdentity = this.a === 1 && this.b === 0 && this.c === 0 && this.d === 1 && this.e === 0 && this.f === 0;
+      }
+      copyFrom(matrix) {
+        this.a = matrix.a;
+        this.b = matrix.b;
+        this.c = matrix.c;
+        this.d = matrix.d;
+        this.e = matrix.e;
+        this.f = matrix.f;
+        this.refreshIdentity();
+        return this;
+      }
+      multiplySelf(other = new globalThis.DOMMatrix()) {
+        const matrix = other instanceof globalThis.DOMMatrix ? other : new globalThis.DOMMatrix(other);
+        const { a, b, c, d, e, f } = this;
+        this.a = a * matrix.a + c * matrix.b;
+        this.b = b * matrix.a + d * matrix.b;
+        this.c = a * matrix.c + c * matrix.d;
+        this.d = b * matrix.c + d * matrix.d;
+        this.e = a * matrix.e + c * matrix.f + e;
+        this.f = b * matrix.e + d * matrix.f + f;
+        this.refreshIdentity();
+        return this;
+      }
+      preMultiplySelf(other = new globalThis.DOMMatrix()) {
+        const matrix = other instanceof globalThis.DOMMatrix ? other : new globalThis.DOMMatrix(other);
+        return this.copyFrom(matrix.multiplySelf(this));
+      }
+      translate(x = 0, y = 0) { return new globalThis.DOMMatrix(this).translateSelf(x, y); }
+      translateSelf(x = 0, y = 0) {
+        this.e += Number(x) || 0;
+        this.f += Number(y) || 0;
+        this.refreshIdentity();
+        return this;
+      }
+      scale(scaleX = 1, scaleY = scaleX) { return new globalThis.DOMMatrix(this).scaleSelf(scaleX, scaleY); }
+      scaleSelf(scaleX = 1, scaleY = scaleX) {
+        this.a *= Number(scaleX) || 1;
+        this.d *= Number(scaleY) || 1;
+        this.refreshIdentity();
+        return this;
+      }
+      invertSelf() {
+        const determinant = this.a * this.d - this.b * this.c;
+        if (!determinant) return this;
+        const { a, b, c, d, e, f } = this;
+        this.a = d / determinant;
+        this.b = -b / determinant;
+        this.c = -c / determinant;
+        this.d = a / determinant;
+        this.e = (c * f - d * e) / determinant;
+        this.f = (b * e - a * f) / determinant;
+        this.refreshIdentity();
+        return this;
+      }
+    };
+  }
+  if (!globalThis.ImageData) {
+    globalThis.ImageData = class ImageData {
+      constructor(data, width, height) {
+        this.data = data;
+        this.width = width;
+        this.height = height;
+      }
+    };
+  }
+  if (!globalThis.Path2D) {
+    globalThis.Path2D = class Path2D {
+      addPath() {}
+      moveTo() {}
+      lineTo() {}
+      bezierCurveTo() {}
+      closePath() {}
+    };
+  }
 }
 
 function getValue(row, keys, fallback = "") {
@@ -491,6 +599,7 @@ function parsePlainText(text, source, context = {}) {
   let currentRecipe;
   let mode = "metadata";
   lines.forEach((line, index) => {
+    if (/^--\s*\d+\s+of\s+\d+\s*--$/i.test(line)) return;
     const span = sourceSpan(source, { line: index + 1, text: line });
     const metadata = line.match(/^([a-zA-Z ]+):\s*(.+)$/);
     if (metadata) {
@@ -544,14 +653,17 @@ export function parseImportText(text, source = { name: "Pasted text", type: "tex
 async function parseXlsx(buffer, source, context) {
   const xlsx = await import("read-excel-file/node");
   const readXlsxFile = xlsx.default;
-  const readSheetNames = xlsx.readSheetNames;
-  const sheetNames = await readSheetNames(buffer);
+  const workbook = await readXlsxFile(buffer);
+  const sheets = Array.isArray(workbook) && workbook.some((sheet) => Array.isArray(sheet?.data))
+    ? workbook
+    : [{ sheet: "Sheet 1", data: workbook }];
   const objectRows = [];
-  for (const sheet of sheetNames.slice(0, 12)) {
-    const rows = await readXlsxFile(buffer, { sheet });
+  for (const sheet of sheets.slice(0, 12)) {
+    const rows = Array.isArray(sheet.data) ? sheet.data : [];
+    const sheetName = cleanText(sheet.sheet) || "Sheet 1";
     objectRows.push(...rowsToObjects(rows, { ...source, type: "xlsx", name: source.name }).map((row) => ({
       values: row.values,
-      span: { ...row.span, sheet }
+      span: { ...row.span, sheet: sheetName }
     })));
   }
   return buildDraftFromObjectRows(objectRows, { ...source, type: "xlsx" }, context);
@@ -566,12 +678,13 @@ async function parseDocx(buffer, source, context) {
 }
 
 async function parsePdf(buffer, source, context) {
+  await installPdfGeometryPolyfills();
   const { PDFParse } = await import("pdf-parse");
   const parser = new PDFParse({ data: buffer });
   try {
     const result = await parser.getText();
     const draft = parsePlainText(result.text, { ...source, type: "pdf" }, context);
-    if (!result.text?.trim()) draft.warnings.push("No selectable PDF text was found. Use OCR/vision extraction for scanned PDFs.");
+    if (!result.text?.trim()) draft.warnings.push("No readable PDF text was found. Use a text-based PDF or paste the recipe text for now.");
     return draft;
   } finally {
     await parser.destroy();
@@ -586,7 +699,7 @@ async function parseWithOpenAiProvider({ buffer, base64, source, context }) {
   }
   if (!process.env.OPENAI_API_KEY) {
     const draft = emptyDraft(source);
-    draft.warnings.push(`${source.extension?.toUpperCase() || "This"} import needs OCR/vision extraction. Configure OPENAI_API_KEY or paste extracted text/CSV for now.`);
+    draft.warnings.push(`${source.extension?.toUpperCase() || "This"} files need photo reading to be enabled for this workspace. Use CSV, XLSX, DOCX, PDF, or pasted text for now.`);
     return finalizeDraft(draft);
   }
   const fileData = base64 || buffer.toString("base64");
@@ -629,7 +742,7 @@ async function parseWithOpenAiProvider({ buffer, base64, source, context }) {
   const result = await response.json().catch(() => ({}));
   if (!response.ok) {
     const draft = emptyDraft(source);
-    draft.warnings.push(result.error?.message || `OCR/vision extraction failed with status ${response.status}.`);
+    draft.warnings.push(result.error?.message || `Photo reading could not read this file. Paste the text or use CSV, XLSX, DOCX, or PDF for now.`);
     return finalizeDraft(draft);
   }
   const outputText = result.output_text || result.output?.flatMap((item) => item.content ?? []).find((item) => item.type === "output_text")?.text || "{}";
@@ -668,7 +781,7 @@ export async function extractImportDraft(input = {}, context = {}) {
   if (source.extension === "pdf") return parsePdf(buffer, source, context);
   if (providerExtensions.has(source.extension)) return parseWithOpenAiProvider({ buffer, base64, source, context });
   const draft = emptyDraft(source);
-  draft.warnings.push(`Unsupported import file type ".${source.extension}". Use CSV, TSV, TXT, MD, XLSX, DOCX, PDF, or an image file.`);
+  draft.warnings.push(`Unsupported import file type ".${source.extension}". Use CSV, TSV, TXT, MD, XLSX, DOCX, PDF, or paste the text.`);
   return finalizeDraft(draft);
 }
 

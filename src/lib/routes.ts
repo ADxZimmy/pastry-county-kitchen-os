@@ -329,6 +329,15 @@ export function selectedIdsForRoute(route: AppRoute) {
   };
 }
 
+export function activeSelectedIdsForRoute(route: AppRoute, fallback: LegacyRouteContext = {}) {
+  const routeIds = selectedIdsForRoute(route);
+  return {
+    selectedRecipeId: route.name === "recipes" && route.mode === "new" ? "" : routeIds.selectedRecipeId || fallback.selectedRecipeId || "",
+    selectedIngredientId: route.name === "inventory" && route.mode === "new" ? "" : routeIds.selectedIngredientId || fallback.selectedIngredientId || "",
+    selectedOrderId: route.name === "orders" && route.mode === "new" ? "" : routeIds.selectedOrderId || fallback.selectedOrderId || ""
+  };
+}
+
 export function routeParent(route: AppRoute): AppRoute | undefined {
   switch (route.name) {
     case "recipes":

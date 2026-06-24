@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { strToU8, zipSync } from "fflate";
 import { extractImportDraft, parseImportText } from "./_imports.js";
 
 const context = {
@@ -14,6 +15,31 @@ const context = {
     { id: "sup-market", name: "Market Supplier" }
   ]
 };
+
+function xlsxFixtureBase64() {
+  const files = {
+    "[Content_Types].xml": `<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/></Types>`,
+    "_rels/.rels": `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>`,
+    "xl/_rels/workbook.xml.rels": `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>`,
+    "xl/workbook.xml": `<?xml version="1.0" encoding="UTF-8"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Recipes" sheetId="1" r:id="rId1"/></sheets></workbook>`,
+    "xl/styles.xml": `<?xml version="1.0" encoding="UTF-8"?><styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="1"><font><sz val="11"/><name val="Calibri"/></font></fonts><fills count="1"><fill><patternFill patternType="none"/></fill></fills><borders count="1"><border/></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/></cellXfs></styleSheet>`,
+    "xl/worksheets/sheet1.xml": `<?xml version="1.0" encoding="UTF-8"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>record_type</t></is></c><c r="B1" t="inlineStr"><is><t>recipe</t></is></c><c r="C1" t="inlineStr"><is><t>category</t></is></c><c r="D1" t="inlineStr"><is><t>base_yield_quantity</t></is></c><c r="E1" t="inlineStr"><is><t>yield_unit</t></is></c><c r="F1" t="inlineStr"><is><t>ingredient</t></is></c><c r="G1" t="inlineStr"><is><t>quantity</t></is></c><c r="H1" t="inlineStr"><is><t>unit</t></is></c><c r="I1" t="inlineStr"><is><t>line_amount</t></is></c></row><row r="2"><c r="A2" t="inlineStr"><is><t>recipe</t></is></c><c r="B2" t="inlineStr"><is><t>AUDIT-XLSX Cake</t></is></c><c r="C2" t="inlineStr"><is><t>Cakes</t></is></c><c r="D2"><v>12</v></c><c r="E2" t="inlineStr"><is><t>pieces</t></is></c><c r="F2" t="inlineStr"><is><t>Flour</t></is></c><c r="G2"><v>300</v></c><c r="H2" t="inlineStr"><is><t>g</t></is></c><c r="I2"><v>150</v></c></row></sheetData></worksheet>`
+  };
+  return Buffer.from(zipSync(Object.fromEntries(Object.entries(files).map(([name, content]) => [name, strToU8(content)])))).toString("base64");
+}
+
+const pdfFixtureBase64 = [
+  "JVBERi0xLjQKMSAwIG9iago8PCAvVHlwZSAvQ2F0YWxvZyAvUGFnZXMgMiAwIFIgPj4KZW5kb2JqCjIgMCBvYmoKPDwgL1R5cGUg",
+  "L1BhZ2VzIC9LaWRzIFszIDAgUl0gL0NvdW50IDEgPj4KZW5kb2JqCjMgMCBvYmoKPDwgL1R5cGUgL1BhZ2UgL1BhcmVudCAyIDAg",
+  "UiAvTWVkaWFCb3ggWzAgMCA2MTIgNzkyXSAvUmVzb3VyY2VzIDw8IC9Gb250IDw8IC9GMSA0IDAgUiA+PiA+PiAvQ29udGVudHMg",
+  "NSAwIFIgPj4KZW5kb2JqCjQgMCBvYmoKPDwgL1R5cGUgL0ZvbnQgL1N1YnR5cGUgL1R5cGUxIC9CYXNlRm9udCAvSGVsdmV0aWNh",
+  "ID4+CmVuZG9iago1IDAgb2JqCjw8IC9MZW5ndGggMTQ1ID4+CnN0cmVhbQpCVAovRjEgMTIgVGYKNzIgNzIwIFRkCihSZWNpcGU6",
+  "IEFVRElULVBERiBCcm93bmllcykgVGoKMCAtMTYgVGQKKFlpZWxkOiA4IHBpZWNlcykgVGoKMCAtMTYgVGQKKEluZ3JlZGllbnRz",
+  "OikgVGoKMCAtMTYgVGQKKDMwMCBnIGZsb3VyKSBUagpFVAplbmRzdHJlYW0KZW5kb2JqCnhyZWYKMCA2CjAwMDAwMDAwMDAgNjU1",
+  "MzUgZiAKMDAwMDAwMDAwOSAwMDAwMCBuIAowMDAwMDAwMDU4IDAwMDAwIG4gCjAwMDAwMDAxMTUgMDAwMDAgbiAKMDAwMDAwMDI0",
+  "MSAwMDAwMCBuIAowMDAwMDAwMzExIDAwMDAwIG4gCnRyYWlsZXIKPDwgL1Jvb3QgMSAwIFIgL1NpemUgNiA+PgpzdGFydHhyZWYK",
+  "NTA2CiUlRU9G"
+].join("");
 
 describe("import draft parser", () => {
   it("parses pasted recipe text with source-cost evidence", () => {
@@ -96,6 +122,69 @@ describe("import draft parser", () => {
     expect(draft.orderTemplates[0]).toMatchObject({ customerName: "Ada Bakery", recipeName: "Launch Brownies", dueDate: "2026-07-18", requestedYieldQuantity: 24 });
   });
 
+  it("parses uploaded XLSX workbooks from real spreadsheet bytes", async () => {
+    const draft = await extractImportDraft({
+      source: {
+        name: "onboarding.xlsx",
+        type: "file",
+        extension: "xlsx",
+        mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        base64: xlsxFixtureBase64()
+      }
+    }, context);
+
+    expect(draft.counts.recipes).toBe(1);
+    expect(draft.recipes[0]).toMatchObject({ name: "AUDIT-XLSX Cake", category: "Cakes", baseYieldQuantity: 12, yieldUnit: "pieces" });
+    expect(draft.recipes[0].items[0]).toMatchObject({
+      ingredientId: "flour",
+      quantity: 300,
+      unit: "g",
+      prepState: {
+        sourceFile: "onboarding.xlsx",
+        sourceType: "xlsx",
+        sourceLineAmount: 150
+      }
+    });
+    expect(draft.recipes[0].items[0].source.sheet).toBe("Recipes");
+  });
+
+  it("parses selectable PDF text in the Node import runtime", async () => {
+    const draft = await extractImportDraft({
+      source: {
+        name: "recipe.pdf",
+        type: "file",
+        extension: "pdf",
+        mimeType: "application/pdf",
+        base64: pdfFixtureBase64
+      }
+    }, context);
+
+    expect(draft.counts.recipes).toBe(1);
+    expect(draft.recipes[0]).toMatchObject({ name: "AUDIT-PDF Brownies", baseYieldQuantity: 8, yieldUnit: "pieces" });
+    expect(draft.recipes[0].items[0]).toMatchObject({ ingredientId: "flour", quantity: 300, unit: "g", needsReview: false });
+    expect(draft.recipes[0].warnings ?? []).not.toContain("Could not parse ingredient line 5: -- 1 of 1 --");
+  });
+
+  it("does not count ingredients as new drafts when they match live pantry items", () => {
+    const csv = [
+      "record_type,recipe,category,base_yield_quantity,yield_unit,ingredient,quantity,unit,package_quantity,package_price,line_amount,supplier,from_unit,to_unit,conversion_factor,contact,email",
+      "supplier,,,,,,,,,,,New Mill,,,,Amina,orders@example.com",
+      "ingredient,,,,,Butter,,g,,,1200,New Mill,,,,,",
+      "recipe,Wedding Cake,Cakes,1,cake,Butter,250,g,500,1200,600,,,,,,",
+      "conversion,,,,,Butter,,,,,,New Mill,cup,g,227,,"
+    ].join("\n");
+    const liveContext = {
+      ...context,
+      ingredients: [...context.ingredients, { id: "butter", name: "Butter", category: "Dairy", baseUnit: "g" }]
+    };
+
+    const draft = parseImportText(csv, { name: "live-onboarding.csv", type: "csv", extension: "csv" }, liveContext);
+
+    expect(draft.counts.ingredients).toBe(0);
+    expect(draft.recipes[0].items[0]).toMatchObject({ ingredientName: "Butter", ingredientId: "butter", needsReview: false });
+    expect(draft.conversionRules[0]).toMatchObject({ ingredientName: "Butter", ingredientId: "butter", needsReview: false });
+  });
+
   it("uses a deterministic OCR mock for image imports", async () => {
     const previousMock = process.env.IMPORT_MOCK_PROVIDER_TEXT;
     process.env.IMPORT_MOCK_PROVIDER_TEXT = [
@@ -122,6 +211,33 @@ describe("import draft parser", () => {
     } finally {
       if (previousMock === undefined) delete process.env.IMPORT_MOCK_PROVIDER_TEXT;
       else process.env.IMPORT_MOCK_PROVIDER_TEXT = previousMock;
+    }
+  });
+
+  it("uses plain language when photo reading is not configured", async () => {
+    const previousMock = process.env.IMPORT_MOCK_PROVIDER_TEXT;
+    const previousKey = process.env.OPENAI_API_KEY;
+    delete process.env.IMPORT_MOCK_PROVIDER_TEXT;
+    delete process.env.OPENAI_API_KEY;
+    try {
+      const draft = await extractImportDraft({
+        source: {
+          name: "recipe-photo.png",
+          type: "image",
+          extension: "png",
+          mimeType: "image/png",
+          base64: Buffer.from("mock image bytes").toString("base64")
+        }
+      }, context);
+
+      expect(draft.counts.recipes).toBe(0);
+      expect(draft.warnings[0]).toContain("photo reading");
+      expect(draft.warnings[0]).not.toContain("OPENAI_API_KEY");
+    } finally {
+      if (previousMock === undefined) delete process.env.IMPORT_MOCK_PROVIDER_TEXT;
+      else process.env.IMPORT_MOCK_PROVIDER_TEXT = previousMock;
+      if (previousKey === undefined) delete process.env.OPENAI_API_KEY;
+      else process.env.OPENAI_API_KEY = previousKey;
     }
   });
 

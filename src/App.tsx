@@ -11,7 +11,6 @@ import {
   ClipboardList,
   Clock,
   Cookie,
-  Camera,
   FileSpreadsheet,
   FileText,
   Home,
@@ -69,6 +68,7 @@ import {
   routeTitle,
   selectedIdsForRoute,
   serializeAppRoute,
+  activeSelectedIdsForRoute,
   type AppRoute,
   type Page
 } from "./lib/routes";
@@ -837,10 +837,11 @@ function App() {
   }, []);
 
   const content = useMemo(() => {
-    const routeIds = selectedIdsForRoute(route);
-    const activeSelectedRecipeId = routeIds.selectedRecipeId || selectedRecipeId;
-    const activeSelectedIngredientId = routeIds.selectedIngredientId || selectedIngredientId;
-    const activeSelectedOrderId = routeIds.selectedOrderId || selectedOrderId;
+    const { selectedRecipeId: activeSelectedRecipeId, selectedIngredientId: activeSelectedIngredientId, selectedOrderId: activeSelectedOrderId } = activeSelectedIdsForRoute(route, {
+      selectedRecipeId,
+      selectedIngredientId,
+      selectedOrderId
+    });
     const props = { user, setPage: navigate, goBack, setFormDirty: setHasUnsavedChanges, currentRoute: route, setSelectedRecipeId, setSelectedIngredientId, setSelectedOrderId, setOrderDraft, selectedRecipeId: activeSelectedRecipeId, selectedIngredientId: activeSelectedIngredientId, selectedOrderId: activeSelectedOrderId, query, setQuery, notify, askConfirm, reloadData: () => loadKitchenData() };
     switch (page) {
       case "welcome":
@@ -2427,7 +2428,7 @@ function ImportWorkbench({ user, currentRoute, setPage, notify, reloadData }: { 
         <div>
           <p className="eyebrow">Import setup</p>
           <h2>Bring existing recipes and costing into Kitchen OS</h2>
-          <p>Upload a spreadsheet, PDF, Word document, photo, or paste recipe text. Kitchen OS reads it first and shows everything for review before anything is saved.</p>
+          <p>Upload a spreadsheet, PDF, Word document, or paste recipe text. Kitchen OS reads it first and shows everything for review before anything is saved.</p>
         </div>
         <div className="button-row">
           <Button variant="secondary" onClick={() => downloadText("pastry-county-import-template.csv", importTemplateCsv())}><FileSpreadsheet size={18} /> CSV Template</Button>
@@ -2440,8 +2441,8 @@ function ImportWorkbench({ user, currentRoute, setPage, notify, reloadData }: { 
           <span><strong>Paste text</strong><small>Fastest path for typed recipes and copied notes.</small></span>
         </button>
         <button className={mode === "file" ? "import-mode active" : "import-mode"} onClick={() => setMode("file")} aria-pressed={mode === "file"}>
-          <Camera size={24} />
-          <span><strong>Upload file or photo</strong><small>Spreadsheets, PDFs, Word docs, text files, and photos up to 4MB.</small></span>
+          <Upload size={24} />
+          <span><strong>Upload file</strong><small>Spreadsheets, PDFs, Word docs, and text files up to 4MB.</small></span>
         </button>
       </div>
       <Section title="Choose What to Import" action={<Button onClick={extract} disabled={!canImport || extracting}>{extracting ? "Reading..." : "Review Import"}</Button>}>
@@ -2453,9 +2454,9 @@ function ImportWorkbench({ user, currentRoute, setPage, notify, reloadData }: { 
           <div className="import-drop">
             <Upload size={28} />
             <Field label="Import file">
-              <input type="file" accept=".csv,.tsv,.txt,.md,.xlsx,.docx,.pdf,.jpg,.jpeg,.png,.webp,.heic,.xls,.doc" onChange={(event) => setFile(event.target.files?.[0] ?? null)} />
+              <input type="file" accept=".csv,.tsv,.txt,.md,.xlsx,.docx,.pdf" onChange={(event) => setFile(event.target.files?.[0] ?? null)} />
             </Field>
-            <small>{file ? `${file.name} | ${(file.size / 1024).toFixed(1)} KB` : "Choose a spreadsheet, document, PDF, or clear photo of the recipe."}</small>
+            <small>{file ? `${file.name} | ${(file.size / 1024).toFixed(1)} KB` : "Choose a spreadsheet, document, PDF, or text file."}</small>
           </div>
         )}
         {!canImport && <article className="warning-card"><AlertTriangle size={22} /> Your current role can view imports but cannot add or save imported data.</article>}
