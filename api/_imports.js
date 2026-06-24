@@ -679,7 +679,11 @@ async function parseDocx(buffer, source, context) {
 
 async function parsePdf(buffer, source, context) {
   await installPdfGeometryPolyfills();
-  const { PDFParse } = await import("pdf-parse");
+  const [{ PDFParse }, worker] = await Promise.all([
+    import("pdf-parse"),
+    import("pdf-parse/worker")
+  ]);
+  if (typeof worker.getData === "function") PDFParse.setWorker(worker.getData());
   const parser = new PDFParse({ data: buffer });
   try {
     const result = await parser.getText();
