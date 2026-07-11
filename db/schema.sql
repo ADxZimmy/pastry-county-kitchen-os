@@ -99,6 +99,15 @@ create table if not exists orders (
   stock_status text not null default 'In Stock' check (stock_status in ('In Stock','Low Stock','Out of Stock','Reserved','Shortage')),
   notes text,
   archived boolean not null default false,
+  delivery_fee numeric(14,2),
+  discount_amount numeric(14,2),
+  tax_rate numeric(6,3),
+  amount_paid numeric(14,2),
+  subtotal numeric(14,2),
+  tax_amount numeric(14,2),
+  net_total numeric(14,2),
+  gross_total numeric(14,2),
+  balance numeric(14,2),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -112,6 +121,8 @@ create table if not exists order_items (
   yield_unit text not null,
   quantity_multiplier numeric(14,3) not null default 1 check (quantity_multiplier > 0),
   notes text,
+  sale_quantity numeric(14,3),
+  unit_selling_price numeric(14,2),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );

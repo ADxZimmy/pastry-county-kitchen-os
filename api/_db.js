@@ -42,6 +42,17 @@ export const first = (rows) => rows[0];
 
 export async function loadKitchenSnapshot(sql = getSql()) {
   await sql`alter table orders add column if not exists archived boolean not null default false`;
+  await sql`alter table orders add column if not exists delivery_fee numeric(14,2)`;
+  await sql`alter table orders add column if not exists discount_amount numeric(14,2)`;
+  await sql`alter table orders add column if not exists tax_rate numeric(6,3)`;
+  await sql`alter table orders add column if not exists amount_paid numeric(14,2)`;
+  await sql`alter table orders add column if not exists subtotal numeric(14,2)`;
+  await sql`alter table orders add column if not exists tax_amount numeric(14,2)`;
+  await sql`alter table orders add column if not exists net_total numeric(14,2)`;
+  await sql`alter table orders add column if not exists gross_total numeric(14,2)`;
+  await sql`alter table orders add column if not exists balance numeric(14,2)`;
+  await sql`alter table order_items add column if not exists sale_quantity numeric(14,3)`;
+  await sql`alter table order_items add column if not exists unit_selling_price numeric(14,2)`;
   await sql`alter table suppliers add column if not exists default_currency text not null default 'NGN'`;
   await sql`alter table suppliers add column if not exists lead_time_days integer not null default 2`;
   await sql`alter table suppliers add column if not exists supplied_ingredient_ids text[] not null default '{}'`;
@@ -199,7 +210,11 @@ export async function loadKitchenSnapshot(sql = getSql()) {
     sql`
       select id, customer_name as "customerName", customer_phone as "customerPhone", due_date::text as "dueDate",
         delivery_method as "deliveryMethod", status, payment_status as "paymentStatus",
-        production_status as "productionStatus", stock_status as "stockStatus", notes
+        production_status as "productionStatus", stock_status as "stockStatus", notes,
+        delivery_fee::float as "deliveryFee", discount_amount::float as "discountAmount",
+        tax_rate::float as "taxRate", amount_paid::float as "amountPaid", subtotal::float as "subtotal",
+        tax_amount::float as "taxAmount", net_total::float as "netTotal", gross_total::float as "grossTotal",
+        balance::float as "balance"
       from orders
       where coalesce(archived, false) = false
       order by due_date, customer_name
@@ -207,7 +222,8 @@ export async function loadKitchenSnapshot(sql = getSql()) {
     sql`
       select order_items.id, order_id as "orderId", product_id as "productId", recipe_id as "recipeId",
         requested_yield_quantity::float as "requestedYieldQuantity", yield_unit as "yieldUnit",
-        quantity_multiplier::float as "quantityMultiplier", order_items.notes
+        quantity_multiplier::float as "quantityMultiplier", order_items.notes,
+        sale_quantity::float as "saleQuantity", unit_selling_price::float as "unitSellingPrice"
       from order_items
       join orders on orders.id = order_items.order_id
       where coalesce(orders.archived, false) = false

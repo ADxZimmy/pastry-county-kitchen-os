@@ -327,6 +327,61 @@ export function netSellingPrice(grossPrice: number) {
   return taxRate > 0 ? grossPrice / (1 + taxRate) : grossPrice;
 }
 
+export interface OrderPricingInput {
+  lines: { saleQuantity: number; unitSellingPrice: number }[];
+  deliveryFee?: number;
+  discountAmount?: number;
+  taxRate?: number;
+  amountPaid?: number;
+}
+
+export interface OrderPricing {
+  lines: { saleQuantity: number; unitSellingPrice: number; lineTotal: number }[];
+  subtotal: number;
+  discountAmount: number;
+  deliveryFee: number;
+  taxRate: number;
+  taxAmount: number;
+  netTotal: number;
+  grossTotal: number;
+  amountPaid: number;
+  balance: number;
+  hasPricing: boolean;
+}
+
+function pricingMoney(value: number | undefined | null): number {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+}
+
+function roundToCents(value: number): number {
+  return Math.round((value + Number.EPSILON) * 100) / 100;
+}
+
+// Frontend preview mirror of the API's authoritative computeOrderPricing. Clamps
+// invalid inputs to zero for a live preview; the persisted order totals returned
+// by the server remain the source of truth after save.
+export function computeOrderPricing(input: OrderPricingInput): OrderPricing {
+  const lines = (input.lines ?? []).map((line) => {
+    const saleQuantity = pricingMoney(line.saleQuantity);
+    const unitSellingPrice = pricingMoney(line.unitSellingPrice);
+    return { saleQuantity, unitSellingPrice, lineTotal: roundToCents(saleQuantity * unitSellingPrice) };
+  });
+  const subtotal = roundToCents(lines.reduce((sum, line) => sum + line.lineTotal, 0));
+  const discountAmount = Math.min(roundToCents(pricingMoney(input.discountAmount)), subtotal);
+  const netTotal = roundToCents(subtotal - discountAmount);
+  const taxRate = pricingMoney(input.taxRate);
+  const taxAmount = roundToCents((netTotal * taxRate) / 100);
+  const deliveryFee = roundToCents(pricingMoney(input.deliveryFee));
+  const grossTotal = roundToCents(netTotal + taxAmount + deliveryFee);
+  const amountPaid = roundToCents(pricingMoney(input.amountPaid));
+  return {
+    lines, subtotal, discountAmount, deliveryFee, taxRate, taxAmount, netTotal, grossTotal, amountPaid,
+    balance: roundToCents(grossTotal - amountPaid),
+    hasPricing: lines.some((line) => line.unitSellingPrice > 0)
+  };
+}
+
 export function requirementsForOrder(orderId: string, allOrderItems = orderItems) {
   const lines = allOrderItems.filter((item) => item.orderId === orderId);
   return requirementsForOrderLines(lines);
@@ -474,8 +529,7 @@ export function buildKitchenAssistantResponse(prompt: string) {
   if (lower.includes("cost") || lower.includes("margin") || lower.includes("price")) {
     if (!recipe) return "No recipe is available for costing yet.";
     const cost = calculateRecipeCost(recipe.id, recipe.baseYieldQuantity);
-    const margin = calculateMargin(netSellingPrice(18000), cost.totalRecipeCost);
-    return `${recipe.name} currently costs ${formatNaira(cost.totalRecipeCost)} per ${recipe.baseYieldQuantity} ${recipe.yieldUnit}, or ${formatNaira(cost.costPerYieldUnit)} per ${recipe.yieldUnit}. At a ${formatNaira(18000)} selling price, estimated gross margin is ${margin.grossMarginPercentage.toFixed(1)}%.`;
+    return `${recipe.name} currently costs ${formatNaira(cost.totalRecipeCost)} per ${recipe.baseYieldQuantity} ${recipe.yieldUnit}, or ${formatNaira(cost.costPerYieldUnit)} per ${recipe.yieldUnit}. Enter the order's real selling price on the order or costing screen to see gross profit and margin.`;
   }
 
   if (lower.includes("convert") || lower.includes("cup") || lower.includes("gram") || lower.includes("recipe text")) {

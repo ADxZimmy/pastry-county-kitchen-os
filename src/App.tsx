@@ -40,6 +40,7 @@ import {
   calculateRecipeCost,
   checkOrderStockAvailability,
   checkStockAvailability,
+  computeOrderPricing,
   convertUnit,
   buildKitchenAssistantResponse,
   dashboardProductionQueue,
@@ -86,6 +87,7 @@ type OrderLineDraft = {
   requestedYieldQuantity: number;
   yieldUnit: string;
   quantityMultiplier: number;
+  unitSellingPrice?: number;
 };
 
 type TableRow = {
@@ -1897,7 +1899,8 @@ function CreateOrder({ orderId, currentRoute, orderDraft, setOrderDraft, setPage
     recipeId: item.recipeId,
     requestedYieldQuantity: item.requestedYieldQuantity,
     yieldUnit: item.yieldUnit,
-    quantityMultiplier: item.quantityMultiplier
+    quantityMultiplier: item.quantityMultiplier,
+    unitSellingPrice: (item as { unitSellingPrice?: number | null }).unitSellingPrice ?? undefined
   }])));
   const validLines = orderRows.map((row) => lineDrafts[row]).filter((item): item is OrderLineDraft => Boolean(item?.recipeId && item.requestedYieldQuantity > 0 && item.quantityMultiplier > 0));
   const requirements = validLines.length ? requirementsForOrderLines(validLines) : [];
@@ -1906,9 +1909,18 @@ function CreateOrder({ orderId, currentRoute, orderDraft, setOrderDraft, setPage
     const ingredient = ingredients.find((candidate) => candidate.id === item.ingredientId);
     return sum + item.scaledQuantity * (ingredient?.latestUnitCost ?? 0);
   }, 0);
-  const sampleSellingPrice = 18000;
-  const netPrice = netSellingPrice(sampleSellingPrice);
-  const margin = calculateMargin(netPrice, cost);
+  const [deliveryFee, setDeliveryFee] = useState<number>(order?.deliveryFee ?? 0);
+  const [discountAmount, setDiscountAmount] = useState<number>(order?.discountAmount ?? 0);
+  const [taxRate, setTaxRate] = useState<number>(order?.taxRate ?? settings.defaultTaxPercentage ?? 0);
+  const [amountPaid, setAmountPaid] = useState<number>(order?.amountPaid ?? 0);
+  const pricing = computeOrderPricing({
+    lines: validLines.map((line) => ({ saleQuantity: line.requestedYieldQuantity * line.quantityMultiplier, unitSellingPrice: line.unitSellingPrice ?? 0 })),
+    deliveryFee,
+    discountAmount,
+    taxRate,
+    amountPaid
+  });
+  const margin = calculateMargin(pricing.netTotal, cost);
   if (orderId && !order) return <EmptyState title="Order not found" message="Return to orders and choose an active order." action={<Button variant="secondary" onClick={() => setPage({ name: "orders" })}>Back to Orders</Button>} />;
   const routeReturnTo = currentRoute.name === "orders" ? currentRoute.returnTo : undefined;
   const cancelRoute = order ? { name: "orders", orderId: order.id, mode: "detail" } as AppRoute : routeReturnTo ?? { name: "orders" } as AppRoute;
@@ -1926,6 +1938,10 @@ function CreateOrder({ orderId, currentRoute, orderDraft, setOrderDraft, setPage
           paymentStatus: formValue(form, "paymentStatus"),
           status: "Confirmed",
           notes: formValue(form, "notes"),
+          deliveryFee,
+          discountAmount,
+          taxRate,
+          amountPaid,
           items
         }
       });
@@ -1948,11 +1964,21 @@ function CreateOrder({ orderId, currentRoute, orderDraft, setOrderDraft, setPage
                 <label className="builder-field"><span>Yield qty</span><input name={`requestedYieldQuantity-${index}`} type="number" min="0.001" step="0.001" value={item.requestedYieldQuantity || ""} onChange={(event) => updateLine({ requestedYieldQuantity: Number(event.target.value) })} placeholder="0" /></label>
                 <label className="builder-field"><span>Yield unit</span><select name={`yieldUnit-${index}`} value={item.yieldUnit} onChange={(event) => updateLine({ yieldUnit: event.target.value })}><option>pieces</option><option>cookies</option><option>loaves</option></select></label>
                 <label className="builder-field"><span>Multiplier</span><input aria-label={`Order item ${index + 1} multiplier`} name={`quantityMultiplier-${index}`} type="number" min="0.001" step="0.001" value={item.quantityMultiplier || ""} onChange={(event) => updateLine({ quantityMultiplier: Number(event.target.value) })} /></label>
+                <label className="builder-field"><span>Unit price</span><input aria-label={`Order item ${index + 1} unit selling price`} name={`unitSellingPrice-${index}`} type="number" min="0" step="0.01" value={item.unitSellingPrice ?? ""} onChange={(event) => updateLine({ unitSellingPrice: event.target.value === "" ? undefined : Number(event.target.value) })} placeholder="0" /></label>
                 {orderRows.length > 1 && <Button variant="ghost" onClick={() => setOrderRows((rows) => rows.filter((candidate) => candidate !== row))}>Remove</Button>}
               </div>
             );
           })}
         </div>
+      </Section>
+      <Section title="Pricing & payment">
+        <div className="form-grid">
+          <Field label="Delivery fee"><input type="number" min="0" step="0.01" value={deliveryFee || ""} onChange={(event) => setDeliveryFee(Number(event.target.value))} placeholder="0" /></Field>
+          <Field label="Order discount"><input type="number" min="0" step="0.01" value={discountAmount || ""} onChange={(event) => setDiscountAmount(Number(event.target.value))} placeholder="0" /></Field>
+          <Field label="Tax rate %"><input type="number" min="0" step="0.001" value={taxRate || ""} onChange={(event) => setTaxRate(Number(event.target.value))} placeholder="0" /></Field>
+          <Field label="Amount paid"><input type="number" min="0" step="0.01" value={amountPaid || ""} onChange={(event) => setAmountPaid(Number(event.target.value))} placeholder="0" /></Field>
+        </div>
+        <p className="section-note">Enter each item's unit price in the order items above. Totals are calculated and saved by the server; leave prices blank if this order has no agreed price yet.</p>
       </Section>
       <div className="split">
       <Section title="Ingredient Requirement Preview"><div className="compact-list">{requirements.map((item) => <div className="row-card" key={item.ingredientId}><span>{item.ingredientName}</span><strong>{formatScaledIngredientQuantity(item)}</strong></div>)}</div></Section>
@@ -1962,7 +1988,14 @@ function CreateOrder({ orderId, currentRoute, orderDraft, setOrderDraft, setPage
       })}</div></Section>
       </div>
       {availability.some((item) => item.shortageQuantity > 0) && <article className="warning-card"><AlertTriangle size={22} /> Some ingredients are short. You can still save this order, but production cannot be completed until stock is updated.</article>}
-      <div className="metric-grid small"><Metric label="Estimated Production Cost" value={formatNaira(cost)} /><Metric label="Net Selling Price" value={formatNaira(netPrice)} /><Metric label="Estimated Gross Margin" value={`${margin.grossMarginPercentage.toFixed(1)}%`} /></div>
+      <div className="metric-grid small">
+        <Metric label="Subtotal" value={pricing.hasPricing ? formatNaira(pricing.subtotal) : "No selling price set"} />
+        <Metric label="Net Selling Price" value={pricing.hasPricing ? formatNaira(pricing.netTotal) : "—"} />
+        <Metric label="Gross Total (customer pays)" value={pricing.hasPricing ? formatNaira(pricing.grossTotal) : "—"} />
+        <Metric label="Estimated Production Cost" value={formatNaira(cost)} />
+        <Metric label="Estimated Gross Margin" value={pricing.hasPricing ? `${margin.grossMarginPercentage.toFixed(1)}%` : "—"} />
+        <Metric label="Balance Due" value={pricing.hasPricing ? formatNaira(pricing.balance) : "—"} />
+      </div>
     </FormShell>
   );
 }
@@ -1982,6 +2015,8 @@ function OrderDetail({ orderId, user, setPage, notify, askConfirm, reloadData }:
   const cost = calculateOrderCost(orderId);
   const qcLogs = productionQcLogs.filter((log) => log.orderId === orderId);
   const events = orderEventsForOrder(orderEvents, orderId);
+  const hasPricing = order.netTotal != null;
+  const orderMargin = hasPricing ? calculateMargin(order.netTotal ?? 0, cost) : null;
   return (
     <div className="detail-layout">
       <article className="detail-hero">
@@ -2001,7 +2036,7 @@ function OrderDetail({ orderId, user, setPage, notify, askConfirm, reloadData }:
         </div>
       </article>
       {hasShortage && <article className="warning-card"><AlertTriangle size={22} /> Resolve ingredient shortages before reserving stock, starting production, or marking this order produced.</article>}
-      <div className="split"><SummaryCard title="Customer Info" items={[["Name", order.customerName], ["Phone", order.customerPhone], ["Payment", order.paymentStatus], ["Notes", order.notes ?? "None"]]} /><SummaryCard title="Cost Summary" items={[["Production cost", formatNaira(cost)], ["Stock status", order.stockStatus], ["Production status", order.productionStatus], ["Order status", order.status]]} /></div>
+      <div className="split"><SummaryCard title="Customer Info" items={[["Name", order.customerName], ["Phone", order.customerPhone], ["Payment", order.paymentStatus], ["Notes", order.notes ?? "None"]]} /><SummaryCard title="Cost & Margin" items={[["Production cost", formatNaira(cost)], ["Net selling price", hasPricing ? formatNaira(order.netTotal ?? 0) : "No selling price set"], ["Gross margin", hasPricing && orderMargin ? `${orderMargin.grossMarginPercentage.toFixed(1)}%` : "—"], ["Gross total", hasPricing ? formatNaira(order.grossTotal ?? 0) : "—"], ["Amount paid", hasPricing ? formatNaira(order.amountPaid ?? 0) : "—"], ["Balance due", hasPricing ? formatNaira(order.balance ?? 0) : "—"], ["Stock status", order.stockStatus], ["Order status", order.status]]} /></div>
       <Section title="Required Ingredients"><div className="compact-list">{requirements.map((item) => <div className="row-card" key={item.ingredientId}><span>{item.ingredientName}</span><strong>{formatScaledIngredientQuantity(item)}</strong></div>)}</div></Section>
       <Section title="Stock Check"><div className="compact-list">{availability.map((item) => {
         const unit = requirements.find((requirement) => requirement.ingredientId === item.ingredientId)?.unit ?? "g";
@@ -2578,7 +2613,7 @@ function ImportWorkbench({ user, currentRoute, setPage, notify, reloadData }: { 
 function Costing({ setPage }: { setPage: Navigate }) {
   const [yieldQty, setYieldQty] = useState(12);
   const [selectedRecipeId, setSelectedRecipeId] = useState(recipes[0]?.id ?? "");
-  const [sellingPrice, setSellingPrice] = useState(18000);
+  const [sellingPrice, setSellingPrice] = useState(0);
   const recipe = recipes.find((item) => item.id === selectedRecipeId) ?? recipes[0];
   if (!recipe) return <EmptyState title="No recipes available" message="Create a recipe in the database before using costing." />;
   const safeYieldQty = yieldQty > 0 ? yieldQty : recipe.baseYieldQuantity;
@@ -2589,7 +2624,7 @@ function Costing({ setPage }: { setPage: Navigate }) {
     <div className="page-grid">
       <div className="split">
         <Section title="Recipe Cost Calculator" action={<Button variant="secondary" onClick={() => setPage({ name: "imports", returnTo: { name: "costing", recipeId: recipe.id } })}><Upload size={18} /> Import Costing</Button>}><div className="form-grid"><Field label="Recipe"><select value={recipe.id} onChange={(event) => { setSelectedRecipeId(event.target.value); const nextRecipe = recipes.find((item) => item.id === event.target.value); if (nextRecipe) setYieldQty(nextRecipe.baseYieldQuantity); }}>{recipes.map((recipe) => <option key={recipe.id} value={recipe.id}>{recipe.name}</option>)}</select></Field><Field label="Desired yield"><input type="number" min="0.001" step="0.001" value={yieldQty} onChange={(event) => setYieldQty(Number(event.target.value))} /></Field><Metric label="Ingredient subtotal" value={formatNaira(cost.ingredientSubtotal)} /><Metric label="Non-ingredient cost" value={formatNaira(cost.nonIngredientCost)} /><Metric label="Total production cost" value={formatNaira(cost.totalRecipeCost)} /><Metric label={`Cost per ${recipe.yieldUnit}`} value={formatNaira(cost.costPerYieldUnit)} /><Metric label="Effective yield" value={`${Number(cost.effectiveYieldQuantity.toFixed(2))} ${recipe.yieldUnit}`} /></div></Section>
-        <Section title="Margin Calculator"><div className="form-grid"><Field label="Selling price"><input type="number" min="0" step="0.01" value={sellingPrice} onChange={(event) => setSellingPrice(Number(event.target.value))} /></Field><Metric label="Tax setting" value={`${settings.defaultTaxPercentage ?? 0}%`} /><Metric label="Net selling price" value={formatNaira(netPrice)} /><Metric label="Gross profit" value={formatNaira(margin.grossProfit)} /><Metric label="Gross margin" value={`${margin.grossMarginPercentage.toFixed(1)}%`} /></div></Section>
+        <Section title="Margin Calculator"><div className="form-grid"><Field label="What-if selling price (not saved)"><input type="number" min="0" step="0.01" value={sellingPrice || ""} onChange={(event) => setSellingPrice(Number(event.target.value))} placeholder="Enter a price to preview margin" /></Field><Metric label="Tax setting" value={`${settings.defaultTaxPercentage ?? 0}%`} /><Metric label="Net selling price" value={sellingPrice > 0 ? formatNaira(netPrice) : "—"} /><Metric label="Gross profit" value={sellingPrice > 0 ? formatNaira(margin.grossProfit) : "—"} /><Metric label="Gross margin" value={sellingPrice > 0 ? `${margin.grossMarginPercentage.toFixed(1)}%` : "Enter a price"} /></div></Section>
       </div>
       <Section title="Cost Breakdown Chart"><div className="bar-chart">{[...cost.ingredientCostBreakdown.slice(0, 6).map((item) => ({ id: item.ingredientId, label: item.ingredientName, cost: item.cost })), ...cost.nonIngredientCostBreakdown.map((item) => ({ id: item.label, label: item.label, cost: item.cost }))].map((item) => <div key={item.id}><span>{item.label}</span><div><i style={{ width: `${cost.totalRecipeCost > 0 ? Math.min(100, (item.cost / cost.totalRecipeCost) * 220) : 0}%` }} /></div><strong>{formatNaira(item.cost)}</strong></div>)}</div></Section>
       <article className="warning-card"><AlertTriangle size={22} /> Costs combine latest ingredient unit costs with the recipe cost profile. Verify labor, packaging, overhead, and yield-loss assumptions before quoting.</article>

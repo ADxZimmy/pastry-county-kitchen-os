@@ -303,6 +303,8 @@ export interface OrderItem {
   yieldUnit: string;
   quantityMultiplier: number;
   notes?: string;
+  saleQuantity?: number | null;
+  unitSellingPrice?: number | null;
 }
 
 export interface Order {
@@ -316,6 +318,15 @@ export interface Order {
   productionStatus: ProductionStatus;
   stockStatus: StockStatus;
   notes?: string;
+  deliveryFee?: number | null;
+  discountAmount?: number | null;
+  taxRate?: number | null;
+  amountPaid?: number | null;
+  subtotal?: number | null;
+  taxAmount?: number | null;
+  netTotal?: number | null;
+  grossTotal?: number | null;
+  balance?: number | null;
 }
 
 export interface InventoryMovement {

@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { resolveSessionPage } from "./App";
 import { recipes as kitchenRecipes, setKitchenSnapshot } from "./data";
 import { auditChangeSummary, auditDataJson, auditExportRows, auditRecordLabel, auditSearchText } from "./lib/audit";
-import { buildKitchenAssistantResponse, calculateMargin, calculateRecipeCost, checkStockAvailability, convertUnit, dashboardProductionQueue, formatNaira, formatQuantity, formatScaledIngredientQuantity, generateShoppingList, netSellingPrice, orderEventLabel, orderEventsForOrder, parseRecipeText, roundScaledQuantity, scaleRecipe, stockAdjustmentValidation } from "./lib/kitchen";
+import { buildKitchenAssistantResponse, calculateMargin, calculateRecipeCost, checkStockAvailability, computeOrderPricing, convertUnit, dashboardProductionQueue, formatNaira, formatQuantity, formatScaledIngredientQuantity, generateShoppingList, netSellingPrice, orderEventLabel, orderEventsForOrder, parseRecipeText, roundScaledQuantity, scaleRecipe, stockAdjustmentValidation } from "./lib/kitchen";
 import { activeSelectedIdsForRoute, parseAppRoute, routeBackLabel, routeParent, serializeAppRoute } from "./lib/routes";
 import type { AuditLog, ConversionRule, Ingredient, Recipe, RecipeItem } from "./types";
 
@@ -233,10 +233,13 @@ describe("kitchen calculations", () => {
     expect(response).toContain("Blueberries short 500g");
   });
 
-  it("answers AI costing questions with recipe cost and tax-aware margin", () => {
+  it("answers AI costing questions with real cost and no fabricated selling price (PCO-002)", () => {
     const response = buildKitchenAssistantResponse("Estimate Classic Brownies cost");
     expect(response).toContain("Classic Brownies currently costs");
-    expect(response).toContain("estimated gross margin");
+    // The assistant must not invent a selling price or margin.
+    expect(response).toContain("selling price");
+    expect(response).not.toContain("₦18,000");
+    expect(response).not.toMatch(/estimated gross margin is/);
     expect(netSellingPrice(18000)).toBe(18000);
   });
 
@@ -397,6 +400,27 @@ describe("audit report export helpers", () => {
     expect(auditSearchText(purchaseEntry, lookup).toLowerCase()).toContain("audit-flour");
     expect(auditExportRows([purchaseEntry], lookup)[0][1]).toBe("AUDIT-Flour (ingredient-audit-flour)");
     expect(auditSearchText(purchaseEntry, lookup)).not.toContain("hidden");
+  });
+});
+
+describe("order pricing preview mirror (PCO-002)", () => {
+  it("matches the authoritative API contract on identical inputs", () => {
+    const pricing = computeOrderPricing({ lines: [{ saleQuantity: 1, unitSellingPrice: 10000 }], taxRate: 7.5, deliveryFee: 1500 });
+    expect(pricing.netTotal).toBe(10000);
+    expect(pricing.taxAmount).toBe(750);
+    expect(pricing.grossTotal).toBe(12250);
+    expect(pricing.hasPricing).toBe(true);
+  });
+
+  it("distinguishes different order prices instead of a fixed value", () => {
+    expect(computeOrderPricing({ lines: [{ saleQuantity: 1, unitSellingPrice: 7500 }] }).netTotal).toBe(7500);
+    expect(computeOrderPricing({ lines: [{ saleQuantity: 1, unitSellingPrice: 40000 }] }).netTotal).toBe(40000);
+  });
+
+  it("clamps invalid preview inputs to zero instead of throwing", () => {
+    const pricing = computeOrderPricing({ lines: [{ saleQuantity: 1, unitSellingPrice: -5 }] });
+    expect(pricing.hasPricing).toBe(false);
+    expect(pricing.netTotal).toBe(0);
   });
 });
 

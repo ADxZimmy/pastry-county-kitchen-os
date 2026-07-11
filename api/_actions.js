@@ -159,6 +159,51 @@ function positive(value, label) {
   return value;
 }
 
+function round2(value) {
+  return Math.round((Number(value) + Number.EPSILON) * 100) / 100;
+}
+
+function nonNegativeMoney(value, label) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    throw Object.assign(new Error(`${label} must be a number of zero or greater.`), { statusCode: 400 });
+  }
+  return parsed;
+}
+
+// The single authoritative order-pricing contract. The API always recomputes
+// every derived total from validated raw inputs and ignores any client-supplied
+// totals, so no fabricated or tampered figure can reach a margin calculation.
+// netTotal is the ex-tax, ex-delivery revenue used as the margin base.
+export function computeOrderPricing({ lines = [], deliveryFee = 0, discountAmount = 0, taxRate = 0, amountPaid = 0 } = {}) {
+  const normalizedLines = (Array.isArray(lines) ? lines : []).map((line, index) => {
+    const saleQuantity = nonNegativeMoney(line?.saleQuantity ?? 0, `Line ${index + 1} sale quantity`);
+    const unitSellingPrice = nonNegativeMoney(line?.unitSellingPrice ?? 0, `Line ${index + 1} unit price`);
+    return { saleQuantity, unitSellingPrice, lineTotal: round2(saleQuantity * unitSellingPrice) };
+  });
+  const subtotal = round2(normalizedLines.reduce((sum, line) => sum + line.lineTotal, 0));
+  const discount = Math.min(round2(nonNegativeMoney(discountAmount, "Discount")), subtotal);
+  const netTotal = round2(subtotal - discount);
+  const rate = nonNegativeMoney(taxRate, "Tax rate");
+  const taxAmount = round2((netTotal * rate) / 100);
+  const delivery = round2(nonNegativeMoney(deliveryFee, "Delivery fee"));
+  const grossTotal = round2(netTotal + taxAmount + delivery);
+  const paid = round2(nonNegativeMoney(amountPaid, "Amount paid"));
+  return {
+    lines: normalizedLines,
+    subtotal,
+    discountAmount: discount,
+    deliveryFee: delivery,
+    taxRate: rate,
+    taxAmount,
+    netTotal,
+    grossTotal,
+    amountPaid: paid,
+    balance: round2(grossTotal - paid),
+    hasPricing: normalizedLines.some((line) => line.unitSellingPrice > 0)
+  };
+}
+
 export function normalizeShoppingPurchaseInput(item, ingredientRow, index = 0) {
   const ingredientId = required(item?.ingredientId, "Ingredient");
   if (!ingredientRow) throw Object.assign(new Error("Ingredient not found."), { statusCode: 404 });
@@ -566,6 +611,17 @@ async function reserveOrder(sql, orderId, actor = null) {
 
 async function ensureOperationalTables(sql) {
   await sql`alter table orders add column if not exists archived boolean not null default false`;
+  await sql`alter table orders add column if not exists delivery_fee numeric(14,2)`;
+  await sql`alter table orders add column if not exists discount_amount numeric(14,2)`;
+  await sql`alter table orders add column if not exists tax_rate numeric(6,3)`;
+  await sql`alter table orders add column if not exists amount_paid numeric(14,2)`;
+  await sql`alter table orders add column if not exists subtotal numeric(14,2)`;
+  await sql`alter table orders add column if not exists tax_amount numeric(14,2)`;
+  await sql`alter table orders add column if not exists net_total numeric(14,2)`;
+  await sql`alter table orders add column if not exists gross_total numeric(14,2)`;
+  await sql`alter table orders add column if not exists balance numeric(14,2)`;
+  await sql`alter table order_items add column if not exists sale_quantity numeric(14,3)`;
+  await sql`alter table order_items add column if not exists unit_selling_price numeric(14,2)`;
   await sql`alter table ingredients add column if not exists purchase_unit text`;
   await sql`alter table ingredients add column if not exists allergen_profile jsonb not null default '{}'`;
   await sql`alter table ingredients add column if not exists storage_profile jsonb not null default '{}'`;
@@ -1502,17 +1558,34 @@ export async function handleAction(sql, body, actor) {
     const before = data.id ? await rowById(sql, "orders", data.id) : null;
     const items = Array.isArray(data.items) ? data.items.filter((item) => item.productId && item.recipeId && num(item.requestedYieldQuantity) > 0) : [];
     if (!items.length) throw Object.assign(new Error("Add at least one order item."), { statusCode: 400 });
+    const pricing = computeOrderPricing({
+      lines: items.map((item) => ({
+        saleQuantity: item.saleQuantity === undefined || item.saleQuantity === null || item.saleQuantity === ""
+          ? num(item.requestedYieldQuantity, 1) * num(item.quantityMultiplier, 1)
+          : num(item.saleQuantity),
+        unitSellingPrice: num(item.unitSellingPrice)
+      })),
+      deliveryFee: num(data.deliveryFee),
+      discountAmount: num(data.discountAmount),
+      taxRate: num(data.taxRate),
+      amountPaid: num(data.amountPaid)
+    });
+    const priced = pricing.hasPricing;
     await sql.transaction((txn) => [
       txn`
-        insert into orders (id, customer_name, customer_phone, due_date, delivery_method, status, payment_status, production_status, stock_status, notes, archived)
-        values (${orderId}, ${required(data.customerName, "Customer name")}, ${data.customerPhone || null}, ${required(data.dueDate, "Due date")}, ${data.deliveryMethod || "Pickup"}, ${data.status || "Confirmed"}, ${data.paymentStatus || "Unpaid"}, 'Not Started', 'In Stock', ${data.notes || null}, false)
+        insert into orders (id, customer_name, customer_phone, due_date, delivery_method, status, payment_status, production_status, stock_status, notes, archived,
+          delivery_fee, discount_amount, tax_rate, amount_paid, subtotal, tax_amount, net_total, gross_total, balance)
+        values (${orderId}, ${required(data.customerName, "Customer name")}, ${data.customerPhone || null}, ${required(data.dueDate, "Due date")}, ${data.deliveryMethod || "Pickup"}, ${data.status || "Confirmed"}, ${data.paymentStatus || "Unpaid"}, 'Not Started', 'In Stock', ${data.notes || null}, false,
+          ${priced ? pricing.deliveryFee : null}, ${priced ? pricing.discountAmount : null}, ${priced ? pricing.taxRate : null}, ${priced ? pricing.amountPaid : null}, ${priced ? pricing.subtotal : null}, ${priced ? pricing.taxAmount : null}, ${priced ? pricing.netTotal : null}, ${priced ? pricing.grossTotal : null}, ${priced ? pricing.balance : null})
         on conflict (id) do update set customer_name = excluded.customer_name, customer_phone = excluded.customer_phone, due_date = excluded.due_date,
-          delivery_method = excluded.delivery_method, status = excluded.status, payment_status = excluded.payment_status, notes = excluded.notes, archived = false, updated_at = now()
+          delivery_method = excluded.delivery_method, status = excluded.status, payment_status = excluded.payment_status, notes = excluded.notes, archived = false,
+          delivery_fee = excluded.delivery_fee, discount_amount = excluded.discount_amount, tax_rate = excluded.tax_rate, amount_paid = excluded.amount_paid,
+          subtotal = excluded.subtotal, tax_amount = excluded.tax_amount, net_total = excluded.net_total, gross_total = excluded.gross_total, balance = excluded.balance, updated_at = now()
       `,
       txn`delete from order_items where order_id = ${orderId}`,
       ...items.map((item, index) => txn`
-        insert into order_items (id, order_id, product_id, recipe_id, requested_yield_quantity, yield_unit, quantity_multiplier, notes)
-        values (${id(`oi-${index}`)}, ${orderId}, ${item.productId}, ${item.recipeId}, ${num(item.requestedYieldQuantity, 1)}, ${item.yieldUnit || "pieces"}, ${num(item.quantityMultiplier, 1)}, ${item.notes || null})
+        insert into order_items (id, order_id, product_id, recipe_id, requested_yield_quantity, yield_unit, quantity_multiplier, notes, sale_quantity, unit_selling_price)
+        values (${id(`oi-${index}`)}, ${orderId}, ${item.productId}, ${item.recipeId}, ${num(item.requestedYieldQuantity, 1)}, ${item.yieldUnit || "pieces"}, ${num(item.quantityMultiplier, 1)}, ${item.notes || null}, ${pricing.lines[index].saleQuantity}, ${priced ? pricing.lines[index].unitSellingPrice : null})
       `),
       orderEventStatement(txn, {
         orderId,

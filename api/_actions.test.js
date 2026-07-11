@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { actorLabel, allowedRolesForAction, archiveTableForEntity, canRolePerformAction, normalizeConversionScope, normalizeIngredientAllergenProfile, normalizeIngredientStorageProfile, normalizeProductionQcLog, normalizeRecipeCostProfile, normalizeRecipeFormulaMetadata, normalizeRecipeItemPrepState, normalizeShoppingPurchaseInput, planBatchDeductions, productionCompletionPreflight, productionShortageForRequirement, safePurchasePersistenceError, sendResendEmail, sessionAccessError } from "./_actions.js";
+import { actorLabel, allowedRolesForAction, archiveTableForEntity, canRolePerformAction, computeOrderPricing, normalizeConversionScope, normalizeIngredientAllergenProfile, normalizeIngredientStorageProfile, normalizeProductionQcLog, normalizeRecipeCostProfile, normalizeRecipeFormulaMetadata, normalizeRecipeItemPrepState, normalizeShoppingPurchaseInput, planBatchDeductions, productionCompletionPreflight, productionShortageForRequirement, safePurchasePersistenceError, sendResendEmail, sessionAccessError } from "./_actions.js";
 
 describe("FEFO batch deduction planning", () => {
   it("deducts stock removals or production use across lots in the provided FEFO order", () => {
@@ -105,6 +105,60 @@ describe("API role permissions", () => {
     expect(canRolePerformAction("Baker", "import.extract")).toBe(true);
     expect(canRolePerformAction("Inventory Manager", "import.extract")).toBe(true);
     expect(canRolePerformAction("Viewer", "import.extract")).toBe(false);
+  });
+});
+
+describe("canonical order pricing (PCO-002)", () => {
+  const line = (unitSellingPrice, saleQuantity = 1) => ({ unitSellingPrice, saleQuantity });
+
+  it("derives net total from each order's own price rather than a fixed 18,000", () => {
+    expect(computeOrderPricing({ lines: [line(7500)] }).netTotal).toBe(7500);
+    expect(computeOrderPricing({ lines: [line(18000)] }).netTotal).toBe(18000);
+    expect(computeOrderPricing({ lines: [line(40000)] }).netTotal).toBe(40000);
+  });
+
+  it("sums multiple lines by quantity and unit price", () => {
+    const pricing = computeOrderPricing({ lines: [line(2500, 4), line(1000, 2)] });
+    expect(pricing.subtotal).toBe(12000);
+    expect(pricing.netTotal).toBe(12000);
+    expect(pricing.hasPricing).toBe(true);
+  });
+
+  it("treats a missing or zero unit price as no selling price", () => {
+    const pricing = computeOrderPricing({ lines: [line(0, 3)] });
+    expect(pricing.hasPricing).toBe(false);
+    expect(pricing.netTotal).toBe(0);
+  });
+
+  it("applies discount before tax and caps discount at the subtotal", () => {
+    expect(computeOrderPricing({ lines: [line(10000)], discountAmount: 1500 }).netTotal).toBe(8500);
+    expect(computeOrderPricing({ lines: [line(10000)], discountAmount: 99999 }).netTotal).toBe(0);
+  });
+
+  it("adds tax on the net revenue and delivery on top for the gross total", () => {
+    const pricing = computeOrderPricing({ lines: [line(10000)], taxRate: 7.5, deliveryFee: 1500 });
+    expect(pricing.netTotal).toBe(10000);
+    expect(pricing.taxAmount).toBe(750);
+    expect(pricing.grossTotal).toBe(12250);
+  });
+
+  it("computes the outstanding balance from amount paid", () => {
+    const pricing = computeOrderPricing({ lines: [line(20000)], amountPaid: 5000 });
+    expect(pricing.grossTotal).toBe(20000);
+    expect(pricing.balance).toBe(15000);
+  });
+
+  it("ignores any client-supplied derived totals (anti-tamper)", () => {
+    const pricing = computeOrderPricing({ lines: [line(5000)], netTotal: 999999, grossTotal: 999999, balance: -1 });
+    expect(pricing.netTotal).toBe(5000);
+    expect(pricing.grossTotal).toBe(5000);
+    expect(pricing.balance).toBe(5000);
+  });
+
+  it("rejects negative or non-finite monetary inputs", () => {
+    expect(() => computeOrderPricing({ lines: [line(-1)] })).toThrow();
+    expect(() => computeOrderPricing({ lines: [line(100)], discountAmount: -5 })).toThrow();
+    expect(() => computeOrderPricing({ lines: [line(100)], taxRate: Number.POSITIVE_INFINITY })).toThrow();
   });
 });
 
