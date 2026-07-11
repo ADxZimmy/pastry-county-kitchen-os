@@ -49,7 +49,7 @@ Execute the revised audit-remediation program from the July 10 expanded producti
 
 ## Next Action
 
-Start Phase 008 Production Transaction Safety per `.planning/phases/008-production-transaction-safety/PLAN.md` (correct timezone-aware Today/Tomorrow/This Week filters, server-enforced production state machine, locked/atomic/idempotent batch completion with QC confirmation, safe cancellation) — PCO-004, 005, 009. Deployable in slices; after each DB-touching slice run `smoke:live-audit` against production (the Phase 007 bootstrap outage below is why an integration smoke, not just unit tests, must gate every DB-query change).
+Continue Phase 008. Slice 008-A (queue truth + order state machine) is implemented and committed locally at `376509b` (124/124 tests, build clean); it awaits deploy + smoke. Next is 008-B Locked Atomic Completion (production_runs table with DB idempotency key, row-locked/serializable completion transaction proven with a concurrent-request test, batch QC/confirmation modal), then 008-C Safe Cancellation. Deploy 008-A and run `smoke:live-audit` (an integration smoke must gate every DB-touching change — the Phase 007 bootstrap outage is why).
 
 Phase 007 shipped 2026-07-11: pushed the four 007 commits + merge `add3079`, then hotfix `a75c688` after the first build 500'd `/api/bootstrap` (ambiguous `created_at` in the new order_events join). `smoke:live-audit` is green; bootstrap returns 200 with orderEvents + pricing fields.
 
