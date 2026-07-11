@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { resolveSessionPage } from "./App";
 import { recipes as kitchenRecipes, setKitchenSnapshot } from "./data";
 import { auditChangeSummary, auditDataJson, auditExportRows, auditRecordLabel, auditSearchText } from "./lib/audit";
-import { buildKitchenAssistantResponse, calculateMargin, calculateRecipeCost, checkStockAvailability, computeOrderPricing, convertUnit, dashboardProductionQueue, formatNaira, formatQuantity, formatScaledIngredientQuantity, generateShoppingList, netSellingPrice, orderEventLabel, orderEventsForOrder, parseRecipeText, recommendedRestockDate, restockSuggestions, roundScaledQuantity, scaleRecipe, stockAdjustmentValidation } from "./lib/kitchen";
+import { buildKitchenAssistantResponse, calculateMargin, calculateRecipeCost, checkStockAvailability, computeOrderPricing, convertUnit, dashboardProductionQueue, formatNaira, formatQuantity, formatScaledIngredientQuantity, generateShoppingList, netSellingPrice, orderEventLabel, orderEventsForOrder, ordersForProductionBucket, parseRecipeText, productionPeriodBounds, recommendedRestockDate, restockSuggestions, roundScaledQuantity, scaleRecipe, stockAdjustmentValidation } from "./lib/kitchen";
 import { activeSelectedIdsForRoute, parseAppRoute, routeBackLabel, routeParent, serializeAppRoute } from "./lib/routes";
 import type { AuditLog, ConversionRule, Ingredient, Recipe, RecipeItem } from "./types";
 
@@ -400,6 +400,61 @@ describe("audit report export helpers", () => {
     expect(auditSearchText(purchaseEntry, lookup).toLowerCase()).toContain("audit-flour");
     expect(auditExportRows([purchaseEntry], lookup)[0][1]).toBe("AUDIT-Flour (ingredient-audit-flour)");
     expect(auditSearchText(purchaseEntry, lookup)).not.toContain("hidden");
+  });
+});
+
+describe("production queue eligibility (PCO-004)", () => {
+  // 2026-07-15 is a Wednesday; its Monday-week is 2026-07-13 .. 2026-07-20 (exclusive).
+  const today = "2026-07-15";
+  const sampleOrders = [
+    { id: "o-today", status: "Confirmed", dueDate: "2026-07-15" },
+    { id: "o-tomorrow", status: "Stock Reserved", dueDate: "2026-07-16" },
+    { id: "o-thisweek", status: "In Production", dueDate: "2026-07-17" },
+    { id: "o-overdue-thisweek", status: "Confirmed", dueDate: "2026-07-13" },
+    { id: "o-nextweek", status: "Confirmed", dueDate: "2026-07-21" },
+    { id: "o-delivered", status: "Delivered", dueDate: "2026-07-15" },
+    { id: "o-cancelled", status: "Cancelled", dueDate: "2026-07-15" },
+    { id: "o-produced", status: "Produced", dueDate: "2026-07-15" },
+    { id: "o-draft", status: "Draft", dueDate: "2026-07-15" }
+  ];
+  const bucketIds = (bucket: "Today" | "Tomorrow" | "This Week") =>
+    ordersForProductionBucket(bucket, today, sampleOrders as never).map((order) => order.id);
+
+  it("computes explicit Monday-week period bounds", () => {
+    expect(productionPeriodBounds("today", today)).toEqual({ start: "2026-07-15", end: "2026-07-16" });
+    expect(productionPeriodBounds("tomorrow", today)).toEqual({ start: "2026-07-16", end: "2026-07-17" });
+    expect(productionPeriodBounds("week", today)).toEqual({ start: "2026-07-13", end: "2026-07-20" });
+  });
+
+  it("handles month and year boundaries", () => {
+    // 2026-01-01 is a Thursday; its Monday-week starts 2025-12-29.
+    expect(productionPeriodBounds("week", "2026-01-01")).toEqual({ start: "2025-12-29", end: "2026-01-05" });
+  });
+
+  it("Today and Tomorrow show only producible orders due that day", () => {
+    expect(bucketIds("Today")).toEqual(["o-today"]);
+    expect(bucketIds("Tomorrow")).toEqual(["o-tomorrow"]);
+  });
+
+  it("This Week covers the rest of the week (incl. earlier-this-week) but not today/tomorrow or next week", () => {
+    const week = bucketIds("This Week");
+    expect(week).toContain("o-thisweek");
+    expect(week).toContain("o-overdue-thisweek");
+    expect(week).not.toContain("o-today");
+    expect(week).not.toContain("o-tomorrow");
+    expect(week).not.toContain("o-nextweek");
+  });
+
+  it("never shows delivered, cancelled, produced, or draft orders in any bucket", () => {
+    const all = (["Today", "Tomorrow", "This Week"] as const).flatMap(bucketIds);
+    for (const hidden of ["o-delivered", "o-cancelled", "o-produced", "o-draft"]) {
+      expect(all).not.toContain(hidden);
+    }
+  });
+
+  it("no longer matches every order the way the old This Week short-circuit did", () => {
+    const all = new Set((["Today", "Tomorrow", "This Week"] as const).flatMap(bucketIds));
+    expect(all.size).toBeLessThan(sampleOrders.length);
   });
 });
 

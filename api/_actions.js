@@ -101,6 +101,25 @@ export function canRolePerformAction(role, action) {
   return allowedRolesForAction(action).includes(role);
 }
 
+// Canonical order lifecycle. The API enforces these transitions so an invalid
+// jump (e.g. Draft/Confirmed straight to Produced, a backwards move, or any
+// escape from a terminal state) is rejected even when called directly, not just
+// hidden by button state. Same-status is an idempotent no-op.
+const orderStatusTransitions = {
+  "Draft": ["Confirmed", "Cancelled"],
+  "Confirmed": ["Stock Reserved", "In Production", "Cancelled"],
+  "Stock Reserved": ["Confirmed", "In Production", "Produced", "Cancelled"],
+  "In Production": ["Stock Reserved", "Produced", "Cancelled"],
+  "Produced": ["Delivered"],
+  "Delivered": [],
+  "Cancelled": []
+};
+
+export function isValidOrderTransition(from, to) {
+  if (!from || from === to) return true;
+  return (orderStatusTransitions[from] ?? []).includes(to);
+}
+
 async function requirePermission(sql, action, actor) {
   const missingActorError = sessionAccessError(actor, { active: true });
   if (missingActorError) throw Object.assign(new Error(missingActorError.message), { statusCode: missingActorError.statusCode });
@@ -1635,6 +1654,9 @@ export async function handleAction(sql, body, actor) {
     const orderId = required(body.orderId, "Order");
     const status = required(body.status, "Status");
     const before = await rowById(sql, "orders", orderId);
+    if (before && !isValidOrderTransition(before.status, status)) {
+      throw Object.assign(new Error(`Cannot change an order from ${before.status} to ${status}.`), { statusCode: 409 });
+    }
     const productionStatus = body.productionStatus || (status === "In Production" ? "In Progress" : status === "Delivered" || status === "Produced" ? "Completed" : undefined);
     if (status === "In Production") {
       const reservation = await reserveOrder(sql, orderId, actor);
@@ -1707,7 +1729,7 @@ export async function handleAction(sql, body, actor) {
       txn`
         update orders
         set status = ${status}, production_status = ${productionStatus}, updated_at = now()
-        where id = ${orderId}
+        where id = ${orderId} and status not in ('Produced', 'Delivered', 'Cancelled')
       `,
       orderEventStatement(txn, {
         orderId,

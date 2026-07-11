@@ -555,6 +555,46 @@ function dashboardProductionCard(order: Order, itemList: OrderItem[], productLis
   };
 }
 
+export const PRODUCIBLE_ORDER_STATUSES = ["Confirmed", "Stock Reserved", "In Production"];
+
+export function isProducibleStatus(status: string): boolean {
+  return PRODUCIBLE_ORDER_STATUSES.includes(status);
+}
+
+// Today's date (yyyy-mm-dd) in the business timezone. Africa/Lagos is UTC+1 with
+// no DST, but computing the local date avoids the late-night UTC off-by-one that
+// `new Date().toISOString()` caused on the old production filters.
+export function businessToday(timeZone = "Africa/Lagos"): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+}
+
+// Inclusive-exclusive [start, end) date bounds for a production period, computed
+// from a business-timezone "today". Week is the Monday-started week containing today.
+export function productionPeriodBounds(period: "today" | "tomorrow" | "week", todayIso: string): { start: string; end: string } {
+  if (period === "today") return { start: todayIso, end: addDaysIso(todayIso, 1) };
+  if (period === "tomorrow") return { start: addDaysIso(todayIso, 1), end: addDaysIso(todayIso, 2) };
+  const dayOfWeek = new Date(`${todayIso}T00:00:00Z`).getUTCDay(); // 0=Sun..6=Sat
+  const sinceMonday = (dayOfWeek + 6) % 7;
+  const start = addDaysIso(todayIso, -sinceMonday);
+  return { start, end: addDaysIso(start, 7) };
+}
+
+// Orders eligible for a production bucket: producible status only (never Draft,
+// Produced, Delivered, or Cancelled) and due within the bucket's explicit range.
+// Today and Tomorrow are single days; This Week is the rest of the Monday-week
+// (including earlier-this-week overdue days) excluding today and tomorrow so the
+// three sections do not double-list the same order.
+export function ordersForProductionBucket(bucket: "Today" | "Tomorrow" | "This Week", todayIso: string, orderList: Order[] = orders): Order[] {
+  const tomorrowIso = addDaysIso(todayIso, 1);
+  const week = productionPeriodBounds("week", todayIso);
+  return orderList.filter((order) => {
+    if (!isProducibleStatus(order.status)) return false;
+    if (bucket === "Today") return order.dueDate === todayIso;
+    if (bucket === "Tomorrow") return order.dueDate === tomorrowIso;
+    return order.dueDate >= week.start && order.dueDate < week.end && order.dueDate !== todayIso && order.dueDate !== tomorrowIso;
+  });
+}
+
 export function dashboardProductionQueue(todayIso = new Date().toISOString().slice(0, 10), orderList = orders, itemList = orderItems, productList = products) {
   const active = orderList.filter(isActiveProductionOrder);
   const todayOrders = active

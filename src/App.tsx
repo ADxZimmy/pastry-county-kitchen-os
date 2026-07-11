@@ -43,8 +43,10 @@ import {
   computeOrderPricing,
   convertUnit,
   buildKitchenAssistantResponse,
+  businessToday,
   dashboardProductionQueue,
   formatNaira,
+  ordersForProductionBucket,
   formatQuantity,
   formatScaledIngredientQuantity,
   generateShoppingList,
@@ -2127,7 +2129,7 @@ function Production({ user, setPage, setSelectedOrderId, notify, reloadData }: {
       {["Today", "Tomorrow", "This Week"].map((bucket) => (
         <Section title={bucket} key={bucket}>
           <div className="card-grid">
-            {orders.filter((order) => bucket === "This Week" || (bucket === "Today" && order.dueDate === new Date().toISOString().slice(0, 10)) || (bucket === "Tomorrow" && order.dueDate === new Date(Date.now() + 86400000).toISOString().slice(0, 10))).map((order) => {
+            {ordersForProductionBucket(bucket as "Today" | "Tomorrow" | "This Week", businessToday()).map((order) => {
               const requirements = requirementsForOrder(order.id);
               const orderShortages = checkOrderStockAvailability(order.id).filter((item) => item.shortageQuantity > 0).map((item) => ({ ...item, unit: requirements.find((requirement) => requirement.ingredientId === item.ingredientId)?.unit ?? "g" as Unit }));
               const hasShortage = orderShortages.length > 0;

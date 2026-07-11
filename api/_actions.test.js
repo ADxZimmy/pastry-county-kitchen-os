@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { actorLabel, allowedRolesForAction, archiveTableForEntity, canRolePerformAction, computeOrderPricing, normalizeConversionScope, normalizeIngredientAllergenProfile, normalizeIngredientStorageProfile, normalizeProductionQcLog, normalizeRecipeCostProfile, normalizeRecipeFormulaMetadata, normalizeRecipeItemPrepState, normalizeShoppingPurchaseInput, planBatchDeductions, productionCompletionPreflight, productionShortageForRequirement, safePurchasePersistenceError, sendResendEmail, sessionAccessError } from "./_actions.js";
+import { actorLabel, allowedRolesForAction, archiveTableForEntity, canRolePerformAction, computeOrderPricing, isValidOrderTransition, normalizeConversionScope, normalizeIngredientAllergenProfile, normalizeIngredientStorageProfile, normalizeProductionQcLog, normalizeRecipeCostProfile, normalizeRecipeFormulaMetadata, normalizeRecipeItemPrepState, normalizeShoppingPurchaseInput, planBatchDeductions, productionCompletionPreflight, productionShortageForRequirement, safePurchasePersistenceError, sendResendEmail, sessionAccessError } from "./_actions.js";
 
 describe("FEFO batch deduction planning", () => {
   it("deducts stock removals or production use across lots in the provided FEFO order", () => {
@@ -159,6 +159,37 @@ describe("canonical order pricing (PCO-002)", () => {
     expect(() => computeOrderPricing({ lines: [line(-1)] })).toThrow();
     expect(() => computeOrderPricing({ lines: [line(100)], discountAmount: -5 })).toThrow();
     expect(() => computeOrderPricing({ lines: [line(100)], taxRate: Number.POSITIVE_INFINITY })).toThrow();
+  });
+});
+
+describe("order lifecycle state machine (PCO-005)", () => {
+  it("allows the forward production lifecycle", () => {
+    expect(isValidOrderTransition("Draft", "Confirmed")).toBe(true);
+    expect(isValidOrderTransition("Confirmed", "Stock Reserved")).toBe(true);
+    expect(isValidOrderTransition("Stock Reserved", "In Production")).toBe(true);
+    expect(isValidOrderTransition("In Production", "Produced")).toBe(true);
+    expect(isValidOrderTransition("Produced", "Delivered")).toBe(true);
+  });
+
+  it("rejects skipping production and backwards or terminal escapes", () => {
+    expect(isValidOrderTransition("Confirmed", "Produced")).toBe(false);
+    expect(isValidOrderTransition("Draft", "Produced")).toBe(false);
+    expect(isValidOrderTransition("Produced", "In Production")).toBe(false);
+    expect(isValidOrderTransition("Delivered", "Confirmed")).toBe(false);
+    expect(isValidOrderTransition("Cancelled", "Confirmed")).toBe(false);
+    expect(isValidOrderTransition("Delivered", "Cancelled")).toBe(false);
+  });
+
+  it("treats same-status as an idempotent no-op", () => {
+    expect(isValidOrderTransition("In Production", "In Production")).toBe(true);
+    expect(isValidOrderTransition("Produced", "Produced")).toBe(true);
+  });
+
+  it("allows cancellation only before stock is deducted at production", () => {
+    expect(isValidOrderTransition("Confirmed", "Cancelled")).toBe(true);
+    expect(isValidOrderTransition("Stock Reserved", "Cancelled")).toBe(true);
+    expect(isValidOrderTransition("In Production", "Cancelled")).toBe(true);
+    expect(isValidOrderTransition("Produced", "Cancelled")).toBe(false);
   });
 });
 
