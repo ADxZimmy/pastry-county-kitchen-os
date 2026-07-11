@@ -230,10 +230,10 @@ export async function loadKitchenSnapshot(sql = getSql()) {
       order by order_id, id
     `,
     sql`
-      select order_events.id, order_id as "orderId", event_type as "eventType",
-        actor_user_id as "actorUserId", actor_name as "actorName",
-        previous_status as "previousStatus", new_status as "newStatus",
-        coalesce(metadata, '{}'::jsonb) as metadata, note, created_at as "createdAt"
+      select order_events.id, order_events.order_id as "orderId", order_events.event_type as "eventType",
+        order_events.actor_user_id as "actorUserId", order_events.actor_name as "actorName",
+        order_events.previous_status as "previousStatus", order_events.new_status as "newStatus",
+        coalesce(order_events.metadata, '{}'::jsonb) as metadata, order_events.note, order_events.created_at as "createdAt"
       from order_events
       join orders on orders.id = order_events.order_id
       where coalesce(orders.archived, false) = false
