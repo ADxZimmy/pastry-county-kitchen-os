@@ -54,6 +54,7 @@ import {
   parseRecipeText,
   requirementsForOrder,
   requirementsForOrderLines,
+  restockSuggestions,
   scaleRecipe,
   stockAdjustmentValidation
 } from "./lib/kitchen";
@@ -1206,6 +1207,7 @@ function Dashboard({ setPage, setSelectedIngredientId, setSelectedOrderId }: any
   const topIngredientId = Object.entries(mostUsed).sort((a, b) => b[1] - a[1])[0]?.[0];
   const productionQueue = dashboardProductionQueue(today);
   const lowStock = ingredients.filter(isBelowReorder).slice(0, 3);
+  const restockList = restockSuggestions(new Date().toISOString().slice(0, 10));
   const metrics: { label: string; value: React.ReactNode; hint: string }[] = [
     { label: "Total Ingredients", value: ingredients.length, hint: "Active pantry and packaging items" },
     { label: "Low Stock Items", value: ingredients.filter(isBelowReorder).length, hint: "Need attention" },
@@ -1241,7 +1243,7 @@ function Dashboard({ setPage, setSelectedIngredientId, setSelectedOrderId }: any
             <p className="section-note">Overdue or carryover production</p>
             {productionQueue.overdue.map((card) => (
               <button className="row-card" key={card.id} onClick={() => { setSelectedOrderId(card.id); setPage({ name: "orders", orderId: card.id, mode: "detail" }); }}>
-                <span><strong>{card.productName}</strong><small>{card.quantity} Â· {card.dueDate}</small></span>
+                <span><strong>{card.productName}</strong><small>{card.quantity} · {card.dueDate}</small></span>
                 <Badge tone={stockTone(card.stockStatus)}>{card.stockStatus}</Badge>
               </button>
             ))}
@@ -1289,14 +1291,18 @@ function Dashboard({ setPage, setSelectedIngredientId, setSelectedOrderId }: any
             <div className="row-card"><span>Open shortages</span><strong>{orders.filter((order) => order.stockStatus === "Shortage").length}</strong></div>
           </div>
         </Section>
-        <Section title="Smart Suggestions">
-          <article className="ai-card">
-            <Sparkles size={24} />
-            <div>
-              <h3>Restock before Friday</h3>
-              <p>Based on confirmed orders, you may need to restock {lowStock.map((item) => item.name.toLowerCase()).join(", ") || "key ingredients"} before the next production run.</p>
-            </div>
-          </article>
+        <Section title="Restock guidance">
+          {restockList.length === 0
+            ? <p className="section-note">No restock needed right now — every tracked ingredient is above its reorder level.</p>
+            : <div className="compact-list">{restockList.slice(0, 4).map((item) => (
+                <article className="ai-card" key={item.ingredientId}>
+                  <Sparkles size={24} />
+                  <div>
+                    <h3>Order {item.ingredientName} by {item.recommendedOrderByDate}</h3>
+                    <p>{item.reason} Current stock {formatQuantity(item.currentStock, item.unit)} vs reorder level {formatQuantity(item.reorderLevel, item.unit)} (short {formatQuantity(item.shortfall, item.unit)}){item.relevantOrderCount > 0 ? `, needed by ${item.relevantOrderCount} active order${item.relevantOrderCount === 1 ? "" : "s"}` : ""}.</p>
+                  </div>
+                </article>
+              ))}</div>}
         </Section>
       </div>
     </div>

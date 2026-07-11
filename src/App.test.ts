@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { resolveSessionPage } from "./App";
 import { recipes as kitchenRecipes, setKitchenSnapshot } from "./data";
 import { auditChangeSummary, auditDataJson, auditExportRows, auditRecordLabel, auditSearchText } from "./lib/audit";
-import { buildKitchenAssistantResponse, calculateMargin, calculateRecipeCost, checkStockAvailability, computeOrderPricing, convertUnit, dashboardProductionQueue, formatNaira, formatQuantity, formatScaledIngredientQuantity, generateShoppingList, netSellingPrice, orderEventLabel, orderEventsForOrder, parseRecipeText, roundScaledQuantity, scaleRecipe, stockAdjustmentValidation } from "./lib/kitchen";
+import { buildKitchenAssistantResponse, calculateMargin, calculateRecipeCost, checkStockAvailability, computeOrderPricing, convertUnit, dashboardProductionQueue, formatNaira, formatQuantity, formatScaledIngredientQuantity, generateShoppingList, netSellingPrice, orderEventLabel, orderEventsForOrder, parseRecipeText, recommendedRestockDate, restockSuggestions, roundScaledQuantity, scaleRecipe, stockAdjustmentValidation } from "./lib/kitchen";
 import { activeSelectedIdsForRoute, parseAppRoute, routeBackLabel, routeParent, serializeAppRoute } from "./lib/routes";
 import type { AuditLog, ConversionRule, Ingredient, Recipe, RecipeItem } from "./types";
 
@@ -400,6 +400,38 @@ describe("audit report export helpers", () => {
     expect(auditSearchText(purchaseEntry, lookup).toLowerCase()).toContain("audit-flour");
     expect(auditExportRows([purchaseEntry], lookup)[0][1]).toBe("AUDIT-Flour (ingredient-audit-flour)");
     expect(auditSearchText(purchaseEntry, lookup)).not.toContain("hidden");
+  });
+});
+
+describe("restock guidance (PCO-014)", () => {
+  it("computes a grounded recommended order-by date from due date and lead time", () => {
+    expect(recommendedRestockDate("2026-07-11", undefined, 2)).toBe("2026-07-11");
+    expect(recommendedRestockDate("2026-07-11", "2026-07-20", 3)).toBe("2026-07-17");
+    expect(recommendedRestockDate("2026-07-11", "2026-07-12", 5)).toBe("2026-07-11");
+  });
+
+  it("derives suggestions only for ingredients below reorder level, with provenance", () => {
+    setKitchenSnapshot({
+      suppliers: [{ id: "sup-1", name: "Market", contactName: "", phone: "", email: "", address: "", defaultCurrency: "NGN", leadTimeDays: 4, notes: "" }],
+      ingredients: [
+        { id: "choc", name: "Dark Chocolate", category: "Chocolate", baseUnit: "g", currentStock: 200, reorderLevel: 1000, latestUnitCost: 8, supplierId: "sup-1" },
+        { id: "flour", name: "Flour", category: "Dry Goods", baseUnit: "g", currentStock: 9000, reorderLevel: 3000, latestUnitCost: 0.5, supplierId: "sup-1" }
+      ],
+      products: [], recipes: [], recipeItems: [], orders: [], orderItems: [], inventoryMovements: [], conversionRules: [],
+      settings: { businessName: "PC", currency: "NGN", defaultDeductionStage: "production_completion", allowNegativeInventory: false, requireAiConversionConfirmation: true, gramRoundingPreference: 5, eggRoundingPreference: "nearest_whole_egg" }
+    });
+    const suggestions = restockSuggestions("2026-07-11");
+    expect(suggestions).toHaveLength(1);
+    expect(suggestions[0]).toMatchObject({
+      ingredientId: "choc",
+      currentStock: 200,
+      reorderLevel: 1000,
+      shortfall: 800,
+      leadTimeDays: 4,
+      relevantOrderCount: 0,
+      recommendedOrderByDate: "2026-07-11"
+    });
+    expect(suggestions[0].reason).toContain("Below reorder level");
   });
 });
 

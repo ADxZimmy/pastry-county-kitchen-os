@@ -387,6 +387,71 @@ export function requirementsForOrder(orderId: string, allOrderItems = orderItems
   return requirementsForOrderLines(lines);
 }
 
+function addDaysIso(iso: string, delta: number): string {
+  const date = new Date(`${iso}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + delta);
+  return date.toISOString().slice(0, 10);
+}
+
+// Recommended order-by date = the earliest due date that needs the ingredient
+// minus the supplier lead time, never earlier than today. With no due order,
+// order today because the item is already below its reorder level.
+export function recommendedRestockDate(todayIso: string, nextDueDate: string | undefined, leadTimeDays: number): string {
+  if (!nextDueDate) return todayIso;
+  const orderBy = addDaysIso(nextDueDate, -Math.max(0, leadTimeDays));
+  return orderBy < todayIso ? todayIso : orderBy;
+}
+
+export interface RestockSuggestion {
+  ingredientId: string;
+  ingredientName: string;
+  currentStock: number;
+  reorderLevel: number;
+  unit: Unit;
+  shortfall: number;
+  leadTimeDays: number;
+  relevantOrderCount: number;
+  nextDueDate?: string;
+  recommendedOrderByDate: string;
+  reason: string;
+}
+
+// Data-derived restock guidance (PCO-014): every suggestion is grounded in real
+// stock, reorder level, the active orders that consume the ingredient, and the
+// supplier lead time. No decorative or fabricated dates.
+export function restockSuggestions(todayIso: string): RestockSuggestion[] {
+  const activeOrders = orders.filter((order) => !["Delivered", "Cancelled"].includes(order.status));
+  return ingredients
+    .filter((ingredient) => Number(ingredient.reorderLevel) > 0 && Number(ingredient.currentStock) <= Number(ingredient.reorderLevel))
+    .map((ingredient) => {
+      const supplier = suppliers.find((candidate) => candidate.id === ingredient.supplierId);
+      const leadTimeDays = Math.max(0, Number(supplier?.leadTimeDays ?? 0));
+      const dueDates = activeOrders
+        .filter((order) => requirementsForOrder(order.id).some((requirement) => requirement.ingredientId === ingredient.id))
+        .map((order) => order.dueDate)
+        .filter(Boolean)
+        .sort();
+      const nextDueDate = dueDates[0];
+      const shortfall = Math.max(0, Number(ingredient.reorderLevel) - Number(ingredient.currentStock));
+      return {
+        ingredientId: ingredient.id,
+        ingredientName: ingredient.name,
+        currentStock: Number(ingredient.currentStock),
+        reorderLevel: Number(ingredient.reorderLevel),
+        unit: ingredient.baseUnit,
+        shortfall,
+        leadTimeDays,
+        relevantOrderCount: dueDates.length,
+        nextDueDate,
+        recommendedOrderByDate: recommendedRestockDate(todayIso, nextDueDate, leadTimeDays),
+        reason: nextDueDate
+          ? `Below reorder level with an order due ${nextDueDate}; supplier lead time ${leadTimeDays} day${leadTimeDays === 1 ? "" : "s"}.`
+          : `Below reorder level; supplier lead time ${leadTimeDays} day${leadTimeDays === 1 ? "" : "s"}.`
+      };
+    })
+    .sort((a, b) => a.recommendedOrderByDate.localeCompare(b.recommendedOrderByDate) || a.ingredientName.localeCompare(b.ingredientName));
+}
+
 export function calculateOrderCost(orderId: string) {
   return orderItems
     .filter((item) => item.orderId === orderId)
