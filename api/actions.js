@@ -1,4 +1,4 @@
-import { getSql, sendError } from "./_db.js";
+import { getSql, sendError, setPrivateNoStore } from "./_db.js";
 import { handleAction } from "./_actions.js";
 import { actorFromRequest } from "./_auth.js";
 import { rateLimit, rateLimitKey, sendRateLimit } from "./_rateLimit.js";
@@ -11,6 +11,7 @@ export default async function handler(req, res) {
   }
 
   try {
+    setPrivateNoStore(res);
     const actor = actorFromRequest(req);
     const actionName = req.body?.action || "unknown";
     const actionLimit = rateLimit({

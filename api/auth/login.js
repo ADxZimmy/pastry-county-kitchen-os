@@ -1,6 +1,6 @@
 import bcrypt from "bcryptjs";
 import { createSessionToken } from "../_auth.js";
-import { first, getSql, sendError } from "../_db.js";
+import { first, getSql, sendError, setPrivateNoStore } from "../_db.js";
 import { rateLimit, rateLimitKey, sendRateLimit } from "../_rateLimit.js";
 
 export default async function handler(req, res) {
@@ -11,6 +11,7 @@ export default async function handler(req, res) {
   }
 
   try {
+    setPrivateNoStore(res);
     const sql = getSql();
     const { email, password } = req.body;
     const loginLimit = rateLimit({

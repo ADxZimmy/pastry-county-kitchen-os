@@ -92,15 +92,15 @@ const actionRoles = {
 };
 
 export function allowedRolesForAction(action) {
-  return action === "schema.ensure" ? [] : (actionRoles[action] ?? ["Owner/Admin"]);
+  if (action === "schema.ensure") return ["Owner/Admin"];
+  return actionRoles[action] ?? ["Owner/Admin"];
 }
 
 export function canRolePerformAction(role, action) {
-  return action === "schema.ensure" || allowedRolesForAction(action).includes(role);
+  return allowedRolesForAction(action).includes(role);
 }
 
 async function requirePermission(sql, action, actor) {
-  if (action === "schema.ensure") return;
   const missingActorError = sessionAccessError(actor, { active: true });
   if (missingActorError) throw Object.assign(new Error(missingActorError.message), { statusCode: missingActorError.statusCode });
   if (!canRolePerformAction(actor.role, action)) {
@@ -1109,8 +1109,8 @@ async function productionQcLogForOrder(sql, orderId, qcInput, actor) {
 }
 
 export async function produceOrder(sql, orderId, actor, qcInput = {}) {
-  await ensureOperationalTables(sql);
   await requirePermission(sql, "order.produce", actor);
+  await ensureOperationalTables(sql);
   const orderRows = await sql`select status from orders where id = ${orderId}`;
   if (!orderRows.length) throw Object.assign(new Error("Order not found."), { statusCode: 404 });
   const status = orderRows[0].status;
@@ -1157,8 +1157,8 @@ export async function produceOrder(sql, orderId, actor, qcInput = {}) {
 
 export async function handleAction(sql, body, actor) {
   const action = required(body.action, "Action");
-  await ensureOperationalTables(sql);
   await requirePermission(sql, action, actor);
+  await ensureOperationalTables(sql);
 
   if (action === "schema.ensure") {
     return { ok: true };

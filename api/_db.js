@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import { neon } from "@neondatabase/serverless";
 
 export function getSql() {
@@ -7,9 +8,34 @@ export function getSql() {
   return neon(process.env.DATABASE_URL);
 }
 
+export function setPrivateNoStore(res) {
+  res.setHeader("Cache-Control", "private, no-store");
+}
+
+// An explicit statusCode marks an error we threw deliberately with a user-safe
+// message. Anything without one is unexpected (driver/SQL/provider internals)
+// and must not have its raw message returned to the client.
+export function safeErrorResponse(error, correlationId = null) {
+  const explicitStatus = Number(error?.statusCode);
+  if (Number.isFinite(explicitStatus) && explicitStatus > 0) {
+    return { status: explicitStatus, body: { error: error?.message ?? "Unexpected server error" } };
+  }
+  return {
+    status: 500,
+    body: {
+      error: "Something went wrong while processing that request. Please try again.",
+      ...(correlationId ? { correlationId } : {})
+    }
+  };
+}
+
 export function sendError(res, error) {
-  const status = error.statusCode ?? 500;
-  res.status(status).json({ error: error.message ?? "Unexpected server error" });
+  const explicitStatus = Number(error?.statusCode);
+  const isUnexpected = !(Number.isFinite(explicitStatus) && explicitStatus > 0);
+  const correlationId = isUnexpected ? crypto.randomUUID() : null;
+  if (isUnexpected) console.error(`[api-error ${correlationId}]`, error);
+  const { status, body } = safeErrorResponse(error, correlationId);
+  res.status(status).json(body);
 }
 
 export const first = (rows) => rows[0];

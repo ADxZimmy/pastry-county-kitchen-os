@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { handleAction, produceOrder } from "../api/_actions.js";
 import { actorFromRequest, createSessionToken } from "../api/_auth.js";
 import { loadAuthenticatedKitchenSnapshot } from "../api/bootstrap.js";
+import { sendError, setPrivateNoStore } from "../api/_db.js";
 import { rateLimit, rateLimitKey, sendRateLimit } from "../api/_rateLimit.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -34,22 +35,13 @@ function requireDatabase(_req, res, next) {
 
 const first = (rows) => rows[0];
 
-function planBatchDeductions(batches, quantity) {
-  let remaining = Number(quantity);
-  return batches.flatMap((batch) => {
-    if (remaining <= 0) return [];
-    const take = Math.min(remaining, Number(batch.quantity_remaining ?? 0));
-    remaining -= take;
-    return take > 0 ? [{ batchId: batch.id, quantity: take }] : [];
-  });
-}
-
 app.get("/api/health", (_req, res) => {
   res.json({ ok: Boolean(sql), database: sql ? "neon" : "missing" });
 });
 
 app.post("/api/auth/login", requireDatabase, async (req, res, next) => {
   try {
+    setPrivateNoStore(res);
     const { email, password } = req.body;
     const loginLimit = rateLimit({
       key: rateLimitKey(req, "auth.login", email || "missing-email"),
@@ -80,6 +72,7 @@ app.post("/api/auth/login", requireDatabase, async (req, res, next) => {
 
 app.get("/api/bootstrap", requireDatabase, async (req, res, next) => {
   try {
+    setPrivateNoStore(res);
     res.json(await loadAuthenticatedKitchenSnapshot(req));
   } catch (error) {
     next(error);
@@ -88,6 +81,7 @@ app.get("/api/bootstrap", requireDatabase, async (req, res, next) => {
 
 app.post("/api/actions", requireDatabase, async (req, res, next) => {
   try {
+    setPrivateNoStore(res);
     const actor = actorFromRequest(req);
     const actionName = req.body?.action || "unknown";
     const actionLimit = rateLimit({
@@ -105,57 +99,17 @@ app.post("/api/actions", requireDatabase, async (req, res, next) => {
   }
 });
 
-app.post("/api/inventory-movements", requireDatabase, async (req, res, next) => {
-  try {
-    const actor = actorFromRequest(req);
-    if (!actor || !["Owner/Admin", "Inventory Manager"].includes(actor.role)) {
-      res.status(actor ? 403 : 401).json({ error: actor ? `${actor.role} cannot adjust inventory.` : "Sign in again to continue." });
-      return;
-    }
-    const { ingredientId, movementType, quantityChange, unit, note, createdBy = "system" } = req.body;
-    const ingredientRows = await sql`select current_stock::float as current_stock from ingredients where id = ${ingredientId}`;
-    if (!ingredientRows.length) {
-      res.status(404).json({ error: "Ingredient not found" });
-      return;
-    }
-    if (Number(ingredientRows[0].current_stock) + Number(quantityChange) < 0) {
-      res.status(400).json({ error: "Adjustment would make stock negative." });
-      return;
-    }
-    const batchRows = Number(quantityChange) < 0 ? await sql`
-      select id, quantity_remaining::float as quantity_remaining
-      from ingredient_batches
-      where ingredient_id = ${ingredientId}
-        and unit = ${unit}
-        and quantity_remaining > 0
-      order by expiry_date nulls last, received_date, created_at
-    ` : [];
-    const batchDeductions = planBatchDeductions(batchRows, Math.abs(Number(quantityChange)));
-    const [movementRows] = await sql.transaction((txn) => [
-      txn`
-        insert into inventory_movements (id, ingredient_id, movement_type, quantity_change, unit, note, created_by)
-        values (${`mov-${Date.now()}`}, ${ingredientId}, ${movementType}, ${quantityChange}, ${unit}, ${note}, ${createdBy})
-        returning id
-      `,
-      txn`
-        update ingredients
-        set current_stock = current_stock + ${quantityChange}, updated_at = now()
-        where id = ${ingredientId}
-      `,
-      ...batchDeductions.map((deduction) => txn`
-        update ingredient_batches
-        set quantity_remaining = greatest(0, quantity_remaining - ${deduction.quantity}), updated_at = now()
-        where id = ${deduction.batchId}
-      `)
-    ]);
-    res.status(201).json({ id: first(movementRows).id });
-  } catch (error) {
-    next(error);
-  }
+// Retired in Phase 006a: inventory changes go through the authenticated
+// inventory.adjust action on POST /api/actions.
+app.post("/api/inventory-movements", (_req, res) => {
+  res.status(410).json({
+    error: "This endpoint has been retired. Use the authenticated inventory.adjust action via POST /api/actions."
+  });
 });
 
 app.post("/api/orders/:orderId/produced", requireDatabase, async (req, res, next) => {
   try {
+    setPrivateNoStore(res);
     const { orderId } = req.params;
     res.json(await produceOrder(sql, orderId, actorFromRequest(req), req.body?.qcLog ?? {}));
   } catch (error) {
@@ -169,8 +123,7 @@ app.get("*", (_req, res) => {
 });
 
 app.use((error, _req, res, _next) => {
-  console.error(error);
-  res.status(error.statusCode ?? 500).json({ error: error.message ?? "Unexpected server error" });
+  sendError(res, error);
 });
 
 app.listen(port, () => {
