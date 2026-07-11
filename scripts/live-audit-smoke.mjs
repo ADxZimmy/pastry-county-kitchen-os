@@ -19,6 +19,8 @@ if (!smokeEmail || !smokePassword) {
 }
 
 const sql = databaseUrl ? neon(databaseUrl) : null;
+const loginRateLimitWindowMs = 60 * 1000;
+const loginRateLimitSafetyMs = 5 * 1000;
 
 function childEnv(extraEnv = {}) {
   const cleaned = Object.fromEntries(
@@ -48,6 +50,13 @@ function runNpmScript(script, extraEnv = {}) {
       else reject(new Error(`${script} failed with exit code ${code}.`));
     });
   });
+}
+
+async function waitForLoginRateLimitWindow(startedAt) {
+  const remainingMs = loginRateLimitWindowMs + loginRateLimitSafetyMs - (Date.now() - startedAt);
+  if (remainingMs <= 0) return;
+  console.log(`Waiting ${Math.ceil(remainingMs / 1000)}s for the production login rate-limit window to reset.`);
+  await new Promise((resolve) => setTimeout(resolve, remainingMs));
 }
 
 async function createSmokeUser() {
@@ -103,10 +112,12 @@ async function assertCleanup() {
 try {
   if (useTemporaryUser) await createSmokeUser();
   else console.log("Using configured live test user because LIVE_AUDIT_DATABASE_URL/DATABASE_URL is not configured.");
+  const loginWindowStartedAt = Date.now();
   await runNpmScript("smoke:phase2-rerun");
   await runNpmScript("smoke:milestone7");
   await runNpmScript("smoke:regression-audit", { REGRESSION_AUDIT_SMOKE_MUTATE: "1" });
   await runNpmScript("smoke:phase3-pastry");
+  await waitForLoginRateLimitWindow(loginWindowStartedAt);
   await runNpmScript("smoke:phase4-pastry-depth");
   await runNpmScript("smoke:navigation-routing");
   await runNpmScript("smoke:import-onboarding");

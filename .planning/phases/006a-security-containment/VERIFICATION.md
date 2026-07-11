@@ -30,28 +30,37 @@
   Result: Passed.
   Notes: `scripts/phase3-pastry-smoke.mjs` and `scripts/phase4-pastry-depth-smoke.mjs` call it with a `Bearer` token from an owner login, so Owner/Admin-only gating does not break existing smokes.
 
-## Deployed Verification (2026-07-11)
+## Production Deployment (2026-07-11)
 
-- Deploy: pushed `7c1026b` to `origin/main`; the production Vercel project (ADxZimmy account) auto-deployed.
-- Incident and recovery: the first auto-deploy went live without `SESSION_SECRET` in its build-time env, so `/api/health` reported `sessionSecret: "missing"`/`ok: false` and authenticated requests failed closed (login with valid creds and token verification returned 503). Anonymous behavior (401/410) was unaffected. Root cause: Vercel bakes env vars at build time, and the var was not present in that build. Resolved by confirming `SESSION_SECRET` (Production scope) on the ADxZimmy project and triggering a Vercel Redeploy; no code change. After redeploy, `/api/health` returned `ok: true, sessionSecret: "configured"`.
-- Live probes after recovery (all passed):
-  - `GET /api/health` -> `{ ok: true, database: "neon", sessionSecret: "configured" }`.
-  - `POST /api/inventory-movements` (unauth) -> 410 with "Use the authenticated inventory.adjust action via POST /api/actions."
-  - `POST /api/actions {action:"schema.ensure"}` (unauth) -> 401.
-  - `POST /api/actions {action:"inventory.adjust", ...}` (unauth) -> 401.
-  - `GET /api/bootstrap` (unauth) -> 401 (regression check; still protected).
-  - `POST /api/auth/login` response carries `Cache-Control: private, no-store`.
-- Command/check: `npm.cmd run smoke:live-audit` against production
-  Result: Passed; phase2-rerun, milestone7, regression-audit, phase3-pastry, phase4-pastry-depth, navigation-routing, and import-onboarding all passed; temporary import recipe `rec-import-1783773593142-pvghus` archived. Authenticated login/token signing works end to end with the configured secret.
+- Check: Production secret and deployment
+  Result: Passed.
+  Notes: A generated 48-byte base64url `SESSION_SECRET` was configured as a sensitive Production variable on the existing Vercel project (team `sanuske2-2147s-projects`); its value was not printed or stored in the repository. Deployment `dpl_EHgWLn3YWvWRhwY7U9wYUWU5VSCi` reached Ready and serves the canonical `https://pastry-county-kitchen-os.vercel.app` alias.
+- Check: `GET /api/health`
+  Result: HTTP 200 with `{"ok":true,"database":"neon","sessionSecret":"configured"}`.
+- Check: Unauthenticated `POST /api/inventory-movements`
+  Result: HTTP 410 with the retired-route guidance.
+- Check: Unauthenticated `POST /api/actions {"action":"schema.ensure"}`
+  Result: HTTP 401 before schema maintenance.
+- Check: Unauthenticated `POST /api/actions {"action":"inventory.adjust", ...}` and `GET /api/bootstrap`
+  Result: HTTP 401 (still protected).
+- Check: `POST /api/auth/login` cache header
+  Result: `Cache-Control: private, no-store`.
+- Command: `npm.cmd run smoke:live-audit`
+  Result: Passed against production after teaching the umbrella runner to wait out the existing five-login/60-second window between its fifth and sixth Owner/Admin logins.
+  Notes: Phase 2 rerun, Milestone 7, regression audit, Phase 3, Phase 4, navigation routing, and import onboarding all passed. Cleanup verified `{"smokeUsers":0,"activeSmokeIngredients":0,"fefoOverstatements":0}`.
+
+## Deploy incident note
+
+- The first auto-deploy briefly served the new build before `SESSION_SECRET` was present in its build-time env, so `/api/health` reported `sessionSecret: "missing"` and authenticated requests failed closed (login with valid creds and token verification returned 503); anonymous 401/410 behavior was unaffected. A redeploy with the secret configured resolved it with no code change. Set fail-closed secrets before the deploying build.
 
 ## Lessons
 
-- On this repo the production Vercel project is owned by the `ADxZimmy` account; the local CLI (`nnazimuzoo`) cannot set its env vars. Set `SESSION_SECRET` (or any fail-closed secret) on the correct account BEFORE the build that deploys it, or expect a brief authenticated-only outage until a redeploy. See the memory `vercel-account-boundary`.
+- The production Vercel project is under team `sanuske2-2147s-projects`; `ADxZimmy` is the required GitHub commit identity. A local CLI logged into a different account (e.g. `nnazimuzoo`) is not linked to the production project and cannot set its env vars. Set `SESSION_SECRET` (or any fail-closed secret) on the correct project before the build that deploys it. See the memory `vercel-account-boundary`.
 
 ## Residual Risk
 
-- Risk: Setting `SESSION_SECRET` in production is required by this change; if it is not configured in Vercel before deploy, login/bootstrap/actions fail closed (503) for all users.
-  Owner: Deploy step — configure `SESSION_SECRET` in Vercel env first, verify via `/api/health`.
+- Risk: Rotating or removing `SESSION_SECRET` invalidates existing sessions; a missing value makes authenticated production routes fail closed with 503.
+  Owner: Operations — rotate deliberately, redeploy, verify `/api/health`, and expect a one-time sign-in reset. Never restore the former fallback.
 - Risk: `private, no-store` was applied to login/actions/bootstrap/produced only; full centralization across every endpoint remains Phase 011 work.
   Owner: Phase 011.
 - Risk: Full cookie/CSRF migration and distributed rate limiting remain Phase 011 work.

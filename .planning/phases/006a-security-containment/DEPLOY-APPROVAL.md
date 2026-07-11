@@ -1,91 +1,43 @@
-# Phase 006a — Deploy Approval Request
+# Phase 006a — Production Deployment Record
 
-Status: **BLOCKED — awaiting owner approval + production secret**
-Raised: 2026-07-11
-Owner action required: yes (only the `ADxZimmy` Vercel account can complete step 1)
+Status: **COMPLETED — S0 production exit checks passed**
+Completed: 2026-07-11
+Owner action required: no
 
----
+## Superseded Account Diagnosis
 
-## 1. What is blocked
+The earlier version of this file incorrectly treated `ADxZimmy` as the production Vercel account and described the active Vercel context as unable to reach production. Repository and Vercel metadata disproved that diagnosis:
 
-Phase 006a (Immediate Security Containment) is implemented, tested, and committed
-locally but **not pushed**. It cannot deploy safely until a production secret is set.
+- `ADxZimmy <84815694+ADxZimmy@users.noreply.github.com>` is the GitHub repository/commit identity required for deployment-triggering commits.
+- Production is the long-standing Vercel project `prj_3HN5fBetOYebhRrcwjK1QzSr5kSy` under team `sanuske2-2147s-projects` (`team_SumcS7BfGXgJWdQc7y2iAxSk`).
+- The existing local `.vercel/project.json` already referenced that project and team; no account relink or revert was needed.
 
-Unpushed commits on `main` (ahead of `origin/main` by 2):
+The former blocked instructions and claims about an `ADxZimmy` Vercel project are superseded by this record.
 
-- `6b2ea8c` Implement phase 006a security containment
-- `ca8b7af` Record phase 006a deploy hold and Vercel account boundary
+## Secret Configuration
 
-Local verification already passed: `npm test` 94/94, `npm run build` clean,
-`npm audit` 0 vulnerabilities, plus a runtime probe of the shipped handlers (7/7).
+A cryptographically random 48-byte base64url value was generated locally and configured as the sensitive `SESSION_SECRET` variable in Vercel's Production scope. The value was passed without displaying it and is not stored in this file or the repository.
 
-## 2. Why it is blocked
+Changing the signing secret invalidates sessions signed with the former fallback, so users may need to sign in once again. This is expected.
 
-Phase 006a change RS-004 makes session signing **fail closed in production**: if
-`SESSION_SECRET` is not configured, login / bootstrap / actions return HTTP 503.
-This is intentional (it removes the insecure fallback to `DATABASE_URL` / a shared
-dev constant), but it means the secret must exist **before** the new code goes live.
+## Deployment
 
-Deploy path is a git push to `main`, which the production Vercel project
-auto-deploys.
+- Deployment ID: `dpl_EHgWLn3YWvWRhwY7U9wYUWU5VSCi`
+- Deployment URL: `https://pastry-county-kitchen-8wxnzyk2b-sanuske2-2147s-projects.vercel.app`
+- Canonical alias: `https://pastry-county-kitchen-os.vercel.app`
+- Result: Ready
 
-## 3. Risk if done in the wrong order
+## Production Evidence
 
-If `main` is pushed **before** `SESSION_SECRET` exists on the production project,
-the new build deploys without the secret and **every authenticated request returns
-503 — a full outage** until the secret is added and a redeploy completes.
+1. `GET /api/health` returned HTTP 200 with Neon available and `sessionSecret: "configured"`.
+2. Unauthenticated `POST /api/inventory-movements` returned HTTP 410.
+3. Unauthenticated `POST /api/actions {"action":"schema.ensure"}` returned HTTP 401 before schema maintenance.
+4. The first umbrella smoke attempt exposed a runner collision with the intentional five-login/60-second limit; Phase 4 was the sixth Owner/Admin login and correctly received 429.
+5. The runner was updated to wait for that window to reset. `npm.cmd run smoke:live-audit` then passed every component suite against the canonical production alias.
+6. Cleanup finished with zero temporary smoke users, active smoke ingredients, and FEFO overstatements.
 
-## 4. Account boundary (important)
+These results clear the automated/live S0 exit checks and permit Phase 007 work. They do not approve an unscripted demo; the D1 gate and the remaining Phase 006a manual role-matrix UAT are still outstanding.
 
-The local Vercel CLI is authenticated as **`nnazimuzoo`**, which does **not** own the
-production project. Production (`https://pastry-county-kitchen-os.vercel.app`) is
-deployed from the **`ADxZimmy`** account (the GitHub repo owner). Therefore the
-secret must be set on the **ADxZimmy** account — Claude cannot do this step.
+## Future Rotation / Recovery
 
-(An empty stray `pastry-county-kitchen-os` project accidentally created under
-`nnazimuzoo` during investigation has already been deleted; the local `.vercel`
-link was removed.)
-
-## 5. Pre-deploy step the owner must perform (on the ADxZimmy account)
-
-1. Generate a strong secret locally (keeps it out of chat/logs):
-   ```
-   node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'))"
-   ```
-2. Vercel dashboard (signed in as **ADxZimmy**) → project **pastry-county-kitchen-os**
-   → **Settings → Environment Variables** → Add:
-   - Key: `SESSION_SECRET`
-   - Value: the generated string (min 16 chars)
-   - Environment: **Production** (Preview/Development optional; not required)
-   - Save.
-
-## 6. Approval
-
-Mark this section and tell Claude to proceed.
-
-- [ ] I approve deploying Phase 006a (`6b2ea8c`, `ca8b7af`) to production.
-- [ ] `SESSION_SECRET` is set on the **ADxZimmy** production project (Production scope).
-- [ ] I accept the one-time side effect: all currently signed-in users are logged
-      out once after deploy (old tokens were effectively signed with `DATABASE_URL`)
-      and must sign in again.
-
-Approved by: ______________________   Date: ____________
-
-## 7. What Claude does after approval
-
-1. `git push` (triggers the production auto-deploy).
-2. Verify `GET /api/health` returns `sessionSecret: "configured"` (and `ok: true`).
-3. Confirm unauthenticated `POST /api/inventory-movements` returns **410**.
-4. Confirm unauthenticated `POST /api/actions {"action":"schema.ensure"}` returns
-   **401** with no schema change.
-5. Run `npm run smoke:live-audit` against production.
-6. Record results in `VERIFICATION.md`; on green, this clears the **S0 Security
-   Containment** gate and Phase 007 may begin.
-
-## 8. Rollback
-
-If `/api/health` reports `sessionSecret: "missing"` or auth returns 503 after deploy,
-the secret is not present on the production project — add it and redeploy (Vercel
-"Redeploy" on the latest deployment). If a different regression appears, revert the
-push (`git revert 6b2ea8c`, or redeploy the previous Vercel build) and re-open this
-phase; do not restore the unauthenticated route or the secret fallback.
+Rotate `SESSION_SECRET` deliberately as a sensitive Production variable, redeploy, verify `/api/health`, and expect existing sessions to be invalidated. If the health check reports the secret missing, restore a valid dedicated secret and redeploy. Do not reintroduce the `DATABASE_URL` or development-secret fallback, and do not restore the unauthenticated inventory route.
