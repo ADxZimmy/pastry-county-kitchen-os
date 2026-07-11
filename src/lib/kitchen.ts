@@ -1,5 +1,6 @@
 import { conversionRules, ingredients, inventoryMovements, orderItems, orders, products, recipeItems, recipes, settings, suppliers } from "../data";
 import type { ConversionRule, Ingredient, InventoryMovement, Order, OrderEvent, OrderItem, Product, Recipe, RecipeItem, RecipeItemPrepState, Settings, Unit } from "../types";
+import { validatePositiveNumber } from "../../shared/policy.js";
 
 export interface ScaledIngredient {
   ingredientId: string;
@@ -149,6 +150,10 @@ export function orderEventsForOrder(events: OrderEvent[], orderId: string): Orde
 export function scaleRecipe(recipeId: string, requestedYieldQuantity: number, recipeList = recipes, itemList = recipeItems, ingredientList = ingredients, preferences: ScalingPreferences = settings): ScaledIngredient[] {
   const recipe = recipeList.find((item) => item.id === recipeId);
   if (!recipe) throw new Error(`Recipe ${recipeId} was not found`);
+  const baseError = validatePositiveNumber(recipe.baseYieldQuantity, "Recipe base yield");
+  if (baseError) throw Object.assign(new Error(baseError), { statusCode: 400 });
+  const targetError = validatePositiveNumber(requestedYieldQuantity, "Desired yield");
+  if (targetError) throw Object.assign(new Error(targetError), { statusCode: 400 });
   const scaleFactor = requestedYieldQuantity / recipe.baseYieldQuantity;
   const formulaContext = recipe.formulaMetadata?.productFamily || recipe.category;
   return itemList

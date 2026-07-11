@@ -2,6 +2,7 @@ import bcrypt from "bcryptjs";
 import { Resend } from "resend";
 import { ensureSessionColumns, sessionAccessError } from "./_auth.js";
 import { extractImportDraft, importParserVersion } from "./_imports.js";
+import { validatePositiveNumber } from "../shared/policy.js";
 
 export { sessionAccessError } from "./_auth.js";
 
@@ -1561,7 +1562,14 @@ export async function handleAction(sql, body, actor) {
     const productId = data.productId || id("prod");
     const recipeId = data.id || id("rec");
     const before = data.id ? await rowById(sql, "recipes", data.id) : null;
-    const items = Array.isArray(data.items) ? data.items.filter((item) => item.ingredientId && num(item.quantity) > 0) : [];
+    const baseYieldError = validatePositiveNumber(data.baseYieldQuantity, "Base yield");
+    if (baseYieldError) throw Object.assign(new Error(baseYieldError), { statusCode: 400 });
+    const rawItems = Array.isArray(data.items) ? data.items.filter((item) => item.ingredientId) : [];
+    for (const item of rawItems) {
+      const quantityError = validatePositiveNumber(item.quantity, "Ingredient quantity");
+      if (quantityError) throw Object.assign(new Error(quantityError), { statusCode: 400 });
+    }
+    const items = rawItems;
     if (!items.length) throw Object.assign(new Error("Add at least one recipe ingredient."), { statusCode: 400 });
     const instructions = String(data.instructions || "").split(/\n+/).map((step) => step.trim()).filter(Boolean);
     const formulaMetadata = normalizeRecipeFormulaMetadata(data.formulaMetadata);

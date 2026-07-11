@@ -1846,20 +1846,22 @@ function RecipeScaling({ recipeId, currentRoute, setPage, setSelectedOrderId, se
   const [desired, setDesired] = useState(12);
   const recipe = recipes.find((item) => item.id === recipeId);
   if (!recipe) return <EmptyState title="No recipe selected" message="Add or select a recipe before scaling." action={<Button variant="secondary" onClick={() => setPage({ name: "recipes" })}>Back to Recipes</Button>} />;
-  const scaled = scaleRecipe(recipeId, desired);
-  const cost = calculateRecipeCost(recipeId, desired);
-  const availability = checkStockAvailability(scaled);
+  const desiredValid = Number.isFinite(desired) && desired > 0;
+  const scaled = desiredValid ? scaleRecipe(recipeId, desired) : [];
+  const cost = desiredValid ? calculateRecipeCost(recipeId, desired) : null;
+  const availability = desiredValid ? checkStockAvailability(scaled) : [];
   return (
     <div className="detail-layout">
       <Section title="Scale Recipe">
         <div className="form-grid">
           <Field label="Recipe"><select value={recipeId} disabled><option value={recipeId}>{recipe.name}</option></select></Field>
           <Field label="Base yield"><input readOnly value={`${recipe.baseYieldQuantity} ${recipe.yieldUnit}`} /></Field>
-          <Field label="Desired yield"><input type="number" value={desired} onChange={(event) => setDesired(Number(event.target.value))} /></Field>
-          <Field label="Scale factor"><input readOnly value={`${(desired / recipe.baseYieldQuantity).toFixed(2)}x`} /></Field>
+          <Field label="Desired yield"><input type="number" min="0.001" step="0.001" value={desired || ""} onChange={(event) => setDesired(Number(event.target.value))} /></Field>
+          <Field label="Scale factor"><input readOnly value={desiredValid ? `${(desired / recipe.baseYieldQuantity).toFixed(2)}x` : "—"} /></Field>
         </div>
+        {!desiredValid && <p className="field-error">Enter a desired yield greater than zero to scale this recipe.</p>}
       </Section>
-      <div className="metric-grid small"><Metric label="Estimated cost" value={formatNaira(cost.totalRecipeCost)} /><Metric label="Cost per piece" value={formatNaira(cost.costPerYieldUnit)} /><Metric label="Stock availability" value={availability.some((item) => item.status === "shortage") ? "Shortage" : "Ready"} /><Metric label="Egg scaling" value={settings.eggRoundingPreference === "allow_gram_conversion" ? "Gram weights" : "Whole counts"} /></div>
+      {desiredValid && cost && <div className="metric-grid small"><Metric label="Estimated cost" value={formatNaira(cost.totalRecipeCost)} /><Metric label="Cost per piece" value={formatNaira(cost.costPerYieldUnit)} /><Metric label="Stock availability" value={availability.some((item) => item.status === "shortage") ? "Shortage" : "Ready"} /><Metric label="Egg scaling" value={settings.eggRoundingPreference === "allow_gram_conversion" ? "Gram weights" : "Whole counts"} /></div>}
       {hasFormulaMetadata(recipe.formulaMetadata) && <Section title="Formula Profile"><div className="compact-list">{formulaMetadataRows(recipe.formulaMetadata).slice(0, 8).map(([label, value]) => <div className="row-card" key={label}><span>{label}</span><strong>{value}</strong></div>)}</div></Section>}
       <Section title="Scaled Ingredients"><div className="compact-list">{scaled.map((item) => <div className="row-card" key={item.ingredientId}><span>{item.ingredientName}<small>Original {formatQuantity(item.originalQuantity, item.unit)}{prepStateSummary(item.prepState) ? ` | ${prepStateSummary(item.prepState)}` : ""}{item.scalingNote ? ` | ${item.scalingNote}` : ""}</small></span><strong>{formatScaledIngredientQuantity(item)}</strong></div>)}</div></Section>
       {availability.some((item) => item.status === "shortage") && <article className="warning-card"><AlertTriangle size={22} /> Some ingredients are short. Update stock before production is completed.</article>}
@@ -2292,8 +2294,9 @@ function ProductionScaledRecipeModal({ orderId, onClose }: { orderId: string; on
         {lines.map((line) => {
           const recipe = recipes.find((item) => item.id === line.recipeId);
           const requested = line.requestedYieldQuantity * line.quantityMultiplier;
-          const scaled = recipe ? scaleRecipe(recipe.id, requested) : [];
-          const cost = recipe ? calculateRecipeCost(recipe.id, requested) : { totalRecipeCost: 0, costPerYieldUnit: 0 };
+          const requestedValid = Number.isFinite(requested) && requested > 0 && Number(recipe?.baseYieldQuantity) > 0;
+          const scaled = recipe && requestedValid ? scaleRecipe(recipe.id, requested) : [];
+          const cost = recipe && requestedValid ? calculateRecipeCost(recipe.id, requested) : { totalRecipeCost: 0, costPerYieldUnit: 0 };
           return (
             <section className="compact-list" key={line.id}>
               <SummaryCard title={recipe?.name ?? "Recipe"} items={[

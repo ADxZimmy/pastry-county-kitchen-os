@@ -4,6 +4,7 @@ import { recipes as kitchenRecipes, setKitchenSnapshot } from "./data";
 import { auditChangeSummary, auditDataJson, auditExportRows, auditRecordLabel, auditSearchText } from "./lib/audit";
 import { buildKitchenAssistantResponse, calculateMargin, calculateRecipeCost, cancellationConsequences, checkStockAvailability, computeOrderPricing, convertUnit, dashboardProductionQueue, formatNaira, formatQuantity, formatScaledIngredientQuantity, generateShoppingList, netSellingPrice, orderEventLabel, orderEventsForOrder, ordersForProductionBucket, parseRecipeText, productionPeriodBounds, recommendedRestockDate, restockSuggestions, roundScaledQuantity, scaleRecipe, stockAdjustmentValidation } from "./lib/kitchen";
 import { activeSelectedIdsForRoute, parseAppRoute, routeBackLabel, routeParent, serializeAppRoute } from "./lib/routes";
+import { practicalQuantity, roundGrams, validateNonNegativeNumber, validatePositiveNumber } from "../shared/policy.js";
 import type { AuditLog, ConversionRule, Ingredient, Recipe, RecipeItem } from "./types";
 
 describe("kitchen calculations", () => {
@@ -75,6 +76,13 @@ describe("kitchen calculations", () => {
     expect(scaled.find((item) => item.ingredientName === "Sugar")?.scaledQuantity).toBe(375);
     expect(scaled.find((item) => item.ingredientName === "Dark Chocolate")?.scaledQuantity).toBe(187.5);
     expect(scaled.find((item) => item.ingredientName === "Eggs")?.scaledQuantity).toBe(3);
+  });
+
+  it("rejects non-positive or non-finite scaling yields instead of emitting NaN/Infinity/negative (PCO-006)", () => {
+    expect(() => scaleRecipe("recipe-classic", 0)).toThrow(/greater than zero/);
+    expect(() => scaleRecipe("recipe-classic", -12)).toThrow(/greater than zero/);
+    expect(() => scaleRecipe("recipe-classic", Number.NaN)).toThrow(/must be a number/);
+    expect(() => scaleRecipe("recipe-classic", Number.POSITIVE_INFINITY)).toThrow(/must be a number/);
   });
 
   it("uses consistent quantity rounding for audit scaling cases", () => {
@@ -400,6 +408,37 @@ describe("audit report export helpers", () => {
     expect(auditSearchText(purchaseEntry, lookup).toLowerCase()).toContain("audit-flour");
     expect(auditExportRows([purchaseEntry], lookup)[0][1]).toBe("AUDIT-Flour (ingredient-audit-flour)");
     expect(auditSearchText(purchaseEntry, lookup)).not.toContain("hidden");
+  });
+});
+
+describe("shared policy validation and rounding (PCO-006/007)", () => {
+  it("validates positive numbers with field-level errors", () => {
+    expect(validatePositiveNumber(12, "Yield")).toBeNull();
+    expect(validatePositiveNumber(0, "Yield")).toMatch(/greater than zero/);
+    expect(validatePositiveNumber(-3, "Yield")).toMatch(/greater than zero/);
+    expect(validatePositiveNumber("", "Yield")).toMatch(/must be a number/);
+    expect(validatePositiveNumber("abc", "Yield")).toMatch(/must be a number/);
+    expect(validatePositiveNumber(Number.POSITIVE_INFINITY, "Yield")).toMatch(/must be a number/);
+  });
+
+  it("validates non-negative numbers", () => {
+    expect(validateNonNegativeNumber(0, "Stock")).toBeNull();
+    expect(validateNonNegativeNumber(5, "Stock")).toBeNull();
+    expect(validateNonNegativeNumber(-1, "Stock")).toMatch(/cannot be negative/);
+    expect(validateNonNegativeNumber("x", "Stock")).toMatch(/must be a number/);
+  });
+
+  it("rounds grams to the configured 1/5/10g step", () => {
+    expect(roundGrams(187.5, 1)).toBe(188);
+    expect(roundGrams(187.5, 5)).toBe(190);
+    expect(roundGrams(187.5, 10)).toBe(190);
+    expect(roundGrams(183, 10)).toBe(180);
+  });
+
+  it("produces practical quantities per unit (count up, grams stepped, other one decimal)", () => {
+    expect(practicalQuantity(2.1, "pcs", 5)).toBe(3);
+    expect(practicalQuantity(187.5, "g", 5)).toBe(190);
+    expect(practicalQuantity(135.44, "ml", 5)).toBe(135.4);
   });
 });
 
