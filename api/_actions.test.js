@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { actorLabel, allowedRolesForAction, archiveTableForEntity, canRolePerformAction, computeOrderPricing, isValidOrderTransition, normalizeConversionScope, normalizeIngredientAllergenProfile, normalizeIngredientStorageProfile, normalizeProductionQcLog, normalizeRecipeCostProfile, normalizeRecipeFormulaMetadata, normalizeRecipeItemPrepState, normalizeShoppingPurchaseInput, planBatchDeductions, productionCompletionPreflight, productionShortageForRequirement, safePurchasePersistenceError, sendResendEmail, sessionAccessError } from "./_actions.js";
+import { actorLabel, allowedRolesForAction, archiveTableForEntity, canRolePerformAction, computeOrderPricing, isUniqueViolation, isValidOrderTransition, normalizeConversionScope, normalizeIngredientAllergenProfile, normalizeIngredientStorageProfile, normalizeProductionQcLog, normalizeRecipeCostProfile, normalizeRecipeFormulaMetadata, normalizeRecipeItemPrepState, normalizeShoppingPurchaseInput, planBatchDeductions, productionCompletionPreflight, productionShortageForRequirement, safePurchasePersistenceError, sendResendEmail, sessionAccessError } from "./_actions.js";
 
 describe("FEFO batch deduction planning", () => {
   it("deducts stock removals or production use across lots in the provided FEFO order", () => {
@@ -159,6 +159,26 @@ describe("canonical order pricing (PCO-002)", () => {
     expect(() => computeOrderPricing({ lines: [line(-1)] })).toThrow();
     expect(() => computeOrderPricing({ lines: [line(100)], discountAmount: -5 })).toThrow();
     expect(() => computeOrderPricing({ lines: [line(100)], taxRate: Number.POSITIVE_INFINITY })).toThrow();
+  });
+});
+
+describe("completion idempotency guard (PCO-005)", () => {
+  // produceOrder inserts a production_runs row keyed by order_id as the first
+  // statement of the deduction transaction; a concurrent or repeat completion
+  // hits a unique violation and rolls the whole transaction back. This guard is
+  // what turns that error into an idempotent { alreadyProduced } instead of a
+  // double deduction, so its detection must be exact.
+  it("detects Postgres unique violations by code and message", () => {
+    expect(isUniqueViolation({ code: "23505" })).toBe(true);
+    expect(isUniqueViolation({ message: 'duplicate key value violates unique constraint "production_runs_order_id_key"' })).toBe(true);
+    expect(isUniqueViolation({ message: "new row violates unique constraint" })).toBe(true);
+  });
+
+  it("does not misclassify unrelated failures as idempotent no-ops", () => {
+    expect(isUniqueViolation({ code: "23503", message: "insert or update violates foreign key constraint" })).toBe(false);
+    expect(isUniqueViolation(new Error("connection timeout"))).toBe(false);
+    expect(isUniqueViolation(null)).toBe(false);
+    expect(isUniqueViolation(undefined)).toBe(false);
   });
 });
 

@@ -2119,7 +2119,7 @@ function Production({ user, setPage, setSelectedOrderId, notify, reloadData }: {
                   <Button variant="secondary" onClick={() => setReviewBatchKey(batch.key)}>Review Batch</Button>
                   {hasShortage && <Button variant="secondary" onClick={() => setPage({ name: "shopping", returnTo: { name: "production" } })}>Open Shopping List</Button>}
                   <Button variant="secondary" onClick={async () => { try { if (hasShortage) { notify(`Cannot start batch: ${shortageText(shortages)}.`); setPage({ name: "shopping", returnTo: { name: "production" } }); return; } await apiAction("production.batchStatus", { orderIds: batch.orderIds, status: "In Production", productionStatus: "In Progress" }); notify(`${recipe?.name ?? "Batch"} batch started.`); await reloadData(); } catch (error) { notify(error instanceof Error ? error.message : "Unable to start batch."); } }} disabled={!canStartBatch}>Start Batch</Button>
-                  <Button onClick={async () => { try { if (hasShortage) { notify(`Cannot complete batch: ${shortageText(shortages)}.`); setPage({ name: "shopping", returnTo: { name: "production" } }); return; } await apiAction("production.batchStatus", { orderIds: batch.orderIds, status: "Produced", productionStatus: "Completed" }); notify(`${recipe?.name ?? "Batch"} batch completed and stock deducted.`); await reloadData(); } catch (error) { notify(error instanceof Error ? error.message : "Unable to complete batch."); } }} disabled={!canCompleteBatch}>Complete Batch</Button>
+                  <Button onClick={() => { if (hasShortage) { notify(`Cannot complete batch: ${shortageText(shortages)}.`); setPage({ name: "shopping", returnTo: { name: "production" } }); return; } setReviewBatchKey(batch.key); }} disabled={!canCompleteBatch}>Complete Batch</Button>
                 </div>
               </article>
             );
@@ -2160,9 +2160,25 @@ function Production({ user, setPage, setSelectedOrderId, notify, reloadData }: {
               ["Due date", reviewBatch.dueDate],
               ["Total yield", `${reviewBatch.totalYield} ${reviewRecipe?.yieldUnit ?? "units"}`],
               ["Orders", reviewBatch.orderIds.map((id) => orders.find((order) => order.id === id)?.customerName ?? id).join(", ")],
+              ["Completed by", user?.fullName ?? user?.email ?? "You"],
               ["State", batchStage(reviewBatch, reviewAvailability.some((item) => item.shortageQuantity > 0))]
             ]} />
-            <ResponsiveTable headers={["Ingredient", "Required", "Available", "Shortage", "Status"]} rows={reviewAvailability.map((item) => ({ key: item.ingredientId, cells: [item.ingredientName, formatQuantity(item.requiredQuantity, reviewRequirements.find((requirement) => requirement.ingredientId === item.ingredientId)?.unit ?? "g"), formatQuantity(item.availableStock, reviewRequirements.find((requirement) => requirement.ingredientId === item.ingredientId)?.unit ?? "g"), item.shortageQuantity > 0 ? formatQuantity(item.shortageQuantity, reviewRequirements.find((requirement) => requirement.ingredientId === item.ingredientId)?.unit ?? "g") : "None", <Badge tone={item.shortageQuantity > 0 ? "danger" : "success"}>{item.shortageQuantity > 0 ? "Shortage" : "Enough Stock"}</Badge>] }))} />
+            <p className="section-note">Completing deducts the ingredients below from stock for {reviewBatch.orderIds.length} order{reviewBatch.orderIds.length === 1 ? "" : "s"}. This is recorded per order and cannot be repeated.</p>
+            <ResponsiveTable headers={["Ingredient", "Current stock", "Deducts", "Resulting stock", "Status"]} rows={reviewAvailability.map((item) => {
+              const unit = reviewRequirements.find((requirement) => requirement.ingredientId === item.ingredientId)?.unit ?? "g";
+              const resulting = item.availableStock - item.requiredQuantity;
+              return { key: item.ingredientId, cells: [
+                item.ingredientName,
+                formatQuantity(item.availableStock, unit),
+                formatQuantity(item.requiredQuantity, unit),
+                item.shortageQuantity > 0 ? formatQuantity(item.shortageQuantity * -1, unit) : formatQuantity(resulting, unit),
+                <Badge tone={item.shortageQuantity > 0 ? "danger" : "success"}>{item.shortageQuantity > 0 ? "Shortage" : "Enough Stock"}</Badge>
+              ] };
+            })} />
+            <div className="button-row">
+              <Button variant="secondary" onClick={() => setReviewBatchKey("")}>Cancel</Button>
+              <Button disabled={reviewAvailability.some((item) => item.shortageQuantity > 0) || !canUser(user, "runProduction")} onClick={async () => { try { const result = await apiAction("production.batchStatus", { orderIds: reviewBatch.orderIds, status: "Produced", productionStatus: "Completed" }); const produced = Array.isArray(result.results) ? result.results.filter((entry: { produced?: boolean }) => entry.produced).length : reviewBatch.orderIds.length; notify(`${reviewRecipe?.name ?? "Batch"} batch completed; stock deducted for ${produced} order${produced === 1 ? "" : "s"}.`); setReviewBatchKey(""); await reloadData(); } catch (error) { notify(error instanceof Error ? error.message : "Unable to complete batch."); } }}>Confirm &amp; Complete Batch</Button>
+            </div>
           </article>
         </div>
       )}

@@ -246,6 +246,19 @@ create table if not exists order_events (
   created_at timestamptz not null default now()
 );
 
+create table if not exists production_runs (
+  id text primary key,
+  order_id text not null references orders(id),
+  batch_key text,
+  actor text,
+  planned_yield numeric(14,3),
+  actual_yield numeric(14,3),
+  waste_quantity numeric(14,3),
+  qc_log_id text,
+  created_at timestamptz not null default now(),
+  unique (order_id)
+);
+
 create table if not exists settings (
   id text primary key,
   business_name text not null default 'Pastry County',

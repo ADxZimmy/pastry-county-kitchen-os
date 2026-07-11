@@ -717,6 +717,20 @@ async function ensureOperationalTables(sql) {
     )
   `;
   await sql`
+    create table if not exists production_runs (
+      id text primary key,
+      order_id text not null references orders(id),
+      batch_key text,
+      actor text,
+      planned_yield numeric(14,3),
+      actual_yield numeric(14,3),
+      waste_quantity numeric(14,3),
+      qc_log_id text,
+      created_at timestamptz not null default now(),
+      unique (order_id)
+    )
+  `;
+  await sql`
     create table if not exists production_qc_logs (
       id text primary key,
       order_id text not null references orders(id),
@@ -1210,6 +1224,13 @@ export function productionCompletionPreflight(status) {
   return null;
 }
 
+// Postgres unique_violation. Completion inserts a production_runs row keyed by
+// order_id inside the deduction transaction, so a concurrent or repeat completion
+// hits this and rolls the whole transaction back instead of double-deducting.
+export function isUniqueViolation(error) {
+  return error?.code === "23505" || /duplicate key value|unique constraint/i.test(error?.message ?? "");
+}
+
 async function productionQcLogForOrder(sql, orderId, qcInput, actor) {
   const qc = normalizeProductionQcLog(qcInput);
   const lines = await sql`
@@ -1264,7 +1285,18 @@ export async function produceOrder(sql, orderId, actor, qcInput = {}) {
   const batchDeductions = await Promise.all(requirements.map((requirement) => batchDeductionsForRequirement(sql, requirement)));
   const qcLog = await productionQcLogForOrder(sql, orderId, qcInput, actor);
   const produceActor = actorLabel(actor);
-  await sql.transaction((txn) => [
+  const wasteQuantity = num(qcInput.wasteQuantity) > 0
+    ? num(qcInput.wasteQuantity)
+    : Math.max(0, Number(qcLog.expectedYieldQuantity ?? 0) - Number(qcLog.actualYieldQuantity ?? 0));
+  try {
+    await sql.transaction((txn) => [
+      // First statement: claim the completion. unique(order_id) makes a concurrent
+      // or repeat completion fail here and roll the whole transaction back, so
+      // stock is never deducted twice.
+      txn`
+        insert into production_runs (id, order_id, batch_key, actor, planned_yield, actual_yield, waste_quantity, qc_log_id)
+        values (${id("prun")}, ${orderId}, ${qcLog.batchKey}, ${produceActor}, ${qcLog.expectedYieldQuantity}, ${qcLog.actualYieldQuantity}, ${wasteQuantity}, ${qcLog.id})
+      `,
     ...requirements.flatMap((requirement, index) => [
       txn`
         insert into inventory_movements (id, ingredient_id, movement_type, quantity_change, unit, related_order_id, note, created_by)
@@ -1297,7 +1329,11 @@ export async function produceOrder(sql, orderId, actor, qcInput = {}) {
       metadata: { qcLogId: qcLog.id, passedQc: qcLog.passedQc },
       note: "Order marked produced; ingredients deducted from stock."
     })
-  ]);
+    ]);
+  } catch (error) {
+    if (isUniqueViolation(error)) return { produced: false, alreadyProduced: true };
+    throw error;
+  }
   await audit(sql, "orders", orderId, "produce", { status }, await rowById(sql, "orders", orderId), actor);
   return { produced: true, qcLogId: qcLog.id };
 }
