@@ -1,5 +1,5 @@
 import { conversionRules, ingredients, inventoryMovements, orderItems, orders, products, recipeItems, recipes, settings, suppliers } from "../data";
-import type { ConversionRule, Ingredient, Order, OrderEvent, OrderItem, Product, Recipe, RecipeItem, RecipeItemPrepState, Settings, Unit } from "../types";
+import type { ConversionRule, Ingredient, InventoryMovement, Order, OrderEvent, OrderItem, Product, Recipe, RecipeItem, RecipeItemPrepState, Settings, Unit } from "../types";
 
 export interface ScaledIngredient {
   ingredientId: string;
@@ -385,6 +385,36 @@ export function computeOrderPricing(input: OrderPricingInput): OrderPricing {
 export function requirementsForOrder(orderId: string, allOrderItems = orderItems) {
   const lines = allOrderItems.filter((item) => item.orderId === orderId);
   return requirementsForOrderLines(lines);
+}
+
+export interface CancellationConsequences {
+  canCancel: boolean;
+  alreadyDeducted: boolean;
+  productionStarted: boolean;
+  willReleaseReservation: boolean;
+  blockedReason?: string;
+}
+
+// What cancelling an order will actually do, so the operator confirms with full
+// context (PCO-009). Cancellation is blocked once stock has been deducted at
+// production; reversing that needs an explicit correction, never a silent
+// restock of consumed FEFO lots.
+export function cancellationConsequences(order: Order, movements: InventoryMovement[] = inventoryMovements): CancellationConsequences {
+  const netReserved = movements
+    .filter((movement) => movement.relatedOrderId === order.id && (movement.movementType === "reservation" || movement.movementType === "reservation_release"))
+    .reduce((sum, movement) => sum + Number(movement.quantityChange), 0);
+  const alreadyDeducted = ["Produced", "Delivered"].includes(order.status);
+  const productionStarted = ["In Production", "Produced", "Delivered"].includes(order.status);
+  const isTerminal = ["Produced", "Delivered", "Cancelled"].includes(order.status);
+  return {
+    canCancel: !isTerminal,
+    alreadyDeducted,
+    productionStarted,
+    willReleaseReservation: !isTerminal && netReserved > 0.0001,
+    blockedReason: alreadyDeducted
+      ? "Stock was already deducted when this order was produced. Cancelling now needs an explicit stock correction, which is not available in this screen yet."
+      : order.status === "Cancelled" ? "This order is already cancelled." : undefined
+  };
 }
 
 function addDaysIso(iso: string, delta: number): string {

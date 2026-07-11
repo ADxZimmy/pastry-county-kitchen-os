@@ -1693,6 +1693,7 @@ export async function handleAction(sql, body, actor) {
     if (before && !isValidOrderTransition(before.status, status)) {
       throw Object.assign(new Error(`Cannot change an order from ${before.status} to ${status}.`), { statusCode: 409 });
     }
+    const cancellationReason = status === "Cancelled" ? required(body.reason, "Cancellation reason") : null;
     const productionStatus = body.productionStatus || (status === "In Production" ? "In Progress" : status === "Delivered" || status === "Produced" ? "Completed" : undefined);
     if (status === "In Production") {
       const reservation = await reserveOrder(sql, orderId, actor);
@@ -1723,7 +1724,8 @@ export async function handleAction(sql, body, actor) {
         actor,
         previousStatus: before?.status ?? null,
         newStatus: status,
-        note: `Status changed to ${status}.`
+        metadata: cancellationReason ? { reason: cancellationReason } : {},
+        note: cancellationReason ? `Order cancelled: ${cancellationReason}` : `Status changed to ${status}.`
       })
     ]);
     if (status === "Cancelled") await releaseReservation(sql, orderId, actor);

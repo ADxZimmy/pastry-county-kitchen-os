@@ -38,6 +38,7 @@ import {
   calculateMargin,
   calculateOrderCost,
   calculateRecipeCost,
+  cancellationConsequences,
   checkOrderStockAvailability,
   checkStockAvailability,
   computeOrderPricing,
@@ -2011,6 +2012,7 @@ function CreateOrder({ orderId, currentRoute, orderDraft, setOrderDraft, setPage
 function OrderDetail({ orderId, user, setPage, notify, askConfirm, reloadData }: { orderId: string; user?: AppUser; setPage: Navigate; notify: (message: string) => void; askConfirm: AskConfirm; reloadData: () => Promise<void> }) {
   const order = orders.find((item) => item.id === orderId);
   const [qcOrderId, setQcOrderId] = useState("");
+  const [cancelOpen, setCancelOpen] = useState(false);
   if (!order) return <EmptyState title="Order not found" message="Select an order from the live order list." action={<Button variant="secondary" onClick={() => setPage({ name: "orders" })}>Back to Orders</Button>} />;
   const requirements = requirementsForOrder(orderId);
   const availability = checkOrderStockAvailability(orderId);
@@ -2025,6 +2027,7 @@ function OrderDetail({ orderId, user, setPage, notify, askConfirm, reloadData }:
   const events = orderEventsForOrder(orderEvents, orderId);
   const hasPricing = order.netTotal != null;
   const orderMargin = hasPricing ? calculateMargin(order.netTotal ?? 0, cost) : null;
+  const cancelConsequences = cancellationConsequences(order);
   return (
     <div className="detail-layout">
       <article className="detail-hero">
@@ -2039,7 +2042,7 @@ function OrderDetail({ orderId, user, setPage, notify, askConfirm, reloadData }:
           <Button variant="secondary" onClick={async () => { try { await apiAction("order.status", { orderId, status: "In Production", productionStatus: "In Progress" }); notify("Order marked as in production."); await reloadData(); } catch (error) { notify(error instanceof Error ? error.message : "Unable to start production."); } }} disabled={!canStartProduction || !canUser(user, "runProduction")}>Mark In Production</Button>
           <Button variant="secondary" onClick={() => setQcOrderId(orderId)} disabled={!canProduce || !canUser(user, "runProduction")}>Mark Produced</Button>
           <Button variant="ghost" onClick={async () => { try { await apiAction("order.status", { orderId, status: "Delivered", productionStatus: "Completed" }); notify("Order marked as delivered."); await reloadData(); } catch (error) { notify(error instanceof Error ? error.message : "Unable to deliver order."); } }} disabled={!canDeliver}>Delivered</Button>
-          <Button variant="secondary" onClick={async () => { await apiAction("order.status", { orderId, status: "Cancelled" }); notify("Order cancelled and reservations released."); await reloadData(); }} disabled={order.status === "Cancelled" || order.status === "Delivered"}>Cancel Order</Button>
+          <Button variant="secondary" onClick={() => cancelConsequences.canCancel ? setCancelOpen(true) : notify(cancelConsequences.blockedReason ?? "This order cannot be cancelled.")} disabled={!cancelConsequences.canCancel || !canUser(user, "manageOrders")}>Cancel Order</Button>
           <Button variant="danger" onClick={() => askConfirm({ title: `Delete ${order.customerName}'s order?`, message: "This removes the order from active operations and releases any reservation. Ledger history is preserved.", confirmLabel: "Delete Order", tone: "danger", onConfirm: async () => { await apiAction("order.delete", { orderId }); notify("Order deleted from active list and reservation released."); await reloadData(); setPage({ name: "orders" }); } })} disabled={!canUser(user, "deleteRecords")}>Delete Order</Button>
         </div>
       </article>
@@ -2062,6 +2065,30 @@ function OrderDetail({ orderId, user, setPage, notify, askConfirm, reloadData }:
       </Section>
       <Section title="Production QC Logs"><div className="timeline">{qcLogs.length === 0 && <p>No QC logs recorded for this order yet.</p>}{qcLogs.map((log) => <article key={log.id}><ClipboardList size={18} /><div><strong>{log.passedQc ? "QC passed" : "QC issue logged"}{log.actualYieldQuantity ? ` | actual ${log.actualYieldQuantity}${log.yieldUnit ?? ""}` : ""}</strong><small>{[log.ovenTemperature, log.bakeTimeMinutes ? `${log.bakeTimeMinutes} min` : "", log.sensoryNotes].filter(Boolean).join(" | ") || "No process notes"} | {new Date(log.createdAt).toLocaleString()}</small></div></article>)}</div></Section>
       {qcOrderId && <ProductionQcModal orderId={qcOrderId} onClose={() => setQcOrderId("")} notify={notify} reloadData={reloadData} />}
+      {cancelOpen && <CancelOrderModal order={order} consequences={cancelConsequences} onClose={() => setCancelOpen(false)} notify={notify} reloadData={reloadData} />}
+    </div>
+  );
+}
+
+function CancelOrderModal({ order, consequences, onClose, notify, reloadData }: { order: Order; consequences: ReturnType<typeof cancellationConsequences>; onClose: () => void; notify: Notify; reloadData: () => Promise<void> }) {
+  const { dialogRef, onDialogKeyDown } = useDialogA11y<HTMLElement>(true, onClose);
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <article ref={dialogRef} className="confirm-modal" role="dialog" aria-modal="true" aria-labelledby="cancel-order-title" tabIndex={-1} onKeyDown={onDialogKeyDown}>
+        <div className="section-head"><div><p className="eyebrow">Cancel order</p><h2 id="cancel-order-title">{order.customerName}</h2></div></div>
+        <SummaryCard title="What cancelling does" items={[
+          ["Reserved stock", consequences.willReleaseReservation ? "Released back to inventory" : "None to release"],
+          ["Production", consequences.productionStarted ? "Already started" : "Not started"],
+          ["Deducted stock", consequences.alreadyDeducted ? "Already deducted (needs a correction)" : "None deducted"]
+        ]} />
+        <Field label="Cancellation reason"><textarea value={reason} onChange={(event) => setReason(event.target.value)} placeholder="Why is this order being cancelled?" required /></Field>
+        <div className="button-row">
+          <Button variant="secondary" onClick={onClose}>Keep Order</Button>
+          <Button variant="danger" disabled={busy || reason.trim().length === 0} onClick={async () => { setBusy(true); try { await apiAction("order.status", { orderId: order.id, status: "Cancelled", reason: reason.trim() }); notify("Order cancelled; any reservation was released."); onClose(); await reloadData(); } catch (error) { notify(error instanceof Error ? error.message : "Unable to cancel order."); setBusy(false); } }}>Cancel This Order</Button>
+        </div>
+      </article>
     </div>
   );
 }

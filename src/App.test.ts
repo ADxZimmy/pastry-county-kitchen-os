@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { resolveSessionPage } from "./App";
 import { recipes as kitchenRecipes, setKitchenSnapshot } from "./data";
 import { auditChangeSummary, auditDataJson, auditExportRows, auditRecordLabel, auditSearchText } from "./lib/audit";
-import { buildKitchenAssistantResponse, calculateMargin, calculateRecipeCost, checkStockAvailability, computeOrderPricing, convertUnit, dashboardProductionQueue, formatNaira, formatQuantity, formatScaledIngredientQuantity, generateShoppingList, netSellingPrice, orderEventLabel, orderEventsForOrder, ordersForProductionBucket, parseRecipeText, productionPeriodBounds, recommendedRestockDate, restockSuggestions, roundScaledQuantity, scaleRecipe, stockAdjustmentValidation } from "./lib/kitchen";
+import { buildKitchenAssistantResponse, calculateMargin, calculateRecipeCost, cancellationConsequences, checkStockAvailability, computeOrderPricing, convertUnit, dashboardProductionQueue, formatNaira, formatQuantity, formatScaledIngredientQuantity, generateShoppingList, netSellingPrice, orderEventLabel, orderEventsForOrder, ordersForProductionBucket, parseRecipeText, productionPeriodBounds, recommendedRestockDate, restockSuggestions, roundScaledQuantity, scaleRecipe, stockAdjustmentValidation } from "./lib/kitchen";
 import { activeSelectedIdsForRoute, parseAppRoute, routeBackLabel, routeParent, serializeAppRoute } from "./lib/routes";
 import type { AuditLog, ConversionRule, Ingredient, Recipe, RecipeItem } from "./types";
 
@@ -400,6 +400,48 @@ describe("audit report export helpers", () => {
     expect(auditSearchText(purchaseEntry, lookup).toLowerCase()).toContain("audit-flour");
     expect(auditExportRows([purchaseEntry], lookup)[0][1]).toBe("AUDIT-Flour (ingredient-audit-flour)");
     expect(auditSearchText(purchaseEntry, lookup)).not.toContain("hidden");
+  });
+});
+
+describe("cancellation consequences (PCO-009)", () => {
+  const reservationMovements = [
+    { id: "m1", ingredientId: "flour", movementType: "reservation", quantityChange: 500, unit: "g", relatedOrderId: "ord-1", note: "", createdBy: "x", createdAt: "" },
+    { id: "m2", ingredientId: "flour", movementType: "reservation_release", quantityChange: -200, unit: "g", relatedOrderId: "ord-1", note: "", createdBy: "x", createdAt: "" }
+  ];
+  const orderWith = (status: string) => ({ id: "ord-1", customerName: "C", customerPhone: "", dueDate: "2026-07-15", deliveryMethod: "Pickup", status, paymentStatus: "Unpaid", productionStatus: "Not Started", stockStatus: "Reserved" });
+
+  it("allows cancellation before production completes and flags the net reservation release", () => {
+    const consequences = cancellationConsequences(orderWith("Stock Reserved") as never, reservationMovements as never);
+    expect(consequences.canCancel).toBe(true);
+    expect(consequences.willReleaseReservation).toBe(true);
+    expect(consequences.alreadyDeducted).toBe(false);
+    expect(consequences.productionStarted).toBe(false);
+  });
+
+  it("flags production started for an In Production order", () => {
+    const consequences = cancellationConsequences(orderWith("In Production") as never, reservationMovements as never);
+    expect(consequences.canCancel).toBe(true);
+    expect(consequences.productionStarted).toBe(true);
+  });
+
+  it("blocks cancellation once stock has been deducted at production and explains why", () => {
+    const consequences = cancellationConsequences(orderWith("Produced") as never, []);
+    expect(consequences.canCancel).toBe(false);
+    expect(consequences.alreadyDeducted).toBe(true);
+    expect(consequences.blockedReason).toMatch(/correction/i);
+  });
+
+  it("blocks a delivered or already-cancelled order", () => {
+    expect(cancellationConsequences(orderWith("Delivered") as never, []).canCancel).toBe(false);
+    expect(cancellationConsequences(orderWith("Cancelled") as never, []).canCancel).toBe(false);
+  });
+
+  it("reports no reservation to release once releases offset the reservations", () => {
+    const fullyReleased = [
+      reservationMovements[0],
+      { id: "m3", ingredientId: "flour", movementType: "reservation_release", quantityChange: -500, unit: "g", relatedOrderId: "ord-1", note: "", createdBy: "x", createdAt: "" }
+    ];
+    expect(cancellationConsequences(orderWith("Confirmed") as never, fullyReleased as never).willReleaseReservation).toBe(false);
   });
 });
 
