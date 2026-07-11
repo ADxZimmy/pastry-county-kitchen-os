@@ -4,7 +4,7 @@ Last updated: 2026-07-11
 
 ## Current Focus
 
-Execute the revised audit-remediation program from the July 10 expanded production audit (54/100, Not Ready). S0 (Phase 006a) and Phase 007 Truthful Orders And Financials are both deployed and production-verified (007 required a bootstrap hotfix, see below). Phase 008 Production Transaction Safety is next. No unscripted demo is approved before the full D1 Demo Trust gate (Phases 007-010 + 015-A) passes.
+Execute the revised audit-remediation program from the July 10 expanded production audit (54/100, Not Ready). S0 (Phase 006a), Phase 007 Truthful Orders And Financials, and Phase 008 Production Transaction Safety are all deployed and production-verified. Phase 009 (Validation, Settings And Unit Policy) is next, then Phase 010, then the 015-A Demo Trust gate. No unscripted demo is approved before the full D1 Demo Trust gate passes.
 
 ## Completed
 
@@ -49,7 +49,9 @@ Execute the revised audit-remediation program from the July 10 expanded producti
 
 ## Next Action
 
-Deploy the stacked Phase 008 work (008-A `376509b`, 008-B `b17c05f`, 008-C `6b44f0b`) together and run `smoke:live-audit` plus targeted probes. These are THREE un-smoked DB-touching slices: the order state machine, the corrected production queue filters, the new `production_runs` table + idempotency guarantee, and consequence-aware cancellation. An integration smoke MUST gate them (the Phase 007 bootstrap outage — an ambiguous-column bug invisible to the DB-less unit suite — is why). Post-deploy probes: verify `/api/bootstrap` 200, a repeat completion of the same order returns `alreadyProduced` with no second deduction, and cancellation requires a reason and is blocked after produced. Then Phase 009 (Validation, Settings And Unit Policy), which reuses the safe completion transaction built here.
+Start Phase 009 (Validation, Settings And Unit Policy) per `.planning/phases/009-validation-settings-policy/PLAN.md` — client/server yield validation, a genuinely shared policy module wiring every setting into behavior (gram rounding, deduction stage, negative inventory, count rounding), and divisible-vs-indivisible units (PCO-006, 007, 008). It reuses the safe completion transaction from Phase 008. Deploy in slices; gate each DB-touching slice with `smoke:live-audit`.
+
+Phase 008 shipped 2026-07-11: pushed 008-A/B/C, `smoke:live-audit` green, and a controlled probe proved the completion idempotency live (repeat produce -> `alreadyProduced`, stock deducted exactly once) and that a produced order cannot be cancelled.
 
 ## Phase 008 status (implemented locally 2026-07-11, complete)
 

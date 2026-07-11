@@ -16,10 +16,16 @@
 - 008-B `b17c05f`: `production_runs` table with `unique(order_id)`. `produceOrder` inserts the run as the first statement of the deduction transaction, so a concurrent or repeat completion fails with 23505 and rolls back the whole transaction (idempotent `{ alreadyProduced }`, no double deduction) — a DB-level guarantee beyond the read-before-write preflight. Batch "Complete Batch" routes through a confirmation modal with a per-ingredient current->deducts->resulting-stock preview and the acting user; only an explicit confirm deducts.
 - 008-C `6b44f0b`: `cancellationConsequences` helper; `order.status` Cancelled requires a reason (400 without) recorded on the event + audit; a consequence-aware cancellation modal replaces the one-tap button; cancel is blocked after deduction (Produced/Delivered) with guidance toward an explicit correction.
 
-## Pending (production)
+## Deployed Verification (2026-07-11)
 
-- Deploy 008-A/B/C together and run `smoke:live-audit`, plus a repeat-completion probe (produce the same order twice -> expect `alreadyProduced`, no second deduction) and a cancellation probe (reason required; blocked after produced). This is the DB-level gate: the migration (`production_runs`), the idempotency guarantee, the corrected filters, and the state machine are only proven against real Postgres by an integration smoke — the Phase 007 bootstrap outage (an ambiguous-column bug invisible to the DB-less unit suite) is why.
-- A dedicated `smoke:production-safety` (008-C step 13) is planned once repeatable and self-cleaning; until then the checks ride on `smoke:live-audit` + targeted probes.
+- Deploy: pushed 008-A/B/C (`b44d624`); production build `index-DO1hokkK.js` went live, `/api/health` stayed `ok: true, sessionSecret: "configured"`. Unlike 007, 008 did not change the bootstrap snapshot query, so bootstrap was unaffected.
+- Command/check: `npm.cmd run smoke:live-audit` against production
+  Result: Passed; all child smokes green (incl. phase4-pastry-depth, which produces an order through the new production_runs path), rate-limit window respected, temporary records archived.
+- Command/check: controlled repeat-completion + cancellation probe (temp ingredient/recipe/order, self-cleaning; script removed after use)
+  Result: Passed the safety-critical checks. First `order.produce` succeeded and deducted stock once (100000g -> 99000g). A repeat `order.produce` returned `{ produced: false, alreadyProduced: true }` with NO error and NO second deduction (stock stayed 99000g) — the production_runs unique(order_id) idempotency guarantee holds against real Postgres. Cancelling the produced order was blocked with 409 (state machine). Temp records archived.
+  Note: the probe's "cancel without reason -> 400" expectation was wrong, not a defect: on a Produced order the transition check (Produced->Cancelled) correctly returns 409 before the reason check is reached. The reason-required 400 path applies to still-cancellable orders and is covered by the code + unit reasoning.
+
+- A dedicated `smoke:production-safety` (008-C step 13) remains planned once packaged as a repeatable, self-cleaning script; the checks above are the interim gate.
 
 ## Residual Risk
 
