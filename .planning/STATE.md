@@ -4,7 +4,7 @@ Last updated: 2026-07-11
 
 ## Current Focus
 
-Execute the revised audit-remediation program from the July 10 expanded production audit (54/100, Not Ready). Phase 006a Immediate Security Containment is deployed and live-verified; the S0 Security Containment gate is cleared. Phase 007 Truthful Orders And Financials is next.
+Execute the revised audit-remediation program from the July 10 expanded production audit (54/100, Not Ready). S0 (Phase 006a) is deployed and live-verified. Phase 007 Truthful Orders And Financials is implemented locally across all three slices (007-A/B/C) and awaits deploy + smoke to close its Demo Trust items. Phase 008 is next after that.
 
 ## Completed
 
@@ -41,7 +41,14 @@ Execute the revised audit-remediation program from the July 10 expanded producti
 
 ## Next Action
 
-Begin Phase 007 Truthful Orders And Financials per `.planning/phases/007-truthful-orders-financials/PLAN.md` (real per-order event history + actor attribution, server-canonical pricing/totals replacing the hard-coded 18,000, data-derived dashboard guidance, mojibake cleanup). Deployable in slices; each slice runs local checks then a production smoke before the next.
+Deploy Phase 007 (commits `85ee60e`, `596ca01`, `c1c958e`) — `SESSION_SECRET` is already set, so a push auto-deploys and the new ensureOperationalTables migration adds order_events + the 11 pricing columns and backfills legacy created events on the first authenticated action. After deploy: verify `/api/health`, run `npm.cmd run smoke:live-audit` (exercises the new event/pricing paths), and spot-check that two orders show isolated timelines and different prices show different margins. Then start Phase 008 Production Transaction Safety. The owner chose to build 007-A/B/C locally and deploy them together (2026-07-11).
+
+## Phase 007 status (implemented locally 2026-07-11)
+
+- 007-A `85ee60e`: real order_events timeline + actor attribution (PCO-001, RS-005).
+- 007-B `596ca01`: server-canonical order pricing; hard-coded 18,000 removed (PCO-002).
+- 007-C `c1c958e`: data-derived restock guidance + mojibake fix (PCO-014, PCO-016).
+- Local gates green: 114/114 tests, build clean, no runtime 18,000/mojibake/fabricated-timeline strings. DB-level behavior pending the production smoke.
 
 ## Verification Snapshot
 
