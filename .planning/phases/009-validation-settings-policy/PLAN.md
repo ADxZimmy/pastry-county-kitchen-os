@@ -2,49 +2,61 @@
 
 ## Outcome
 
-Invalid yields are rejected with field-level errors on client and server, scaling can never emit NaN/Infinity/negative values, every settings option demonstrably changes behavior (proven by contract tests), and count units enforce whole numbers unless explicitly divisible. Audit findings PCO-006, PCO-007, PCO-008 closed.
+Invalid recipe/order quantities are rejected at client and server boundaries; scaling cannot emit NaN, Infinity, zero, or negative requirements. A dependency-free shared policy contract governs both frontend display and backend transaction decisions. Every retained setting demonstrably changes behavior after save/reload, and count inventory follows explicit divisibility/increment rules. PCO-006, PCO-007, and PCO-008 close at the Demo Trust Gate.
 
 ## Scope
 
 Included:
 
-- Client + server yield/quantity validation and scaling guards.
-- `src/lib/policy.ts` central policy service consumed by scaling, costing, inventory, shopping, production, and conversions.
-- Gram-rounding preference wired into `roundScaledQuantity`; mathematical vs practical display where rounding changes results.
-- Deduction-stage setting wired into the order lifecycle (server-side, on the Phase 008 transaction).
-- Negative-inventory policy enforced in one place.
-- Unit divisibility metadata (`allowsDecimals`, `minimumIncrement`) enforced in ingredient form, scaling, shopping, and server validation.
-- Contract tests: change each setting, prove the corresponding workflow changes after save and reload.
+- Client and server validation for recipe, scaling, order, price, and stock numeric inputs.
+- Runtime-neutral shared policy module plus TypeScript declarations and parity fixtures.
+- Gram/count rounding and mathematical-versus-practical quantity display.
+- Deduction-stage and negative-inventory semantics integrated with Phase 008's idempotent transaction.
+- Settings inventory: enforce, rename, or remove every exposed policy control.
+- Per-ingredient `allowsDecimals` and `minimumIncrement` consistently enforced.
 
 Excluded:
 
-- AI confirmation policy consumer (Phase 014 consumes the policy service built here).
-- New settings beyond those already stored.
+- Model orchestration (Phase 014).
+- Allowing any assistant/model to mutate without explicit review; no setting may weaken that invariant.
 
-## Steps
+## Delivery Slices
 
-1. Add validation helpers (shared client/server): `baseYield > 0`, `targetYield > 0`, `quantity > 0`, `Number.isFinite` on factor and outputs; return field-level errors.
-2. Guard `scaleRecipe` (kitchen.ts:125) to throw a typed validation error on non-positive/non-finite inputs; update scaling UI (App.tsx scale page, order builder yield inputs) to `min` attributes plus explicit error display; server actions reject invalid recipe saves (zero base yield) and scale requests.
-3. Create `src/lib/policy.ts` exposing roundQuantity(value, unit), allowNegativeInventory(), deductionStage(), reservationPolicy(), requiresAiConfirmation(), formatCurrency(); refactor `roundScaledQuantity`, `roundByPreference`, costing, and stock checks to consume it; delete duplicated per-module rounding.
-4. Apply `gramRoundingPreference` (1/5/10g) in the scaling path; where count rounding (eggs >= 1) distorts small batches, populate `displayQuantity` with the mathematical value and show both.
-5. Wire `defaultDeductionStage` server-side: the order lifecycle deducts stock at the configured stage using the Phase 008 atomic transaction; movements record which stage triggered them; keep idempotency.
-6. Enforce `allowNegativeInventory` in every deduction path through the policy service (currently only checked in kitchen.ts:664).
-7. Add unit metadata: `allowsDecimals`/`minimumIncrement` per unit with per-ingredient override; pcs/pack/box/roll default to whole; enforce in ingredient form inputs, server validation, scaling round-up, and shopping quantities.
-8. Contract tests per setting: gram rounding 10g turns 187.5g into 190g after save+reload; deduction stage moves the movement timestamp to the configured lifecycle step; negative inventory toggle changes shortage rejection; egg preference switches whole/gram display; count unit rejects 1.5 packs.
-9. Update audit-case tests (16->12/8/24 scaling) for new rounding behavior; add zero/negative/tiny-batch/decimal-ingredient/packaging regression cases from audit section G.
-10. Add `smoke:policy-settings` exercising a settings change end-to-end against production and wire into smoke:live-audit.
+### 009-A Validation And Rounding
+
+1. Inventory all numeric trust boundaries: recipe base yield/items, scaling target, order requested yield and sale quantity, prices/discount/tax, shopping purchase quantities/costs, and inventory adjustments.
+2. Add dependency-free validation helpers shared by API and frontend: required finite number, positive/non-negative range, maximum bounds where operationally justified, and field-keyed errors.
+3. Guard `scaleRecipe` itself and every server path that calculates requirements, especially `recipe.save` and `order.save`; HTML `min`/`step` is convenience, not enforcement.
+4. Implement shared rounding fixtures for 16->12/8/24, 187.5g at 1/5/10g, tiny egg batches, liquid decimals, and packaging. Display mathematical and practical quantities when rounding changes an indivisible item.
+5. Deploy and run a validation/scaling smoke before policy transaction changes.
+
+### 009-B Shared Settings Contract
+
+6. Add a pure shared module (for example `shared/policy.js` and `shared/policy.d.ts`) consumed by both `src/lib/kitchen.ts` and API code. Keep formatting-only UI helpers separate from server transaction policy.
+7. Enumerate every Settings control and assign one outcome: enforce with contract test, rename with migration/copy update, or remove from UI and deprecate storage. In particular, `requireAiConversionConfirmation` cannot disable the mandatory review/confirmation invariant.
+8. Wire `defaultDeductionStage` to the Phase 008 idempotent completion service for confirmation/start/completion. Each lifecycle action checks a unique deduction record so moving through later stages cannot deduct twice.
+9. Define negative-inventory behavior: disabled blocks transaction; enabled records an explicit aggregate deficit/backorder while FEFO lots remain at zero and the order/UI reports shortage. Test switching the setting after prior movements.
+10. Add save/reload contract tests for every retained setting and parity tests proving frontend previews match backend outcomes.
+
+### 009-C Unit Divisibility
+
+11. Add per-ingredient `allows_decimals` and `minimum_increment` with safe defaults: pcs/pack/box/roll whole; measured mass/volume decimal. Do not rewrite legacy fractional records automatically; flag them for operator correction.
+12. Enforce increment rules in ingredient forms, API saves/adjustments, scaling practical quantities, and shopping purchases. Validate that the increment divides the submitted quantity within a defined decimal tolerance.
+13. Add `smoke:policy-settings` covering save/reload, rounding, deduction stage idempotency, negative-inventory behavior, and rejection of 1.5 indivisible packs; wire it into the umbrella smoke after stabilization.
 
 ## Verification
 
-- Check: `npm.cmd test`
-  Expected: New validation, policy, and contract tests pass; updated scaling expectations pass.
-- Check: Save recipe with base yield 0; scale to -12 via UI and direct API
-  Expected: Field-level error client-side; 4xx server-side; no NaN/Infinity ever rendered.
-- Check: Change gram rounding to 10g, scale 187.5g case
-  Expected: 190g displayed after save and refresh.
-- Check: `npm.cmd run smoke:policy-settings` against production
-  Expected: Pass.
+- Check: `npm.cmd test` and `npm.cmd run build`
+  Expected: validation, shared-policy parity, settings contract, divisibility, and existing tests pass.
+- Check: direct API cases with base/target/item/order quantities of 0, negative, NaN-like strings, Infinity-like strings, and extreme values
+  Expected: safe field errors and no persisted records or calculations.
+- Check: save gram rounding 10g, then refresh and scale 187.5g
+  Expected: practical 190g with the unrounded mathematical value visible where useful.
+- Check: each retained setting changed one at a time
+  Expected: the documented workflow changes after save/reload; removed settings are absent and cannot imply policy.
+- Check: `npm.cmd run smoke:policy-settings`
+  Expected: pass against production with original settings restored in cleanup.
 
 ## Rollback
 
-Policy service is a refactor plus additive metadata; revert the commit to restore prior behavior. Deduction-stage default preserves current behavior, so reverting has no stock-movement impact.
+Ship slices separately and keep new metadata additive. Preserve Phase 008 idempotency constraints during rollback. If shared policy integration fails, disable affected setting choices rather than reverting to controls that silently do nothing.

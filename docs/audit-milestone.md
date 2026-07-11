@@ -1,5 +1,7 @@
 # Pastry County Kitchen OS Audit Milestone
 
+> Historical milestone note (2026-07-11): this file preserves Phase 001-006 delivery history. The active July 10 expanded production audit scored `54/100` and marked the app Not Ready. Use `.planning/AUDIT-REMEDIATION.md`, `.planning/ROADMAP.md`, and `.planning/STATE.md` for current readiness and sequencing; the June 22 `96/100` entries below are not the current launch signal.
+
 This milestone tracks every finding from `App Audit Request.pdf`, `App Audit Request (1).pdf`, `App Audit Request (2).pdf`, `Audit Scope Expansion Request.pdf`, `Audit Scope Expansion Request UIUX.pdf`, and `Audit Expansion Request.pdf` and the work needed to move the audit from "Not Ready" to complete coverage.
 
 Status legend:

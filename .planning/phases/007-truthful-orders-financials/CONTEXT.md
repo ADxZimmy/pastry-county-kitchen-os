@@ -29,6 +29,10 @@ Remove every fabricated or hard-coded operational and financial value so order h
   Reason: Audit PCO-001 requires real per-order history; the existing audit-log infrastructure is the natural backbone, extended with typed order events.
 - Decision: Add real pricing to orders and order items: unit selling price, quantity, discount, delivery fee, tax, gross total, net total, amount paid, balance. All margin math consumes the persisted net total.
   Reason: Audit PCO-002; a correct formula with an invented input is still a false answer.
+- Decision: Keep sale quantity/pricing separate from `requestedYieldQuantity` and `quantityMultiplier`, and calculate all derived totals on the server from validated monetary inputs.
+  Reason: production yield answers "what to make" while sale quantity and price answer "what was sold"; conflating them or trusting client totals would create another source of financial drift.
+- Decision: Carry the authenticated actor through order events and audit records, storing both the stable user id and a display-name snapshot; use `system` only for identified automated jobs.
+  Reason: real history must say who performed an action, and the current generic audit helper hard-codes `system`.
 - Decision: Dashboard suggestions must state why they were generated (quantity, orders, stock, lead time, recommended date) or be removed for launch.
   Reason: Audit PCO-014; decorative guidance erodes operator trust.
 - Decision: Fix encoding artifacts in source and scan the repo for other mojibake; keep files UTF-8 without BOM.
@@ -39,6 +43,6 @@ Remove every fabricated or hard-coded operational and financial value so order h
 - Risk: Existing production orders have no pricing data.
   Mitigation: Migration backfills pricing fields as null/0 with UI showing "No selling price set" instead of inventing values; margin shows only when a price exists.
 - Risk: App.tsx is a 3,201-line monolith; timeline and pricing edits touch many sections.
-  Mitigation: Keep edits scoped per section; rely on the existing test suite plus new regression tests before deploy.
+  Mitigation: Deliver timeline, pricing, and dashboard/encoding as separate green slices; do not combine them into one unreviewable patch.
 - Risk: Historical orders predate order_events and would show empty timelines.
   Mitigation: Synthesize a single "Order created" event from created-at data during migration; never fabricate richer history.

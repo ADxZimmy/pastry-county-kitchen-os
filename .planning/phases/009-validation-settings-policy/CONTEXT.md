@@ -21,14 +21,18 @@ Reject invalid recipe yields everywhere, make every saved setting actually gover
 
 ## Decisions
 
-- Decision: Create `src/lib/policy.ts` as the single policy service: quantity rounding (gram + count), negative inventory, reservation behavior, deduction stage, AI confirmation requirement, currency formatting. Server actions receive the same policy decisions via shared validation logic.
-  Reason: Audit PCO-007 - "a setting that does nothing is worse than no setting"; duplicated per-module logic caused the drift.
+- Decision: Create a runtime-neutral shared policy module (for example `shared/policy.js` plus TypeScript declarations) imported by both Vite/TypeScript and Node API code; the server remains authoritative for persistence/transactions.
+  Reason: a frontend-only `src/lib/policy.ts` cannot be the single policy source for the JavaScript API runtime; duplicated per-module logic caused the audit drift.
 - Decision: Validate on client and server: baseYield > 0, targetYield > 0, ingredient quantities finite and > 0, scale factor and scaled quantities finite. Field-level errors, never silent correction.
   Reason: Audit PCO-006 explicit requirements.
 - Decision: Add unit metadata `allowsDecimals` and `minimumIncrement`; pcs/pack/box/roll default to whole numbers unless the ingredient explicitly permits partials.
   Reason: Audit PCO-008; stock entry, scaling, and shopping must share one rule.
 - Decision: Wire `defaultDeductionStage` into the order lifecycle server-side (deduct at confirmation / production start / completion per the setting), building on the Phase 008 transaction.
   Reason: The setting currently exists purely as stored data.
+- Decision: A setting is either enforced and tested or retired/renamed. `requireAiConversionConfirmation` must not become a bypass for the audit-mandated review transaction; remove or redefine it rather than permitting model-driven direct mutation.
+  Reason: safety invariants are not optional preferences.
+- Decision: When negative inventory is enabled, aggregate stock may represent an explicit deficit, but FEFO lots never go negative and the UI/order state must show the deficit and its movements.
+  Reason: the policy can support backorders without fabricating negative physical lots.
 
 ## Risks
 
@@ -38,3 +42,5 @@ Reject invalid recipe yields everywhere, make every saved setting actually gover
   Mitigation: Default remains production_completion (current de facto behavior); other stages activate only when the operator changes the setting.
 - Risk: Whole-number enforcement could block existing decimal stock records.
   Mitigation: Enforce on new input only; flag existing fractional counts in UI rather than mutating data.
+- Risk: Shared policy imports can accidentally pull browser-only code into server functions or vice versa.
+  Mitigation: keep the shared module pure and dependency-free; add frontend/API parity tests using the same fixtures.

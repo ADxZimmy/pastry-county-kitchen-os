@@ -27,8 +27,10 @@ Make production queues truthful and stock deduction transaction-safe: correct pe
   Reason: Audit PCO-005 explicitly warns against relying on button visibility.
 - Decision: Batch completion opens a confirmation/QC modal (orders included, planned vs actual quantity, waste, ingredients to deduct with current -> resulting stock, shortages, acting user) and commits in one atomic server transaction that is idempotent.
   Reason: Grouped stock deduction is irreversible without a correction movement; accidental taps must not alter inventory.
-- Decision: Cancellation shows a destructive confirmation stating whether reservations release, whether production started, whether stock was already deducted and a reversal movement will be created, and captures a reason recorded to order_events.
-  Reason: Audit PCO-009.
+- Decision: Completion idempotency is backed by a database uniqueness constraint/idempotency key and row locking or serializable transaction semantics, not only a preflight status check.
+  Reason: concurrent serverless requests can both pass a read-before-write check.
+- Decision: Cancellation shows a destructive confirmation and captures a reason. Pre-deduction cancellation releases reservations atomically; the normal cancel action is blocked after stock deduction until an explicit authorized correction/reversal workflow is chosen.
+  Reason: audit PCO-009 requires clear consequences; silently restocking consumed FEFO lots would be as unsafe as silently deducting them.
 
 ## Risks
 
@@ -38,3 +40,5 @@ Make production queues truthful and stock deduction transaction-safe: correct pe
   Mitigation: Pure date-boundary functions with unit tests around week start/end, midnight, and month boundaries in the configured timezone.
 - Risk: Making batch completion atomic changes API response shape.
   Mitigation: Keep the action name, extend the payload; version-check in frontend before deploy.
+- Risk: Current Neon transaction helpers may not support dependent read-lock-write steps in an array transaction.
+  Mitigation: prove the chosen serializable transaction/CTE or database function with a concurrent-request test before switching the UI.

@@ -6,7 +6,7 @@ Close the accessibility gaps (contrast, keyboard-operable rows, nav label size) 
 
 ## Relevant Files
 
-- Path: src/index.css / styles in index.html bundle
+- Path: src/styles.css
   Why it matters: Caramel link color ~4.03:1 on warm surface (below 4.5:1 AA); bottom-nav labels ~10.5px.
 - Path: src/App.tsx (ResponsiveTable, clickable rows)
   Why it matters: Row click targets are not keyboard-operable links/buttons; audit requires real links or labelled View actions.
@@ -23,8 +23,8 @@ Close the accessibility gaps (contrast, keyboard-operable rows, nav label size) 
   Reason: Mandatory for UI/UX work; also grounds color changes in a checked contrast system.
 - Decision: Promote Recipes into the five-item mobile nav (Dashboard moves under More or becomes the home logo target).
   Reason: Audit section E; recipe/production ping-pong is the operator's core loop. Configurable-by-role nav stays post-MVP.
-- Decision: Convert clickable rows/cards to real anchors on the record name plus a labelled View action; whole-row click stays as a convenience but not the only path.
-  Reason: PCO-013 keyboard operability without sacrificing touch ergonomics.
+- Decision: Replace interaction-only `<tr>` click behavior with semantic record links and labelled actions. Do not retain a whole-row pseudo-button when it creates duplicate or unclear keyboard semantics.
+  Reason: PCO-013 and the desktop audit explicitly require links/buttons rather than relying on an interactive table row.
 - Decision: Preserve list context (search term, filters, page, scroll, expanded row) across detail navigation using route state.
   Reason: Audit section F; also improves the mobile flow.
 - Decision: Strengthen mobile production card scanning hierarchy: due time, quantity, shortage, status, action visible without opening the card.
@@ -37,4 +37,4 @@ Close the accessibility gaps (contrast, keyboard-operable rows, nav label size) 
 - Risk: Nav rearrangement invalidates navigation smoke expectations.
   Mitigation: Update smoke:navigation-routing in the same change.
 - Risk: Keyboard/screen-reader verification requires manual passes.
-  Mitigation: Scripted keyboard-only walkthrough checklist in UAT.md at 360x800, 390x844, 414x896 plus desktop; record results, not assumptions.
+  Mitigation: Add automated axe/semantic smoke for repeatability, then a scripted keyboard-only and NVDA/VoiceOver walkthrough at 360x800, 390x844, 414x896 plus desktop; record results, not assumptions.

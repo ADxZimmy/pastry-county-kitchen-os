@@ -68,10 +68,48 @@
 - Requirement: Keep imported costing trustworthy.
   Acceptance: imported source line amounts continue to drive recipe costing where approved, while missing or suspect costs are marked incomplete instead of being silently estimated as authoritative.
 
+## July 10 Expanded Audit Remediation
+
+- Requirement: Show only truthful, attributable order history.
+  Acceptance: every order event comes from persistent data for that order, includes a real timestamp and authenticated actor or explicit automated-job identity, and never displays static dates, statuses, or shortages. (PCO-001, RS-005)
+
+- Requirement: Use server-canonical order pricing everywhere.
+  Acceptance: sale quantity and unit price are distinct from production yield; line subtotal/discount and order delivery/tax/discount/payment totals are validated and calculated server-side; all margin, report, dashboard, and helper surfaces consume the persisted net total and show an explicit missing-price state for legacy orders. (PCO-002)
+
+- Requirement: Keep helper and conversion claims honest.
+  Acceptance: the deterministic feature is labelled Kitchen Helper; saving a conversion rule and changing a recipe are separate actions; recipe application requires a review of original/suggested/final values, provenance, authenticated approval, successful persistence, and reload confirmation. Model-backed branding is allowed only after Phase 014 evidence passes. (PCO-003)
+
+- Requirement: Make production eligibility and completion safe.
+  Acceptance: Africa/Lagos Today/Tomorrow/This Week boundaries and terminal-status exclusions are shared across all queues; invalid state transitions are rejected server-side; completion uses database locks, uniqueness-backed idempotency, QC confirmation, atomic FEFO/stock/event writes, and no duplicate deduction. (PCO-004, PCO-005)
+
+- Requirement: Validate recipe and order quantities at every trust boundary.
+  Acceptance: recipe base yield, recipe-item quantities, scaling target, order requested yield, sale quantity, prices, discounts, tax, and stock changes reject non-finite or invalid values on client and server; scaling never emits NaN, Infinity, zero, or negative requirements. (PCO-006)
+
+- Requirement: Make settings real or remove them.
+  Acceptance: one shared frontend/API policy contract governs rounding, deduction stage, negative-inventory behavior, tax, reservation, and unit increments; every retained setting has a save/reload behavior test; unsafe or obsolete toggles are removed or renamed rather than silently ignored. (PCO-007)
+
+- Requirement: Distinguish divisible from indivisible inventory.
+  Acceptance: ingredients carry `allowsDecimals` and `minimumIncrement`; pcs/pack/box/roll default to whole units; forms, API validation, scaling, and shopping enforce the same rule without rewriting historical records. (PCO-008)
+
+- Requirement: Protect cancellation and correction workflows.
+  Acceptance: cancellation requires reasoned confirmation and explains reservation/production/deduction consequences; pre-deduction cancellation releases reservations transactionally; post-deduction cancellation is blocked unless an explicit authorized correction/reversal workflow records balanced movements and events. (PCO-009)
+
+- Requirement: Scale loading without weakening authorization.
+  Acceptance: high-growth orders, audit, and movement data use paginated role-filtered endpoints; bootstrap shrinks measurably; route chunks and immutable hashed assets are verified in production; CI enforces test/build and performance budgets. (PCO-010, PCO-011, RS-007)
+
+- Requirement: Harden sessions, recovery, and API privacy.
+  Acceptance: no deployed mutator bypasses DB-backed role/session checks; production requires a dedicated session secret; sessions use opaque server-side records in HttpOnly Secure cookies with CSRF protection; authenticated responses are private/no-store; reset tokens are hashed, single-use, expiring, generically requested, rate-limited in a shared store, and revoke sessions after use. (PCO-012, PCO-015, RS-001..RS-004, RS-006)
+
+- Requirement: Close the confirmed accessibility and presentation gaps.
+  Acceptance: normal text contrast is at least 4.5:1, primary mobile labels are legible, record actions are semantic and keyboard-operable, and keyboard/screen-reader/mobile-keyboard UAT is recorded; dashboard guidance includes provenance or is removed; UTF-8 scans show no mojibake. (PCO-013, PCO-014, PCO-016)
+
+- Requirement: Prove demo and release readiness with authenticated evidence.
+  Acceptance: Phase 015-A passes before any unscripted demo, Phase 015-B passes after MVP hardening, temporary data is isolated and cleaned up, before/after persistence is captured, and a fresh external audit—not an internal score—is used for the release decision.
+
 ## Non-Functional
 
-- Requirement: Pastry-depth changes must preserve the 96/100 release-gate baseline.
-  Acceptance: existing live-audit smoke checks still pass after formula-depth implementation, and existing recipes continue to load, scale, cost, duplicate, and archive.
+- Requirement: Audit remediation must recover from the active 54/100 Not Ready baseline without regressing earlier verified workflows.
+  Acceptance: existing Phase 001-006 smoke checks remain green, each July 10 finding has evidence in `.planning/AUDIT-REMEDIATION.md`, the Demo Trust and MVP gates pass, and no launch score is claimed before a fresh independent audit.
 
 - Requirement: Import processing must protect private business data.
   Acceptance: file uploads are authenticated, size/type-limited, not committed as raw secrets, and processed through a provider abstraction with documented data-retention/cost risks before any external OCR/vision service is enabled in production.
@@ -95,10 +133,13 @@
 ## Open Questions
 
 - Question: Should `/api/bootstrap` return role-filtered data for Viewer/Baker, or should all authenticated users receive the same snapshot while mutating APIs enforce role permissions?
-  Status: Decide during Phase 1 auth design.
+  Status: Resolved in Phase 002: non-admin bootstrap snapshots filter sensitive staff/audit/private settings data. Route-scoped endpoints in Phase 012 must preserve or strengthen that rule.
 
 - Question: Is the live database schema still carrying an older integer column/type despite repo schema using numeric purchase prices?
-  Status: Verify with a safe schema introspection or migration check before coding the decimal-cost fix.
+  Status: Resolved during Phase 001 decimal schema repair and live fractional-purchase verification.
 
 - Question: Should large add/edit flows stay as full-page routes, modal sheets, or a hybrid by workflow?
-  Status: Phase 005 defaults to durable routes for recipe, ingredient, and order forms, while keeping quick secondary edits in accessible modals.
+  Status: Resolved in Phase 005: durable record/form routes with accessible modals for quick secondary work.
+
+- Question: Which model provider, retention policy, and monthly budget should Phase 014 use?
+  Status: Open decision before Phase 014 implementation; the remediation plan is provider-abstracted and does not assume a provider-specific skill or credential.

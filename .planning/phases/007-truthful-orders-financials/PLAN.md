@@ -2,50 +2,64 @@
 
 ## Outcome
 
-No fabricated data anywhere in the product: order timelines show only real events for the selected order, all profit/margin figures use the order's persisted selling price, dashboard guidance is data-derived or removed, and no encoding artifacts remain. Audit findings PCO-001, PCO-002, PCO-014, PCO-016 closed.
+Order timelines show only persistent events for the selected order with real timestamps and actors. Every sales, payment, profit, and margin value is derived from validated persisted pricing by one server-canonical calculation. Dashboard guidance is data-derived or removed, and production text contains no encoding artefacts. PCO-001, PCO-002, PCO-014, PCO-016, and RS-005 close at the Demo Trust Gate.
 
 ## Scope
 
 Included:
 
-- `order_events` persistence, transactional event writes in server actions, and a real order-detail timeline.
-- Order/order-item pricing fields end to end (schema, API, types, forms, costing, dashboard, reports, assistant response).
-- Removal of every hard-coded 18000 and the static timeline block.
-- Data-derived dashboard suggestions (or removal of the static suggestion card).
-- Mojibake cleanup and a repo-wide encoding scan.
+- Persistent `order_events`, transactional event writes, real timeline, and actor-aware audit records.
+- Distinct production quantities versus sale quantities/prices.
+- Server-calculated line totals and order subtotal/discount/delivery/tax/net/paid/balance fields.
+- Removal of every hard-coded 18,000 financial assumption from app, reports, dashboard, and helper responses.
+- Data-derived dashboard suggestions with explicit provenance, or removal when data is insufficient.
+- Mojibake cleanup and UTF-8 verification.
 
 Excluded:
 
-- Production state machine and batch confirmation (Phase 008).
+- Production state machine and batch completion (Phase 008).
 - Settings/policy centralisation (Phase 009).
-- Assistant re-architecture (Phase 014); only its hard-coded price input is fixed here.
+- Model-backed assistant (Phase 014); this phase only makes its financial inputs truthful.
 
-## Steps
+## Delivery Slices
 
-1. Add `order_events` table (id, order_id, event_type, actor_user_id, previous_status, new_status, metadata, note, created_at) to server/setup-db.js and a migration path for the live Neon DB; backfill one "created" event per existing order.
-2. Write events transactionally inside every order-mutating action in api/_actions.js (create, edit, confirm, reserve, production start, produced/deduct, deliver, cancel, restore) including the acting user.
-3. Expose events in the bootstrap/order payloads; replace the static timeline at src/App.tsx:2007 with events for the active order only, and derive any shortage entry from the current stock-requirement calculation.
-4. Add pricing columns to orders and order_items (unit_selling_price, discount, delivery_fee, tax, gross_total, net_total, amount_paid, balance); update api actions to validate and persist them.
-5. Update src/types.ts, order create/edit forms, and order detail to capture and display pricing; show explicit "No selling price set" states for legacy orders.
-6. Replace `sampleSellingPrice`/`useState(18000)`/kitchen.ts:453 fixed values so all margin paths consume the persisted net order total (costing page may keep a user-editable what-if input that defaults to the recipe's real context, never a silent constant).
-7. Rebuild the dashboard suggestion card to compute restock guidance from reorder levels, due orders, and stock (state the why: quantity, orders affected, current stock, recommended purchase date) or drop the card if data is insufficient.
-8. Replace `Â·` with `·` at src/App.tsx:1240 and grep the repo for `Â`, `â€`, and similar artifacts; verify files are clean UTF-8.
-9. Add regression tests: two different orders never share timeline events; margin uses each order's own net total (7,500 / 18,000 / 40,000 cases); zero-price, discount, tax, and multi-item totals; suggestion provenance.
-10. Extend or add a production smoke (`smoke:orders-pricing`) covering create-with-price, timeline events after confirm/produce, and margin display, then wire it into smoke:live-audit.
+### 007-A Order Event Truth
+
+1. Add an explicit idempotent migration for `order_events` with order id, event type, actor user id, actor display snapshot, previous/new status, metadata, note, and timestamp; update canonical schema and snapshot types.
+2. Backfill at most one truthful `created` event per legacy order from its real `created_at`; do not synthesize confirmation, shortage, production, or delivery history.
+3. Refactor order-mutating actions so the business write, event, and audit entry commit in the same transaction. Pass the authenticated actor into audit/event helpers; reserve `system` for named automated maintenance jobs.
+4. Replace the static Order Detail timeline. Display current shortage as a separately labelled live calculation, not a historical event.
+5. Add tests proving isolation between two orders, actor attribution, rollback on event-write failure, and an honest empty/legacy state.
+6. Deploy and run a focused timeline smoke before starting 007-B.
+
+### 007-B Canonical Pricing And Margins
+
+7. Add line-level fields (`sale_quantity`, `unit_selling_price`, `line_discount_amount`, `line_subtotal`, `line_total`) and order-level fields (`subtotal`, `order_discount_amount`, `delivery_fee`, `tax_rate`, `tax_amount`, `gross_total`, `net_total`, `amount_paid`, `balance`). Use suitable decimal database types and nullable legacy values.
+8. Implement one pure pricing contract shared by API tests and frontend display types, but make the API authoritative: validate finite/non-negative inputs, recompute derived totals, reject tampered client totals, and define rounding once.
+9. Update order create/edit/detail, costing, reports, dashboard, and helper responses. Legacy orders show `No selling price set`; they never inherit a default price.
+10. Remove hard-coded `18000` from runtime source. A costing what-if field may accept explicit user input but must start blank or from selected persisted context and be labelled non-persisted.
+11. Add regression cases for 7,500/18,000/40,000 orders, multiple lines, zero/missing price, discounts, delivery, tax, partial payment, changed ingredient cost, and cross-page total equality.
+12. Deploy and run a create/edit/refresh pricing smoke before starting 007-C.
+
+### 007-C Guidance And Encoding
+
+13. Replace static restock copy with a calculation that exposes current stock, demand/orders, required quantity, supplier lead time, business date/timezone, and recommended purchase date; remove the card when these inputs are unavailable.
+14. Remove `Â·` and scan tracked text for common UTF-8 mojibake patterns without changing binary fixtures or third-party files.
+15. Extend `smoke:orders-pricing` to cover timeline, actor, pricing, dashboard provenance, refresh, and UTF-8 production strings; add it to `smoke:live-audit` only after it is stable and self-cleans.
 
 ## Verification
 
 - Check: `npm.cmd test`
-  Expected: All existing tests plus new pricing/timeline regression tests pass.
+  Expected: event isolation/transaction tests and canonical pricing regression cases pass with all existing tests.
 - Check: `npm.cmd run build`
-  Expected: TypeScript + Vite build passes.
-- Check: grep for `18000` in src/ (excluding tests that assert its absence) and for the static timeline strings
-  Expected: No hard-coded selling price or fabricated timeline strings remain.
-- Check: grep for `Â` in src/
-  Expected: No mojibake.
-- Check: New smoke against production after deploy
-  Expected: Order created with real price shows correct margin and a timeline containing only its own events.
+  Expected: TypeScript and Vite build pass.
+- Check: runtime-source scan for `18000`, static timeline strings, `Restock before Friday`, and mojibake
+  Expected: no invented runtime value/text remains; legitimate numeric test fixtures are allowed only when asserting varied inputs.
+- Check: direct API submission with forged derived totals
+  Expected: API ignores/recomputes or rejects the forged values; persisted totals match the canonical server result.
+- Check: `npm.cmd run smoke:orders-pricing` against production
+  Expected: create/edit/refresh events and prices remain isolated and correct; temporary records are cleaned up.
 
 ## Rollback
 
-All schema changes are additive (new table, new nullable columns); revert the app commit and the UI falls back cleanly. Keep the migration idempotent so re-runs are safe.
+Each slice is independently deployable and additive. UI rollback can ignore new nullable columns/events. Never roll back by restoring fabricated timeline entries, a default selling price, or `system` attribution for human actions.

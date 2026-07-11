@@ -21,14 +21,18 @@ Move sessions from localStorage bearer tokens to secure HttpOnly cookies, add pr
 
 ## Decisions
 
-- Decision: Cookie-based sessions: HttpOnly, Secure, SameSite=Lax, short lifetime with server-side session records enabling rotation (on login/privilege change) and revocation (existing staff revoke flows, password reset).
+- Decision: Use opaque random session tokens in an HttpOnly `__Host-` cookie in production, store only a token hash server-side, and rotate/revoke individual sessions on login, privilege change, logout, staff revocation, and password reset.
   Reason: Audit PCO-012; CSP reduces but does not eliminate XSS token theft.
-- Decision: Keep a one-release compatibility window where the API accepts the legacy bearer header as fallback, then remove it.
+- Decision: Pair cookie auth with SameSite protection, strict Origin/Referer validation, and a session-bound CSRF token/header on every mutating request.
+  Reason: moving credentials into automatically sent cookies changes the threat model; the original plan omitted CSRF.
+- Decision: Keep a feature-flagged, time-boxed bearer compatibility window for smoke migration only; remove it before Phase 011 closes.
   Reason: Avoid logging out all active operators at deploy moment; smoke scripts also authenticate via header today and need migration.
-- Decision: Password reset: single-use expiring tokens, generic "if the account exists" responses, rate limiting, password-strength validation, revoke all sessions after reset.
+- Decision: Password reset tokens are high-entropy, single-use, short-lived, and stored only as hashes; requests use generic responses and shared-store throttling; successful reset revokes all sessions.
   Reason: Audit PCO-015 explicit requirements.
 - Decision: Add `Cache-Control: private, no-store` centrally (shared response helper) rather than per-handler.
   Reason: New endpoints must inherit the rule automatically.
+- Decision: Replace process-local auth/reset throttling with an atomic Neon-backed window table and retention cleanup unless a separately approved distributed service is selected.
+  Reason: serverless instances do not share the current in-memory Map.
 
 ## Risks
 
@@ -38,3 +42,5 @@ Move sessions from localStorage bearer tokens to secure HttpOnly cookies, add pr
   Mitigation: Implement and test the reset flow with the configured sender; if DNS sign-off is pending, verify token issuance/redemption paths in staging and record the delivery dependency in VERIFICATION.md rather than claiming full closure.
 - Risk: SameSite/cookie behavior differs between vercel.app production and local dev.
   Mitigation: Test matrix: local dev server, production domain, and the smoke harness.
+- Risk: Compatibility bearer auth can become permanent accidentally.
+  Mitigation: add a removal date/flag assertion and a test that Phase 011's final configuration rejects bearer-only requests.

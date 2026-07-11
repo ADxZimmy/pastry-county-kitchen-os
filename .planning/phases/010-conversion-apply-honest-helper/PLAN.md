@@ -2,46 +2,50 @@
 
 ## Outcome
 
-Selecting a suggested conversion opens a review modal (original, suggested, edited value, confidence, source) and, on confirm, persists through a role-checked audited server action that is visible in the conversion library and recipe afterward. All assistant/helper surfaces describe the feature honestly. PCO-003 interim closure (full closure with Phase 014).
+Every conversion action says exactly what it will change. Saving a reusable rule updates the Conversion Library; applying a conversion to a recipe updates a named recipe item through a review and normal recipe-save transaction; free-form helper results can open a prepared editor but never claim persistence. The deterministic feature is honestly labelled Kitchen Helper. PCO-003 reaches demo-safe interim closure.
 
 ## Scope
 
 Included:
 
-- Real apply workflow for conversion suggestions (helper page + conversion library + recipe context).
-- Review modal with original/suggested/edited value, confidence, source rule, and explicit confirm.
-- Server action to persist applied conversions with role checks and audit records; approved vs unverified separation.
-- Honest interim labeling: "Kitchen Helper" naming, capability copy, removal of "AI"-implying claims.
-- Tests for apply-persist-reload and for the no-toast-without-write guarantee.
+- Complete inventory of helper/conversion actions and their intended target.
+- Review modal with target record, original/suggested/final values, source, confidence, scope, and provenance.
+- Separate audited actions for rule suggestion/approval and recipe-item application.
+- Save/reload verification and success messaging only after the intended record actually changed.
+- Shared Kitchen Helper naming/capability copy.
 
 Excluded:
 
-- Model-backed assistant, server-side orchestration, follow-up context (Phase 014).
-- New conversion mathematics (engine already supports ingredient-specific rules).
+- Model-backed orchestration, conversation context, or AI branding (Phase 014).
+- Direct model/helper mutations without review (permanently excluded).
 
 ## Steps
 
-1. Inventory every assistant/conversion action in App.tsx that ends in `notify(...)` without an API call; list which imply persistence.
-2. Build the ConversionReviewModal (reuse dialog a11y hooks): original value, suggested value, editable final value, confidence badge, source rule, confirm/cancel.
-3. Add/extend `conversion.applyRule` server action: role-checked, validates the rule, upserts with verified flag + provenance (who approved, source), writes audit entry.
-4. Wire "Use this conversion" and equivalent actions through the modal -> action -> reload; success toast only after server confirmation.
-5. Rename assistant surfaces to "Kitchen Helper" via a shared string constant; update nav labels, page headers, empty states, and helper copy to state it answers from saved data with deterministic rules.
-6. Update tests: applying a conversion persists and survives reload; unconfirmed suggestions never mutate; role-restricted users cannot apply.
-7. Add smoke assertions (extend an existing conversion smoke or add `smoke:conversion-apply`) verifying a conversion applied in production appears in the library after refresh, then archive the test rule.
+1. Inventory every helper/conversion button and classify it as `calculate only`, `save unverified rule`, `verify rule`, `apply to recipe item`, or `open editor`. Remove ambiguous `Use this conversion` copy until a target is known.
+2. Define an explicit review contract: target type/id, original quantity/unit, suggested quantity/unit, editable final value, source rule/evidence, confidence, formula/prep scope, actor, and intended persistence action.
+3. Build an accessible Conversion Review modal using the existing focus/inert behavior. Cancel performs no write and no success toast.
+4. Add/extend role-checked server actions:
+   - rule suggestion/approval persists provenance (`suggestedBy`, `approvedBy`, timestamps, source and scope) and verified state;
+   - recipe-item apply validates the current original value to prevent stale overwrite, preserves import/source-cost evidence, writes the approved conversion provenance, and saves through the normal recipe transaction.
+5. For free-form helper results without a recipe target, offer `Save as unverified rule` or `Open recipe editor`; do not state that a recipe was updated.
+6. After server success, reload and assert the exact target changed. If reload does not match, show an error rather than a success toast.
+7. Rename navigation, page titles, copy, exports, and settings references through one shared capability descriptor to `Kitchen Helper`; describe deterministic data sources and limitations.
+8. Add tests for stale-target conflict, cancel/no-write, role denial, rule persistence, recipe-item persistence, provenance preservation, refresh, and the absence of toast-only persistence claims.
+9. Add `smoke:conversion-apply` with temporary rule/recipe data and cleanup; run it before Phase 015-A.
 
 ## Verification
 
-- Check: `npm.cmd test`
-  Expected: Apply-flow and role tests pass.
-- Check: Manual - select a suggested conversion, edit the value, confirm, refresh
-  Expected: Rule visible in conversion library with verified provenance; recipe context reflects it.
-- Check: Manual - cancel the review modal
-  Expected: No data change, no success toast.
-- Check: grep for "AI Assistant" strings in src/
-  Expected: No overstated AI claims remain on shipped surfaces.
-- Check: Conversion smoke against production
-  Expected: Pass.
+- Check: save a rule, refresh Conversion Library
+  Expected: the exact rule and provenance persist; no recipe-change claim is shown.
+- Check: apply to a named recipe item, refresh recipe detail/edit
+  Expected: final quantity/unit and provenance persist while original import/source-cost evidence remains available.
+- Check: cancel or submit against a stale original value
+  Expected: no mutation; cancel is silent, stale write returns a conflict for re-review.
+- Check: runtime-source scan for `AI Assistant` and ambiguous `Use this conversion`
+  Expected: shipped deterministic surfaces use honest Kitchen Helper/calculate/save/apply wording.
+- Check: `npm.cmd test`, `npm.cmd run build`, `npm.cmd run smoke:conversion-apply`
+  Expected: pass with cleanup complete.
 
 ## Rollback
 
-UI + one additive server action; revert the commit. Applied rules already persisted remain valid data.
+Review UI and server actions are additive. Persisted approved rules/recipe changes remain valid auditable data. Rollback may hide new actions but must not relabel a toast-only action as successful persistence.

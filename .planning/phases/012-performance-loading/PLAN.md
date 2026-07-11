@@ -2,48 +2,65 @@
 
 ## Outcome
 
-Hashed assets cache immutably for a year, the initial route loads only its own code (parsers load solely on Imports), high-growth history data is paginated behind route-scoped endpoints, and a Lighthouse CI budget plus Web Vitals monitoring guard against regression. Audit findings PCO-010 and PCO-011 closed.
+Hashed assets cache immutably, authenticated HTML/data remain short-lived/private, the initial route loads only required client code, high-growth data uses paginated role-filtered endpoints, hot-path schema DDL is removed, and tracked CI plus Web Vitals/Lighthouse budgets provide repeatable evidence. PCO-010, PCO-011, and RS-007 close at the MVP gate.
 
 ## Scope
 
 Included:
 
-- vercel.json caching headers for `/assets/*` (immutable) and short-lived index.html.
-- Page extraction from App.tsx into modules + React.lazy route chunks with suspense fallbacks.
-- Dynamic import of spreadsheet/DOCX/PDF parsing on the Imports screen only.
-- `/api/dashboard/summary` and paginated `/api/orders`, `/api/audit`, `/api/movements`; migrate those screens off bootstrap with loading/empty/error/retry states.
-- Web Vitals monitoring and Lighthouse CI thresholds.
+- Correct Vercel caching rules verified on production.
+- Mechanical page extraction and React.lazy route chunks.
+- Preservation/measurement of server-only dynamic import parsers.
+- Dashboard summary plus paginated orders/audit/movements with shared auth/projection.
+- Incremental bootstrap shrink and targeted cache invalidation.
+- Explicit schema migrations replacing request-path DDL.
+- Baseline GitHub CI, public-route Lighthouse, authenticated performance job, and Web Vitals monitoring.
 
 Excluded:
 
-- Full bootstrap retirement for small collections (settings, suppliers, conversion rules) - follow-up once history data is migrated.
-- Offline-friendly production view (post-MVP roadmap).
+- Full retirement of bootstrap for small bounded collections in the first slice.
+- Offline production mode.
+- Treating public login-page Lighthouse as evidence for the authenticated application.
 
-## Steps
+## Delivery Slices
 
-1. Add vercel.json header rules: `/assets/(.*)` -> `Cache-Control: public, max-age=31536000, immutable`; `/index.html` and `/` -> `no-cache`; deploy and curl-verify.
-2. Extract page components from App.tsx into src/pages/* modules (mechanical, no behavior change); run tests + navigation smoke.
-3. Convert heavy routes (Imports, Reports, Archives, Settings, Suppliers, Helper, Recipes detail/edit) to React.lazy with suspense fallbacks; verify chunking in build output.
-4. Move parser usage behind `await import(...)` on the Imports screen; confirm parser code is absent from the entry chunk.
-5. Implement `/api/dashboard/summary` (counts + due-today aggregates) and paginated `/api/orders`, `/api/audit`, `/api/movements` with cursor or page params, reusing existing auth + no-store helpers.
-6. Migrate Dashboard, Orders list, Audit Reports, and ingredient movement history to the new endpoints with loading/empty/error/retry states and post-mutation invalidation; trim the bootstrap payload of migrated history collections once all consumers moved.
-7. Enable Vercel Speed Insights / Web Vitals reporting.
-8. Add Lighthouse CI (budget: mobile perf >= 85, initial compressed JS <= 150 kB, LCP <= 2.5 s, CLS <= 0.1, TBT <= 200 ms) to the workflow; fail on budget breach.
-9. Update smokes for paginated endpoints; run full test suite and umbrella smoke against production.
+### 012-A Caching, CI, And Measurements
+
+1. Capture current build chunk sizes, serverless import-function bundle/cold-start, bootstrap payload by role, API timings, and production cache headers as a before baseline.
+2. Add specific Vercel rules: hashed `/assets/*` one-year immutable; `/`/`index.html` short-lived; authenticated APIs remain private/no-store from Phase 011. Verify rule precedence in production.
+3. Add a tracked CI workflow for clean install, `npm test`, `npm run build`, dependency audit, and `git diff --check`. Keep secret-dependent live smokes in a protected/manual job.
+4. Add public-route Lighthouse budgets and a separate controlled authenticated preview/performance job. Record which routes each score covers.
+
+### 012-B Client Route Chunks
+
+5. Mechanically extract page components from the 3,201-line App.tsx without behavior changes; run tests/build/navigation smoke after each small group.
+6. Convert heavy/secondary pages to React.lazy with accessible loading/error/retry fallbacks; inspect build output so shared dependencies are not accidentally duplicated.
+7. Confirm `read-excel-file`, `mammoth`, and `pdf-parse` remain server-only dynamic imports in `api/_imports.js`; measure serverless function size/cold start instead of adding redundant client dynamic imports.
+
+### 012-C Route-Scoped Data And Migrations
+
+8. Create one shared backend authorization and role-projection layer, then implement `/api/dashboard/summary` and cursor-paginated orders, audit, and movements endpoints with bounded limits and stable ordering.
+9. Migrate Dashboard, Orders, Audit Reports, and ingredient history to route-scoped loading with empty/error/retry states and targeted mutation invalidation. Preserve search/filter context from Phase 005/013.
+10. Add per-role response-shape tests proving Viewer/Baker/Inventory Manager cannot regain staff/audit/private settings data through new endpoints.
+11. Remove migrated high-growth collections from bootstrap only after all consumers and smokes use the new endpoints; record payload reduction.
+12. Move remaining `ALTER/CREATE/repair UPDATE` work from bootstrap/actions/auth into explicit idempotent migration scripts with a deploy preflight. Runtime code may verify schema version but must not mutate schema on ordinary requests.
+13. Enable Web Vitals/Speed Insights with privacy review and alert ownership; update performance evidence and run the full smoke family.
 
 ## Verification
 
-- Check: curl production asset URL
-  Expected: `Cache-Control: public, max-age=31536000, immutable`; index.html short-lived.
-- Check: `npm.cmd run build` output
-  Expected: Multiple route chunks; entry chunk gzip <= 150 kB; parser libs in Imports-only chunks.
-- Check: `npm.cmd test` + navigation smoke
-  Expected: Pass after page extraction and lazy conversion.
-- Check: Orders/Audit pages with large datasets
-  Expected: Paginated loads with working retry/empty states; mutations refresh affected pages only.
-- Check: Lighthouse CI run
-  Expected: Budgets met.
+- Check: production headers
+  Expected: hashed assets are immutable for one year; HTML is short-lived; authenticated data is private/no-store.
+- Check: clean CI run
+  Expected: install, tests, build, dependency audit, diff check, and public performance budget pass without production credentials.
+- Check: `npm.cmd run build`
+  Expected: multiple route chunks, entry gzip within the agreed budget, and parser packages absent from client output.
+- Check: serverless import worker measurement
+  Expected: parser dependencies load only when the import worker needs them; cold-start/function-size evidence is recorded.
+- Check: role-specific paginated endpoint tests
+  Expected: stable pagination and no cross-role sensitive-field regression.
+- Check: ordinary bootstrap/action requests
+  Expected: no schema-changing SQL; migration preflight reports the expected schema version.
 
 ## Rollback
 
-Header rules and new endpoints are additive; lazy routes can revert to static imports commit-by-commit. Keep bootstrap fields until migration verified, so reverting frontend restores prior data flow.
+Ship slices separately. Keep bootstrap fields until route consumers are proven. Header rules, page extraction, and endpoints can revert independently; explicit migrations remain additive. Do not restore pre-auth or hot-path schema mutation during rollback.

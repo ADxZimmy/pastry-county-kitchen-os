@@ -2,47 +2,61 @@
 
 ## Outcome
 
-Production pages show only orders that genuinely belong to the selected period, terminal-status orders never appear in work queues, batches cannot skip states or deduct stock without an explicit confirmation + QC step, repeated completion never double-deducts, and cancellation explains its consequences. Audit findings PCO-004, PCO-005, PCO-009 closed.
+Production pages show only genuinely eligible work for the selected Africa/Lagos period. The API rejects invalid lifecycle jumps. Batch/order completion is explicitly reviewed, quality-checked, locked, atomic, and uniqueness-backed against duplicate deduction. Cancellation is confirmed and never performs a hidden stock reversal. PCO-004, PCO-005, and PCO-009 close at the Demo Trust Gate.
 
 ## Scope
 
 Included:
 
-- Shared timezone-aware production eligibility + period boundary functions with tests.
-- Correct Today / Tomorrow / This Week filtering and terminal-status exclusion everywhere production work is listed.
-- Server-side production state machine and atomic, idempotent batch completion transaction.
-- Batch confirmation/QC modal reusing the Phase 004 QC capture.
-- Destructive cancellation confirmation with consequence summary, reason capture, and order_events record.
+- Shared business-timezone period boundaries and eligibility rules.
+- Server-enforced production lifecycle and role checks.
+- `production_runs` or equivalent completion record with database idempotency key.
+- Atomic stock/FEFO/QC/event/audit completion with concurrency protection.
+- Batch confirmation/QC UI with actual yield and waste capture.
+- Consequence-aware cancellation and explicit post-deduction correction policy.
 
 Excluded:
 
-- Partial production / waste analytics beyond the confirmation fields (post-MVP roadmap).
-- Deduction-stage setting wiring (Phase 009 policy service, though the transaction code lands here ready to consume it).
+- Partial fulfilment and analytics dashboards beyond storing actual yield/waste/variance for the completed run.
+- Configurable deduction-stage execution (Phase 009 consumes the safe transaction built here; Phase 008 preserves completion as the default).
 
-## Steps
+## Delivery Slices
 
-1. Add `productionPeriodBounds(period, now, timezone)` and `eligibleForProduction(order, period, bounds)` to src/lib/kitchen.ts; unit-test week boundaries, terminal statuses, fully-produced orders, and timezone edges.
-2. Replace the inline filter at src/App.tsx:2077 and the batch grouping source so all production buckets and grouped batches use the shared functions; exclude Draft, Cancelled, Delivered, Archived, and fully produced orders.
-3. Implement the state machine in api/_actions.js for `production.batchStatus` and individual production actions: validate current -> next transitions (Ready -> In Progress -> Quality Check -> Completed), reject invalid jumps with a clear error, and enforce role checks.
-4. Make batch completion a single server transaction: update orders, deduct stock via FEFO lots, write inventory movements, write QC log, write order_events and audit entries; roll back on any failure; make it idempotent (re-completion returns success without deducting again).
-5. Build the batch completion confirmation modal: orders included, planned vs actual quantity, waste quantity, per-ingredient deduction with current -> resulting stock, shortages, and the acting user; require explicit confirm before the API call; remove the direct Ready -> Complete path at src/App.tsx:2067.
-6. Add the cancellation confirmation dialog on order detail: reservation release, production-started warning, deduction/reversal status, required reason; server action records the reason and creates a reversal movement when stock was already deducted.
-7. Update affected smokes (phase4, navigation) for the new transition rules and add `smoke:production-safety` covering: This Week boundaries, cancelled/delivered exclusion, blocked Ready -> Complete jump via direct API call, idempotent completion, and cancellation reversal.
-8. Run the full local test suite and production smokes after deploy.
+### 008-A Queue Truth And Lifecycle
+
+1. Add a business-timezone setting/config with `Africa/Lagos` default and pure `productionPeriodBounds`/`eligibleForProduction` functions. Define week start explicitly and test midnight, DST-independent Lagos behavior, month/year edges, past/future dates, terminal statuses, archived orders, missing items, and completed work.
+2. Replace every Dashboard/Production/batch inline filter with the shared eligibility function so Today, Tomorrow, and This Week agree.
+3. Define canonical persisted states and allowed transitions, including how derived Ready relates to `Not Started`; reject Ready/Not Started -> Completed and all terminal-state escapes in backend action tests.
+4. Migrate frontend actions and existing smokes to the state machine, then deploy and run a focused queue/transition smoke.
+
+### 008-B Locked Atomic Completion
+
+5. Add `production_runs`/completion metadata with a unique idempotency key tied to the intended batch/order completion request. Record included orders, planned/actual yield, waste, actor, QC, and timestamps.
+6. Implement completion with row locks or serializable semantics over the run, orders, ingredients, and FEFO batches. In one commit: validate transition/shortages, claim idempotency key, write run/QC, deduct lots and aggregate stock, release reservations, write movements, write order events/audit, and update statuses. Any failure rolls back all writes.
+7. Add a concurrent-request test (two simultaneous completions with the same and different keys) proving exactly one deduction; do not accept an in-memory lock or status preflight as sufficient.
+8. Build the batch review/QC modal: included orders, planned/actual quantity, waste, per-ingredient current -> deduction -> resulting stock, substitutions/shortages, and authenticated actor; the confirm button sends the idempotency key.
+9. Deploy and run a controlled completion smoke with before/after database counts and repeat-call verification.
+
+### 008-C Safe Cancellation
+
+10. Add a reason-required cancellation preview endpoint/helper returning reservation, production, and deduction consequences.
+11. For orders without deduction, cancel and release reservations with event/audit writes in one transaction. For produced/delivered/deducted orders, reject normal cancellation and direct the operator to an explicit privileged correction/reversal flow; never reconstruct consumed FEFO lots silently.
+12. Add tests and smoke coverage for Draft/Confirmed/Reserved/In Progress/Produced/Delivered cancellation behavior and actor/reason attribution.
+13. Add `smoke:production-safety` to the umbrella smoke only after it is repeatable and self-cleans.
 
 ## Verification
 
-- Check: `npm.cmd test`
-  Expected: New eligibility/state-machine/idempotency tests pass; no regressions.
-- Check: Direct API call attempting Ready -> Completed
-  Expected: 4xx rejection with explanatory message.
-- Check: Complete the same batch twice
-  Expected: Stock deducted exactly once; second call is a no-op success.
-- Check: `npm.cmd run smoke:production-safety` against production
-  Expected: Pass, including week-boundary and terminal-status assertions.
-- Check: `npm.cmd run smoke:live-audit`
-  Expected: Umbrella smoke passes with updated production flows.
+- Check: `npm.cmd test` and `npm.cmd run build`
+  Expected: eligibility, lifecycle, transaction, concurrency, cancellation, and existing regression checks pass.
+- Check: direct API Ready/Not Started -> Completed request
+  Expected: 409/422 with no order, QC, event, movement, lot, or stock change.
+- Check: two concurrent completion requests
+  Expected: exactly one committed production run and one set of stock deductions; retry returns the original result or an explicit idempotent no-op.
+- Check: forced failure after movement preparation
+  Expected: transaction rolls back orders, lots, aggregate stock, movements, QC, and events together.
+- Check: `npm.cmd run smoke:production-safety` and `npm.cmd run smoke:live-audit`
+  Expected: pass against production with cleanup complete.
 
 ## Rollback
 
-State machine and transaction changes are server-side; revert the commit to restore prior behavior. No destructive schema changes; order_events writes are additive.
+Deploy slices separately. New completion tables/columns are additive. Retain database uniqueness constraints during application rollback so an older UI cannot reintroduce duplicate deduction; temporarily disable completion if a safe compatible server path is unavailable.

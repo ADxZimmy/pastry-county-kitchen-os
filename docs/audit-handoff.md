@@ -1,15 +1,19 @@
 # External Audit Handoff
 
 Date: 2026-06-16
-Last updated: 2026-06-24
-Last verified: 2026-06-24
+Last updated: 2026-07-11
+Last verified: Phase 001-006 evidence on 2026-06-24; July 10 audit findings source-reconciled on 2026-07-11
 Live URL: https://pastry-county-kitchen-os.vercel.app
-Current audit-prep app commit: `3df5500`
+Current audit-planning baseline: `123643b`
 Latest checked deployment: Vercel success for `main`
 
 ## Current Status
 
-The June 22 external audit rerun 2 from session `019eeee0-894f-7880-b3fa-4a7c002de3ab` scored `96/100` and cleared the 95+ release gate with zero findings, failing checks, advisory failures, request failures, or console warnings/errors.
+> Supersession notice (2026-07-11): the July 10 expanded production audit scored `54/100` and marked the app **Not Ready**. It is the active release signal. The June 22 `96/100` result and Phase 001-006 smokes below remain historical regression evidence only. Current finding traceability, gates, and next actions live in `.planning/AUDIT-REMEDIATION.md`, `.planning/ROADMAP.md`, and `.planning/STATE.md`.
+
+The revised sequence starts with Phase 006a Immediate Security Containment, then Phases 007-010 and an authenticated Demo Trust Gate, followed by Phases 011-014 and the final UAT/external audit rerun. No unscripted operator/investor demo or launch claim is approved from this historical handoff.
+
+The June 22 external audit rerun 2 from session `019eeee0-894f-7880-b3fa-4a7c002de3ab` scored `96/100` at that earlier scope with zero findings, failing checks, advisory failures, request failures, or console warnings/errors.
 
 After that release-gate pass, the Baking and Pastry Arts audit identified product-depth improvements for ingredient and recipe workflows. Those follow-up phases have now been implemented, pushed, deployed, and smoke-verified through Phase 006:
 
@@ -20,7 +24,7 @@ After that release-gate pass, the Baking and Pastry Arts audit identified produc
 
 A fresh external audit has not yet been run after Phases 003-006. Treat the June 22 `96/100` as the previous release-gate baseline and this document as the handoff for the next audit pass.
 
-## Fresh Verification
+## Historical Phase 001-006 Verification
 
 Latest checked state:
 
@@ -41,7 +45,9 @@ Phase-specific production smokes already passed:
 
 Documentation-only commits or copy-only commits may create newer Vercel deployments than a phase implementation commit. Use GitHub/Vercel status as the source of truth for the current latest deployment, and use the phase verification files under `.planning/phases/*/VERIFICATION.md` for detailed command evidence.
 
-## External Audit Focus
+## Historical Pre-July-10 Audit Focus
+
+The checklist below documents earlier coverage. For the next audit, use the July 10 PCO-001..PCO-016 matrix and RS-001..RS-007 repo findings in `.planning/AUDIT-REMEDIATION.md` first, then retain these items as regression checks.
 
 Ask the next external audit to retest the previous release-gate/security cases first:
 

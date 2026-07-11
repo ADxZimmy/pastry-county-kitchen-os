@@ -2,7 +2,7 @@
 
 ## Mission
 
-Pastry County Kitchen OS is a bakery operations dashboard for inventory, recipes, production, shopping, costing, staff, audit logs, and conversion workflows. The immediate mission is to move the live app from "Demo Ready with Fixes" to a production-readiness candidate.
+Pastry County Kitchen OS is a bakery operations dashboard for inventory, recipes, production, shopping, costing, staff, audit logs, imports, and conversion workflows. The immediate mission is to recover from the July 10, 2026 expanded production audit baseline of 54/100 (Not Ready) by restoring truthful operational data, safe transactions, and authenticated end-to-end evidence before any unscripted operator or investor demo.
 
 ## Audience
 
@@ -22,6 +22,8 @@ Primary users are bakery owners, bakers, and inventory managers who need reliabl
 - Use live deployment verification when local env vars are unavailable, reading credentials only from ignored `.env.local`.
 - Production-readiness blockers must be verified against live behavior, not only local fixtures.
 - Security fixes must cover both API routes and frontend token handling.
+- The July 10 expanded audit supersedes the June 22 96/100 audit as the active release signal; earlier passing checks remain regression coverage, not current launch approval.
+- No operator/investor demo is approved until the Demo Trust Gate in `.planning/AUDIT-REMEDIATION.md` passes.
 
 ## Working Agreements
 

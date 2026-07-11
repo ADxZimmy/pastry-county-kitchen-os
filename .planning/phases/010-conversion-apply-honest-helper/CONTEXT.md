@@ -19,6 +19,8 @@ Make conversion suggestions genuinely apply through a review-and-confirm workflo
 
 - Decision: Every "apply" path opens a review step showing original value, suggested value, editable final value, confidence, source rule, and requires explicit confirmation before a server action persists it.
   Reason: Audit PCO-003 - a cosmetic action is riskiest when the user believes data changed.
+- Decision: Treat three intents separately: save/verify a reusable conversion rule, apply a converted quantity/unit to a specific recipe-item draft, or open a recipe editor from a free-form helper result. A standalone helper result never claims a recipe changed.
+  Reason: persisting a library rule is not the same operation as changing a recipe line; the original plan blurred those outcomes.
 - Decision: Approved rules are stored separately from unverified suggestions (verified flag + provenance), matching the existing confidence/verification schema.
   Reason: Audit expects traceable recommendations.
 - Decision: Interim rebrand of assistant surfaces to "Kitchen Helper" with copy that says it answers from saved recipes, costs, and conversion rules; no "AI" claims until Phase 014 ships the model-backed service.
@@ -30,3 +32,5 @@ Make conversion suggestions genuinely apply through a review-and-confirm workflo
   Mitigation: Keep naming in one shared constant/string module so the Phase 014 rename is a single change.
 - Risk: Users may have "applied" conversions previously that silently did nothing.
   Mitigation: Release note in UAT; no data migration needed because nothing was written.
+- Risk: Updating a recipe line can overwrite source-import costing/provenance.
+  Mitigation: preserve the original quantity/unit/source fields and attach conversion rule, approver, and timestamp provenance; require the normal recipe save transaction.

@@ -1,10 +1,10 @@
 # Pastry County Kitchen OS - New Chat Context
 
-Last updated: 2026-06-24
-Repo: `C:\Users\PC\Documents\Nitech\Personal\Pastry County Kitchen OS`
+Last updated: 2026-07-11
+Repo: `F:\Pastry County Kitchen OS`
 Live app: `https://pastry-county-kitchen-os.vercel.app`
 Current local branch at time of this map: `main`
-Current local commit: run `git rev-parse --short HEAD`; latest app-code copy-polish commit before the June 24 audit-doc refresh was `3df5500`.
+Current local commit: run `git rev-parse --short HEAD`; the July 10 audit-planning commit reviewed by this map is `123643b`.
 
 Use this file when starting a fresh chat context. It maps what the app is, where the important code lives, what has already been verified, and which docs are authoritative when older planning notes disagree.
 
@@ -15,11 +15,11 @@ Start with these files in this order:
 1. `AGENTS.md` for repository operating rules.
 2. `docs/new-chat-context.md` for this whole-codebase map.
 3. `.planning/STATE.md` for the latest work status.
-4. `docs/audit-handoff.md` for the latest external-audit handoff.
-5. `.planning/phases/006-recipe-import-onboarding/VERIFICATION.md` for the completed import/onboarding verification.
-6. `.planning/phases/006-recipe-import-onboarding/PLAN.md` for the import/onboarding requirements.
-7. `.planning/phases/005-navigation-routing-overhaul/VERIFICATION.md` for the completed navigation/routing verification.
-8. `.planning/phases/004-pastry-costing-qc-compliance/VERIFICATION.md` for the latest completed Phase 004 verification.
+4. `.planning/AUDIT-REMEDIATION.md` for the July 10 54/100 finding/gate matrix.
+5. `.planning/ROADMAP.md` for the revised risk-ordered execution sequence.
+6. `.planning/phases/006a-security-containment/PLAN.md` for the immediate next implementation.
+7. `docs/audit-handoff.md` for historical Phase 001-006 evidence plus its July 11 supersession note.
+8. `.planning/phases/006-recipe-import-onboarding/VERIFICATION.md` and `.planning/phases/005-navigation-routing-overhaul/VERIFICATION.md` for completed capability evidence.
 9. `docs/certification/README.md` for the separate 100/100 certification evidence track.
 
 Important repository rule: after any local code or documentation change in this repo, commit and push before ending the turn unless the user explicitly says not to. Deployment-triggering commits should use the repo owner identity:
@@ -32,7 +32,7 @@ Never commit secrets. Live test credentials are in ignored `.env.local` as `LIVE
 
 Pastry County Kitchen OS is a mobile-first bakery operations dashboard for inventory, recipes, production, shopping, costing, orders, staff, audit logs, and ingredient conversion workflows. It is backed by Neon Postgres and deployed on Vercel.
 
-The strongest current audit signal is the June 22 external audit rerun 2: `96/100`, zero findings, zero failing checks, zero advisory failures, zero request failures, and zero console warnings/errors. That cleared the 95+ release gate after Phase 002.
+The strongest current audit signal is the July 10 expanded production audit: `54/100`, **Not Ready**. It confirmed critical fabricated order history and fixed-price financial behavior, plus production, validation, settings, assistant, security/privacy, performance, accessibility, and UAT gaps. This supersedes the June 22 `96/100` result as a launch signal; the earlier result remains historical regression evidence.
 
 After that, product-depth work continued:
 
@@ -41,12 +41,14 @@ After that, product-depth work continued:
 - The umbrella `npm run smoke:live-audit` now runs Phase 002, Milestone 7, regression audit, Phase 003, Phase 004, navigation-routing, and import-onboarding smoke coverage, and it passed against production after Phase 006.
 - Phase 005 Navigation And Routing Overhaul was implemented, pushed, deployed, and production-smoke verified. The former page-per-action risk is now corrected with route-aware hierarchy, direct record links, Back/Breadcrumb controls, contextual form exits, mobile nav cleanup, unsaved-change guards, and navigation smoke coverage.
 - Phase 006 Recipe Import Onboarding was implemented, pushed, deployed, and production-smoke verified on commit `a862c50`. It adds a review-first import pipeline for pasted text, CSV/TSV, XLSX, DOCX, text PDFs, and provider-backed image/scanned/legacy files, with support for recipes, costing rows, ingredient masters, suppliers, conversion rules, customer/order-template previews, and source traceability.
+- The July 10 planning commit `123643b` created phases 007-015. The July 11 revision adds Phase 006a Immediate Security Containment, explicit Security/Demo/MVP/Audit gates, early authenticated UAT after Phase 010, and complete UAT/verification artifacts for every planned phase.
+- The immediate next action is Phase 006a: close the unauthenticated direct inventory-movement route, public/pre-auth maintenance behavior, raw 500 leakage, and weak production session-secret fallback before Phase 007 feature work.
 
-The app is not yet claimable as `100/100` because certification evidence still needs external email DNS/operator sign-offs, backup/restore or rollback drills, and other manual evidence. That is a certification evidence gap, not a current product-depth blocker.
+The app is not launch-ready or claimable as `100/100`. Product integrity blockers from the July 10 audit must close first; certification still additionally needs external email DNS/operator sign-offs, backup/restore or rollback drills, and manual evidence.
 
 Some older docs may be stale:
 
-- Historical audit PDFs and older session notes may describe pre-Phase-003 behavior. As of the June 24 audit-doc refresh, `docs/audit-handoff.md` and `docs/audit-milestone.md` are current through Phase 006 and the import-page copy polish.
+- `docs/audit-handoff.md` and `docs/audit-milestone.md` contain valuable Phase 001-006 history but are superseded for current readiness by `.planning/AUDIT-REMEDIATION.md`, `.planning/ROADMAP.md`, and `.planning/STATE.md`.
 
 ## Product Map
 
@@ -306,7 +308,7 @@ Smoke/audit scripts:
 - `npm run smoke:live-audit`: umbrella live audit smoke. As of Phase 006 it runs Phase 002, Milestone 7, regression audit, Phase 003, Phase 004, navigation routing, and import onboarding smoke suites.
 - `npm run audit:reconcile-fefo`: checks/fixes FEFO overstatements.
 
-Current verified snapshot from `.planning/STATE.md` and Phase 006 verification:
+Historical verified snapshot through Phase 006 (regression evidence, not current launch approval):
 
 - `npm.cmd test`: passed, 75 tests after Phase 006.
 - `npm.cmd run build`: passed.
@@ -317,6 +319,13 @@ Current verified snapshot from `.planning/STATE.md` and Phase 006 verification:
 - `npm.cmd run smoke:live-audit`: passed against production after Phase 006.
 - Phase 005 navigation routing: implemented under `.planning/phases/005-navigation-routing-overhaul/`, including `NAVIGATION-INVENTORY.md`, and production-smoke verified.
 - Phase 006 import onboarding: implemented under `.planning/phases/006-recipe-import-onboarding/` and production-smoke verified.
+
+Current July 11 planning baseline verification after pulling `123643b`:
+
+- `npm.cmd test`: passed, 80/80 tests across 5 files after syncing the pulled lockfile dependencies.
+- `npm.cmd run build`: passed; 334.46 kB JS (93.82 kB gzip), matching the expanded audit's observed build.
+- `npm.cmd audit --audit-level=moderate`: passed with zero known vulnerabilities.
+- Planning traceability/diff checks: PCO-001..016 and RS-001..007 mapped; phase artifacts complete; `git diff --check` passed.
 
 Use the live deployment for browser smoke tests when local env vars are unavailable. Read live test credentials only from ignored `.env.local`.
 
@@ -342,6 +351,7 @@ The importer preserves source workbook metadata in recipe item prep state fields
 - Session tokens are HMAC-signed, expire after 12 hours, and are invalidated when the corresponding user is disabled or `session_revoked_at` is newer than token issue time.
 - Viewer/non-admin bootstrap snapshots must omit `appUsers`, `auditLogs`, and `settings.lowStockNotificationEmail`.
 - Mutating actions must validate the actor against current DB user state.
+- Critical current exception: `api/inventory-movements.js` does not yet do this; Phase 006a must secure or retire that deployed route before other remediation.
 - Rate limiting exists for login and actions.
 - Audit exports/search must redact passwords, tokens, sessions, hashes, secrets, and API keys.
 - User-visible API errors should be operationally clear and should not expose raw SQL/internal syntax.
@@ -352,9 +362,9 @@ The importer preserves source workbook metadata in recipe item prep state fields
 
 - Do not assume local app smoke tests can run without `DATABASE_URL`; use production when local env is missing.
 - The app is private and Vercel Hobby deployments may be blocked by commits from an unrecognized identity. Use the ADxZimmy noreply identity before committing.
-- Keep schema changes additive. Update `db/schema.sql`, `api/_db.js` live drift repair, and any action-specific setup that writes the new fields.
+- Keep schema changes additive and idempotent. Phase 012 will move current hot-path drift repair out of ordinary requests into explicit migration/preflight tooling.
 - Keep `src/types.ts`, DB rows in `api/_db.js`, normalizers in `api/_actions.js`, and form fields in `src/App.tsx` aligned.
-- `src/App.tsx` is intentionally large. Follow existing local patterns before introducing new abstractions.
+- `src/App.tsx` is currently a 3,201-line hotspot. Keep remediation slices small; Phase 012 plans mechanical page extraction and route chunks.
 - Any new audited workflow should get a unit/API test and, if production-facing, a live smoke assertion.
 - Avoid committing generated `dist/` churn unless the repo already intentionally tracks it for the requested change. Check `git status` before staging.
 - `docs/audit-milestone.md` is a historical milestone tracker and may lag the latest planning state.
@@ -372,13 +382,12 @@ The importer preserves source workbook metadata in recipe item prep state fields
 
 ## Backlog / Next Likely Work
 
-- Run a fresh external audit against the current production deployment if the user wants independent validation after Phase 006.
-- Configure and verify the OCR/vision provider for production camera/photo/scanned imports, including cost and data-retention review.
-- Scope a future direct order-import/order-template phase if the owner wants imported order rows to create active orders instead of preview-only onboarding data.
-- Close the separate 100/100 certification evidence pack: email DNS/SPF/DKIM/DMARC proof, controlled email delivery, keyboard and screen-reader sign-off, backup/restore drill, rollback drill, monitoring/incident owner evidence.
-- Resolve stale planning/milestone docs if the user wants docs cleaned up beyond this map.
-- Finish any remaining personal/user-specific changes the owner had pending.
+- Execute Phase 006a security containment, then Phases 007-010 and the Phase 015-A Demo Trust Gate.
+- Continue MVP hardening through Phases 011-014, then Phase 015-B and a fresh independent audit.
+- Configure/verify OCR or model providers only after cost, data-retention, privacy, and environment decisions; do not block truthful core operations on an external provider.
+- Scope direct order import separately if approved; Phase 006 previews customer/order templates but intentionally does not create live orders or stock movements from them.
+- Close the separate certification evidence pack after product remediation.
 
 ## Quick Orientation Summary
 
-This is a strong, late-stage bakery operations app. The 95+ release gate has been cleared (`96/100` after Phase 002), Phase 003/004 pastry-depth work is live-smoke verified, Phase 005 corrected the navigation architecture, and Phase 006 added live-verified import onboarding. Future changes should be conservative, audited, route-aware, role-aware, tested locally, and smoke-tested against production when they touch live workflows.
+This is a substantial bakery operations app with strong Phase 001-006 regression coverage, but the active July 10 audit rates it `54/100` and Not Ready. The remediation priority is security containment, truthful order/financial data, transaction-safe production, effective validation/settings, honest helper behavior, and authenticated evidence—not further visual expansion or a carried-forward score.

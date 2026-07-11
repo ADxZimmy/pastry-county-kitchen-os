@@ -1,73 +1,77 @@
 # Roadmap
 
-Updated 2026-07-10 for the July 10 expanded external audit (54/100, findings PCO-001..PCO-016). Remediation program: phases 007-015. Finding-to-phase map:
+Revised 2026-07-11 after reconciling the July 10 expanded external audit (54/100, Not Ready) with commit `123643b` and the current source. Phase identifiers 007-015 remain stable, but execution is now risk-gated instead of relying only on numeric order. Full traceability is in `.planning/AUDIT-REMEDIATION.md`.
 
-| Finding | Severity | Phase |
-|---|---|---|
-| PCO-001 fabricated order timeline | Critical | 007 |
-| PCO-002 fixed NGN 18,000 selling price | Critical | 007 |
-| PCO-003 AI overstated / cosmetic actions | High | 010 (interim honesty + real apply), 014 (real AI) |
-| PCO-004 This Week filter wrong | High | 008 |
-| PCO-005 unguarded batch completion | High | 008 |
-| PCO-006 zero/negative yields reach scaling | High | 009 |
-| PCO-007 settings not applied | High | 009 |
-| PCO-008 decimal packaging units | Medium | 009 |
-| PCO-009 cancel lacks confirmation | Medium | 008 |
-| PCO-010 monolithic bootstrap/bundle | Medium | 012 |
-| PCO-011 asset cache revalidation | Medium | 012 |
-| PCO-012 localStorage tokens / cache privacy | Medium | 011 |
-| PCO-013 accessibility gaps | Medium | 013 |
-| PCO-014 static dashboard guidance | Medium | 007 |
-| PCO-015 no password recovery | Medium | 011 |
-| PCO-016 encoding artefacts | Low | 007 |
-| Prompt 10 authenticated UAT + regression/permission suites | - | 015 |
+## Execution Order
+
+1. `006a` Immediate Security Containment.
+2. `007` Truthful Orders And Financials.
+3. `008` Production Transaction Safety.
+4. `009` Validation, Settings And Unit Policy.
+5. `010` Conversion Apply And Honest Helper.
+6. `015-A` Authenticated Demo Trust UAT.
+7. `011` Auth And Session Hardening.
+8. `012` Performance And Loading Architecture.
+9. `013` Accessibility And UX Uplift.
+10. `014` Real AI Orchestration, after an explicit provider/data-retention decision.
+11. `015-B` Full Authenticated UAT And External Audit Rerun.
 
 ## Now
 
-- Phase: 007 Truthful Orders And Financials
-  Outcome: Real order-event timelines, persisted order pricing driving all margin math, data-derived dashboard guidance, no hard-coded 18,000 or mojibake. (PCO-001, 002, 014, 016)
-  Status: Planned.
+- Phase: 006a Immediate Security Containment
+  Outcome: Remove or secure the unauthenticated stock-mutation route, authorize before maintenance DDL, restrict `schema.ensure`, fail closed on missing production session secrets, and stop exposing raw 500 details.
+  Status: Planned; must ship before Phase 007 implementation begins.
 
-## Next
+## Demo Trust Program
+
+- Phase: 007 Truthful Orders And Financials
+  Outcome: Real per-order event history and actor attribution; server-canonical pricing and totals; data-derived dashboard guidance; no hard-coded 18,000 or mojibake. (PCO-001, 002, 014, 016)
+  Status: Planned in independently deployable slices.
 
 - Phase: 008 Production Transaction Safety
-  Outcome: Shared timezone-aware production eligibility, correct Today/Tomorrow/This Week buckets, server-enforced Ready -> In Progress -> QC -> Completed state machine, atomic idempotent batch completion with confirmation/QC modal, guarded cancellation with reversal handling. (PCO-004, 005, 009)
-  Status: Planned.
+  Outcome: Correct timezone-aware queues; server-enforced lifecycle; locked, atomic, idempotent completion; explicit QC/confirmation; safe cancellation policy. (PCO-004, 005, 009)
+  Status: Planned in queue/state-machine and completion/cancellation slices.
 
 - Phase: 009 Validation, Settings And Unit Policy
-  Outcome: Client+server yield/quantity validation, central policy service making every setting effective (gram rounding, deduction stage, negative inventory, count rounding), divisible vs indivisible units, contract tests per setting. (PCO-006, 007, 008)
-  Status: Planned.
+  Outcome: Client/server validation, a genuinely shared policy module, effective or explicitly retired settings, and divisible-unit rules. (PCO-006, 007, 008)
+  Status: Planned in validation/rounding and lifecycle/unit-policy slices.
 
 - Phase: 010 Conversion Apply And Honest Helper
-  Outcome: Review-and-confirm workflow makes conversion suggestions genuinely persist with provenance; assistant rebranded Kitchen Helper until Phase 014. (PCO-003 interim)
+  Outcome: Conversion actions truthfully distinguish saving a rule from changing a recipe; recipe changes use review, confirmation, provenance, audited persistence, and reload verification; deterministic assistant is labelled Kitchen Helper. (PCO-003 demo closure)
   Status: Planned.
+
+- Gate: 015-A Authenticated Demo Trust UAT
+  Outcome: Core Prompt 10 create/edit/refresh/lifecycle checks and all phase smokes pass with isolated, reversible data; no unscripted demo before this gate passes.
+  Status: Planned immediately after Phase 010.
+
+## MVP Hardening Program
 
 - Phase: 011 Auth And Session Hardening
-  Outcome: HttpOnly Secure cookie sessions with rotation/revocation, private no-store caching on authenticated responses, rate-limited single-use password recovery. (PCO-012, 015)
-  Status: Planned.
+  Outcome: Opaque server-side sessions in HttpOnly cookies, CSRF protection, private/no-store responses, distributed auth throttling, and hashed single-use password-reset tokens. (PCO-012, 015)
+  Status: Planned after the Demo Trust Gate; immediate route/secret/error containment is pulled forward into Phase 006a.
 
 - Phase: 012 Performance And Loading Architecture
-  Outcome: Immutable hashed-asset caching, route-level code splitting with lazy parser imports, dashboard summary + paginated orders/audit/movements endpoints, Web Vitals monitoring and Lighthouse CI budgets. (PCO-010, 011)
+  Outcome: Immutable hashed assets, route chunks, paginated role-filtered endpoints, shrinking bootstrap, Web Vitals, and a real CI performance gate. (PCO-010, 011)
   Status: Planned.
 
 - Phase: 013 Accessibility And UX Uplift
-  Outcome: AA contrast, keyboard-operable rows, legible mobile nav with Recipes primary, dashboard cards deep-linking to filtered lists, list-context preservation, production card scan hierarchy, builder ergonomics. (PCO-013 + audit sections E/F)
+  Outcome: AA contrast, semantic keyboard-operable links/actions, legible mobile nav, filtered dashboard links, context preservation, production scanning hierarchy, and recorded keyboard/screen-reader/mobile-keyboard evidence. (PCO-013 plus audit sections E/F)
   Status: Planned.
 
 - Phase: 014 Real AI Orchestration
-  Outcome: Server-side Claude-backed assistant with read-only tools, structured traceable responses, confirmation-gated proposed actions, deterministic fallback; AI branding restored. (PCO-003 full closure; owner chose to build real AI last, 2026-07-10)
-  Status: Planned.
+  Outcome: Provider-abstracted server-side assistant with read-only tools, traceable structured responses, strict data minimization/cost limits, and confirmation-gated proposed actions. (PCO-003 full closure)
+  Status: Planned last among product phases; provider, retention, and budget decision required before implementation.
 
-- Phase: 015 Authenticated UAT And Audit Rerun
-  Outcome: Audit Prompt 10 executed end to end via `smoke:uat-full`, permanent calculation and role/permission regression suites, refreshed audit handoff docs, fresh external audit requested. 
-  Status: Planned.
+- Gate: 015-B Authenticated UAT And External Audit Rerun
+  Outcome: Full Prompt 10 evidence, calculation/permission/security regression suites, production-safe smoke, updated handoff, and a fresh independent audit.
+  Status: Planned after Phases 011-014.
 
 ## Later
 
 - Phase: Certification Evidence Closeout
   Outcome: External SPF/DNS, controlled email delivery, backup/restore or rollback drills, keyboard/screen-reader sign-off, and manual operator evidence for a 100/100 certification claim.
-  Status: Backlog; DNS evidence also unblocks full Phase 011 email verification.
+  Status: Backlog; DNS evidence also affects production email verification in Phase 011.
 
 - Phase: Post-MVP improvements backlog
-  Outcome: Configurable role-based mobile nav, offline-friendly production view, purchase orders, supplier price comparison, price-history charts, stock-exhaustion prediction, waste analytics, recipe version history, batch labels/printable sheets, richer AI explanations (audit section I "after MVP" list).
-  Status: Waiting until the remediation program and audit rerun complete.
+  Outcome: Configurable role-based mobile nav, offline production, purchase orders, supplier comparison, price history, stock-exhaustion prediction, waste analytics, recipe versions, and batch labels/print sheets.
+  Status: Waiting until remediation and the audit rerun complete.
