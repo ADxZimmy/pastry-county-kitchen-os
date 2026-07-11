@@ -1,6 +1,6 @@
 import { conversionRules, ingredients, inventoryMovements, orderItems, orders, products, recipeItems, recipes, settings, suppliers } from "../data";
 import type { ConversionRule, Ingredient, InventoryMovement, Order, OrderEvent, OrderItem, Product, Recipe, RecipeItem, RecipeItemPrepState, Settings, Unit } from "../types";
-import { validatePositiveNumber } from "../../shared/policy.js";
+import { practicalQuantity as computePracticalQuantity, validatePositiveNumber } from "../../shared/policy.js";
 
 export interface ScaledIngredient {
   ingredientId: string;
@@ -14,10 +14,15 @@ export interface ScaledIngredient {
   displayUnit?: Unit;
   scalingNote?: string;
   prepState?: RecipeItemPrepState;
+  // Operator-facing rounded quantity per the gram-rounding setting. scaledQuantity
+  // stays precise for costing and stock deduction; practicalQuantity is only set
+  // when it differs, so the UI can show both the exact and practical values.
+  practicalQuantity?: number;
 }
 
 export interface ScalingPreferences {
   eggRoundingPreference?: Settings["eggRoundingPreference"];
+  gramRoundingPreference?: Settings["gramRoundingPreference"];
 }
 
 export interface ConversionScope {
@@ -163,6 +168,8 @@ export function scaleRecipe(recipeId: string, requestedYieldQuantity: number, re
       if (!ingredient) throw new Error(`Ingredient ${item.ingredientId} was not found`);
       const withWaste = item.quantity * (1 + (item.wastePercentage ?? 0) / 100);
       const scaledQuantity = roundScaledQuantity(withWaste * scaleFactor, item.unit, preferences, ingredient);
+      const gramRounding = preferences.gramRoundingPreference ?? settings.gramRoundingPreference ?? 5;
+      const practical = computePracticalQuantity(scaledQuantity, item.unit, gramRounding);
       const eggUnit = eggScalingUnit(item.unit, ingredient);
       const display = eggUnit && activeEggPreference(preferences) === "allow_gram_conversion"
         ? scaledEggDisplay(scaledQuantity, eggUnit)
@@ -172,6 +179,7 @@ export function scaleRecipe(recipeId: string, requestedYieldQuantity: number, re
         ingredientName: ingredient.name,
         originalQuantity: item.quantity,
         scaledQuantity,
+        practicalQuantity: practical !== scaledQuantity ? practical : undefined,
         unit: item.unit,
         scaleFactor,
         formulaContext,

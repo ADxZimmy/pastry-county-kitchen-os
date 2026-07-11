@@ -78,6 +78,14 @@ describe("kitchen calculations", () => {
     expect(scaled.find((item) => item.ingredientName === "Eggs")?.scaledQuantity).toBe(3);
   });
 
+  it("applies the gram-rounding setting to a practical quantity while keeping the mathematical value precise (PCO-007)", () => {
+    const choc = (gram: 1 | 5 | 10) => scaleRecipe("recipe-classic", 12, undefined, undefined, undefined, { gramRoundingPreference: gram }).find((item) => item.ingredientName === "Dark Chocolate");
+    expect(choc(5)?.scaledQuantity).toBe(187.5);
+    expect(choc(5)?.practicalQuantity).toBe(190);
+    expect(choc(10)?.practicalQuantity).toBe(190);
+    expect(choc(1)?.practicalQuantity).toBe(188);
+  });
+
   it("rejects non-positive or non-finite scaling yields instead of emitting NaN/Infinity/negative (PCO-006)", () => {
     expect(() => scaleRecipe("recipe-classic", 0)).toThrow(/greater than zero/);
     expect(() => scaleRecipe("recipe-classic", -12)).toThrow(/greater than zero/);
