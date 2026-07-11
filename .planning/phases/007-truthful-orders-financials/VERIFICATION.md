@@ -12,7 +12,15 @@
 - Command: `node --check` on api/_actions.js, api/_db.js
   Result: Passed (DB code paths are not exercised by unit tests; validated by syntax check + the production smoke).
 - Command: `npm.cmd run smoke:orders-pricing`
-  Result: Not yet implemented; the consolidated orders/pricing/timeline smoke is planned in 007-C step 15 and will run against production after deploy. The existing `smoke:live-audit` (order create/reserve/produce) already exercises the new event writes and pricing persist paths.
+  Result: Not yet implemented; the consolidated orders/pricing/timeline smoke is planned in 007-C step 15. The existing `smoke:live-audit` (order create/reserve/produce) already exercises the new event writes and pricing persist paths.
+
+## Deployed Verification (2026-07-11)
+
+- Deploy: pushed the Phase 007 commits + merge; production auto-deployed on team `sanuske2-2147s-projects`. The new client bundle `index-C20283Ss.js` went live and `/api/health` stayed `ok: true, sessionSecret: "configured"`.
+- Incident + hotfix (`a75c688`): the first Phase 007 build 500'd `/api/bootstrap` for every authenticated user (a functional outage — the app could not load after login). Root cause: the new `order_events` snapshot query joins `orders` to filter archived orders, and both tables have a `created_at` column, so the unqualified `created_at as "createdAt"` raised a Postgres ambiguous-column error, masked to a generic 500 by the RS-003 handler. `schema.ensure`/`ensureOperationalTables` still succeeded (no SELECT), which is how the migration looked healthy while bootstrap failed. Fixed by fully qualifying every column in the query with the `order_events` prefix. This class of bug (a join introducing an ambiguous column) is invisible to the unit suite (no database) and was caught only by the integration smoke.
+- Post-fix probe: `/api/bootstrap` returned 200 with `orderEvents` present, orders loaded, and the pricing fields (`netTotal`, ...) present on orders.
+- Command/check: `npm.cmd run smoke:live-audit` against production
+  Result: Passed. phase2-rerun, milestone7, regression-audit, phase3-pastry, phase4-pastry-depth, navigation-routing, and import-onboarding all green; the runner waited out the five-login/60-second window; temporary records archived. This exercises order create/reserve/produce, so the new event-write and pricing-persist paths ran end to end without error.
 
 ## Manual Checks
 

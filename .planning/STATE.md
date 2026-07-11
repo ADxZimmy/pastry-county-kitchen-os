@@ -4,7 +4,7 @@ Last updated: 2026-07-11
 
 ## Current Focus
 
-Execute the revised audit-remediation program from the July 10 expanded production audit (54/100, Not Ready). S0 (Phase 006a) is deployed and production-verified. Phase 007 Truthful Orders And Financials is implemented locally across all three slices (007-A/B/C) and awaits deploy + smoke to close its Demo Trust items. Phase 008 is next after that. No unscripted demo is approved before the full D1 Demo Trust gate passes.
+Execute the revised audit-remediation program from the July 10 expanded production audit (54/100, Not Ready). S0 (Phase 006a) and Phase 007 Truthful Orders And Financials are both deployed and production-verified (007 required a bootstrap hotfix, see below). Phase 008 Production Transaction Safety is next. No unscripted demo is approved before the full D1 Demo Trust gate (Phases 007-010 + 015-A) passes.
 
 ## Completed
 
@@ -49,7 +49,9 @@ Execute the revised audit-remediation program from the July 10 expanded producti
 
 ## Next Action
 
-Deploy Phase 007 (commits `85ee60e`, `596ca01`, `c1c958e`, plus the docs commit) — `SESSION_SECRET` is set, so a push auto-deploys and the new `ensureOperationalTables` migration adds `order_events` + the 11 pricing columns and backfills legacy created events on the first authenticated action. After deploy: verify `/api/health`, run `npm.cmd run smoke:live-audit` (respects the five-login/60-second production limit and exercises the new event/pricing paths), and spot-check that two orders show isolated timelines and different prices show different margins. Then start Phase 008 Production Transaction Safety. The owner chose to build 007-A/B/C locally and deploy them together (2026-07-11).
+Start Phase 008 Production Transaction Safety per `.planning/phases/008-production-transaction-safety/PLAN.md` (correct timezone-aware Today/Tomorrow/This Week filters, server-enforced production state machine, locked/atomic/idempotent batch completion with QC confirmation, safe cancellation) — PCO-004, 005, 009. Deployable in slices; after each DB-touching slice run `smoke:live-audit` against production (the Phase 007 bootstrap outage below is why an integration smoke, not just unit tests, must gate every DB-query change).
+
+Phase 007 shipped 2026-07-11: pushed the four 007 commits + merge `add3079`, then hotfix `a75c688` after the first build 500'd `/api/bootstrap` (ambiguous `created_at` in the new order_events join). `smoke:live-audit` is green; bootstrap returns 200 with orderEvents + pricing fields.
 
 ## Verification Snapshot
 
@@ -67,5 +69,5 @@ Deploy Phase 007 (commits `85ee60e`, `596ca01`, `c1c958e`, plus the docs commit)
   Result: Passed. Deployment `dpl_EHgWLn3YWvWRhwY7U9wYUWU5VSCi` Ready; `/api/health` -> `sessionSecret: "configured"`; unauth `/api/inventory-movements` 410; unauth `schema.ensure`/`inventory.adjust` 401; unauth `/api/bootstrap` 401; login carries `Cache-Control: private, no-store`.
 - Command/check: `npm.cmd run smoke:live-audit` (production, 006a)
   Result: Passed; all child smokes green, cleanup verified with zero temporary smoke users/ingredients/FEFO overstatements.
-- Command/check: Phase 007 deploy + smoke
-  Result: Pending; run after the Phase 007 push.
+- Command/check: Phase 007 deploy + smoke (production, 2026-07-11)
+  Result: Passed after hotfix `a75c688`. First 007 build 500'd `/api/bootstrap` (ambiguous `created_at` where the order_events query joins orders); fully qualifying the query columns fixed it. Post-fix bootstrap 200 with orderEvents + pricing; full `smoke:live-audit` green with cleanup. Lesson recorded: DB-query changes need an integration smoke, not just the DB-less unit suite.
