@@ -4,7 +4,7 @@ Last updated: 2026-07-11
 
 ## Current Focus
 
-Execute the revised audit-remediation program from the July 10 expanded production audit (54/100, Not Ready). Phase 006a Immediate Security Containment is implemented and locally verified; it must be deployed (with `SESSION_SECRET` set in Vercel) and live-smoke checked before Phase 007 feature work or any unscripted demo.
+Execute the revised audit-remediation program from the July 10 expanded production audit (54/100, Not Ready). Phase 006a Immediate Security Containment is deployed and live-verified; the S0 Security Containment gate is cleared. Phase 007 Truthful Orders And Financials is next.
 
 ## Completed
 
@@ -24,8 +24,12 @@ Execute the revised audit-remediation program from the July 10 expanded producti
 
 ## In Progress
 
-- Phase 006a is implemented and locally verified at commit `6b2ea8c`, but held unpushed by owner decision on 2026-07-11 until `SESSION_SECRET` is set on the real production project. Deploying without it makes login/bootstrap/actions fail closed (503) for all users.
-- Deploy blocker discovered 2026-07-11: the local Vercel CLI is authenticated as `nnazimuzoo` (team `nnazimuzoos-projects`), which does NOT own the production project. Production (`pastry-county-kitchen-os.vercel.app`) is deployed from the `ADxZimmy` account (the GitHub repo owner). `vercel link` under `nnazimuzoo` created an empty stray project, which has been deleted; the local `.vercel` link was removed. `SESSION_SECRET` must be set on the `ADxZimmy` project via its dashboard (or the CLI logged into that account) before any push.
+- None. Phase 006a shipped 2026-07-11 (pushed `7c1026b`, production auto-deployed on the ADxZimmy Vercel project) and is live-verified; S0 gate cleared.
+
+## Deploy notes (2026-07-11)
+
+- The first auto-deploy went live before `SESSION_SECRET` was in the build env, causing a brief authenticated-only outage (login/token verification 503; anonymous 401/410 unaffected). A Vercel Redeploy with the secret present fixed it; `/api/health` then reported `sessionSecret: "configured"`. Recorded in the 006a `VERIFICATION.md`.
+- Account boundary (see memory `vercel-account-boundary`): the local Vercel CLI is `nnazimuzoo` and cannot set env vars on the production project, which is owned by `ADxZimmy`. Set fail-closed secrets on the ADxZimmy account before the deploying build. An empty stray project accidentally created via `vercel link` was deleted; the local `.vercel` link was removed.
 
 ## Blocked
 
@@ -37,7 +41,7 @@ Execute the revised audit-remediation program from the July 10 expanded producti
 
 ## Next Action
 
-Waiting on the owner to set `SESSION_SECRET` (Production scope) on the real `ADxZimmy` Vercel project — via the dashboard, or by logging the CLI into that account. Generate a value locally with `node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'))"`. Once set, push `6b2ea8c` to deploy, then verify `/api/health` reports `sessionSecret: "configured"`, confirm unauthenticated `POST /api/inventory-movements` returns 410 and `POST /api/actions {action:"schema.ensure"}` returns 401 with no schema change, and run `npm.cmd run smoke:live-audit`. Then begin Phase 007.
+Begin Phase 007 Truthful Orders And Financials per `.planning/phases/007-truthful-orders-financials/PLAN.md` (real per-order event history + actor attribution, server-canonical pricing/totals replacing the hard-coded 18,000, data-derived dashboard guidance, mojibake cleanup). Deployable in slices; each slice runs local checks then a production smoke before the next.
 
 ## Verification Snapshot
 
@@ -53,5 +57,7 @@ Waiting on the owner to set `SESSION_SECRET` (Production scope) on the real `ADx
   Result: 7/7 passed — retired route 410; health 503-without/200-with `SESSION_SECRET` in production; `handleAction` rejects anon (401) and Baker (403) `schema.ensure` and anon `inventory.adjust` (401) with no DB access.
 - Check: Legacy movement route caller audit
   Result: No tracked caller; `src/App.tsx` and `scripts/regression-audit-smoke.mjs` use the `inventory.adjust` action, so the route was retired rather than wrapped.
-- Command/check: Deploy + live smoke
-  Result: Pending; requires `SESSION_SECRET` configured in Vercel and production access.
+- Command/check: Deploy + live probes (production, 2026-07-11)
+  Result: Passed after a Redeploy with `SESSION_SECRET` present. `/api/health` -> `sessionSecret: "configured"`; unauth `/api/inventory-movements` 410; unauth `schema.ensure`/`inventory.adjust` 401; unauth `/api/bootstrap` 401; login carries `Cache-Control: private, no-store`. First deploy briefly 503'd authenticated requests because the secret was not in that build; redeploy fixed it.
+- Command/check: `npm.cmd run smoke:live-audit` (production)
+  Result: Passed; all child smokes green, temporary records archived; authenticated login/token signing verified end to end.
