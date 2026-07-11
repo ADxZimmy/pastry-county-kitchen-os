@@ -30,16 +30,25 @@
   Result: Passed.
   Notes: `scripts/phase3-pastry-smoke.mjs` and `scripts/phase4-pastry-depth-smoke.mjs` call it with a `Bearer` token from an owner login, so Owner/Admin-only gating does not break existing smokes.
 
-## Pending (post-deploy, needs production access)
+## Production Deployment (2026-07-11)
 
-- Deploy with the owner Git identity, verify the Vercel environment preflight (health 503 until `SESSION_SECRET` is set in Vercel), then run the existing live smoke family.
-- Confirm production `SESSION_SECRET` is configured in Vercel before/after deploy so login and session verification do not fail closed for real users.
-- Live probe: unauthenticated `POST /api/inventory-movements` returns 410; unauthenticated `POST /api/actions {action:"schema.ensure"}` returns 401 with no schema change.
+- Check: Production secret and deployment
+  Result: Passed.
+  Notes: A generated 48-byte base64url `SESSION_SECRET` was configured as a sensitive Production variable on the existing Vercel project; its value was not printed or stored in the repository. Deployment `dpl_EHgWLn3YWvWRhwY7U9wYUWU5VSCi` reached Ready and serves the canonical `https://pastry-county-kitchen-os.vercel.app` alias.
+- Check: `GET /api/health`
+  Result: HTTP 200 with `{"ok":true,"database":"neon","sessionSecret":"configured"}`.
+- Check: Unauthenticated `POST /api/inventory-movements`
+  Result: HTTP 410 with the retired-route guidance.
+- Check: Unauthenticated `POST /api/actions {"action":"schema.ensure"}`
+  Result: HTTP 401 before schema maintenance.
+- Command: `npm.cmd run smoke:live-audit`
+  Result: Passed against production after teaching the umbrella runner to wait out the existing five-login/60-second window between its fifth and sixth Owner/Admin logins.
+  Notes: Phase 2 rerun, Milestone 7, regression audit, Phase 3, Phase 4, navigation routing, and import onboarding all passed. Cleanup verified `{"smokeUsers":0,"activeSmokeIngredients":0,"fefoOverstatements":0}`.
 
 ## Residual Risk
 
-- Risk: Setting `SESSION_SECRET` in production is required by this change; if it is not configured in Vercel before deploy, login/bootstrap/actions fail closed (503) for all users.
-  Owner: Deploy step — configure `SESSION_SECRET` in Vercel env first, verify via `/api/health`.
+- Risk: Rotating or removing `SESSION_SECRET` invalidates existing sessions; a missing value makes authenticated production routes fail closed with 503.
+  Owner: Operations — rotate deliberately, redeploy, verify `/api/health`, and expect a one-time sign-in reset. Never restore the former fallback.
 - Risk: `private, no-store` was applied to login/actions/bootstrap/produced only; full centralization across every endpoint remains Phase 011 work.
   Owner: Phase 011.
 - Risk: Full cookie/CSRF migration and distributed rate limiting remain Phase 011 work.

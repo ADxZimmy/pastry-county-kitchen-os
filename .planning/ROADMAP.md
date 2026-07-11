@@ -18,9 +18,15 @@ Revised 2026-07-11 after reconciling the July 10 expanded external audit (54/100
 
 ## Now
 
-- Phase: 006a Immediate Security Containment
-  Outcome: Remove or secure the unauthenticated stock-mutation route, authorize before maintenance DDL, restrict `schema.ensure`, fail closed on missing production session secrets, and stop exposing raw 500 details.
-  Status: Planned; must ship before Phase 007 implementation begins.
+- Phase: 007 Truthful Orders And Financials
+  Outcome: Real per-order event history and actor attribution; server-canonical pricing and totals; data-derived dashboard guidance; no hard-coded 18,000 or mojibake. (PCO-001, 002, 014, 016; RS-005)
+  Status: Ready to begin with slice 007-A Order Event Truth.
+
+## Completed Gate
+
+- Phase: 006a Immediate Security Containment / S0
+  Outcome: Retired unauthenticated stock mutation, authorized maintenance before DDL, restricted `schema.ensure`, masked unexpected errors, and required a dedicated production session secret.
+  Status: Deployed and production-verified 2026-07-11. Health, unauthenticated route probes, full live smoke, and cleanup passed.
 
 ## Demo Trust Program
 

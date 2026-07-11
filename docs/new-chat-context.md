@@ -17,10 +17,11 @@ Start with these files in this order:
 3. `.planning/STATE.md` for the latest work status.
 4. `.planning/AUDIT-REMEDIATION.md` for the July 10 54/100 finding/gate matrix.
 5. `.planning/ROADMAP.md` for the revised risk-ordered execution sequence.
-6. `.planning/phases/006a-security-containment/PLAN.md` for the immediate next implementation.
-7. `docs/audit-handoff.md` for historical Phase 001-006 evidence plus its July 11 supersession note.
-8. `.planning/phases/006-recipe-import-onboarding/VERIFICATION.md` and `.planning/phases/005-navigation-routing-overhaul/VERIFICATION.md` for completed capability evidence.
-9. `docs/certification/README.md` for the separate 100/100 certification evidence track.
+6. `.planning/phases/007-truthful-orders-financials/PLAN.md` for the immediate next implementation.
+7. `.planning/phases/006a-security-containment/VERIFICATION.md` for the completed S0 deployment evidence.
+8. `docs/audit-handoff.md` for historical Phase 001-006 evidence plus its July 11 supersession note.
+9. `.planning/phases/006-recipe-import-onboarding/VERIFICATION.md` and `.planning/phases/005-navigation-routing-overhaul/VERIFICATION.md` for completed capability evidence.
+10. `docs/certification/README.md` for the separate 100/100 certification evidence track.
 
 Important repository rule: after any local code or documentation change in this repo, commit and push before ending the turn unless the user explicitly says not to. Deployment-triggering commits should use the repo owner identity:
 
@@ -42,7 +43,9 @@ After that, product-depth work continued:
 - Phase 005 Navigation And Routing Overhaul was implemented, pushed, deployed, and production-smoke verified. The former page-per-action risk is now corrected with route-aware hierarchy, direct record links, Back/Breadcrumb controls, contextual form exits, mobile nav cleanup, unsaved-change guards, and navigation smoke coverage.
 - Phase 006 Recipe Import Onboarding was implemented, pushed, deployed, and production-smoke verified on commit `a862c50`. It adds a review-first import pipeline for pasted text, CSV/TSV, XLSX, DOCX, text PDFs, and provider-backed image/scanned/legacy files, with support for recipes, costing rows, ingredient masters, suppliers, conversion rules, customer/order-template previews, and source traceability.
 - The July 10 planning commit `123643b` created phases 007-015. The July 11 revision adds Phase 006a Immediate Security Containment, explicit Security/Demo/MVP/Audit gates, early authenticated UAT after Phase 010, and complete UAT/verification artifacts for every planned phase.
-- The immediate next action is Phase 006a: close the unauthenticated direct inventory-movement route, public/pre-auth maintenance behavior, raw 500 leakage, and weak production session-secret fallback before Phase 007 feature work.
+- Phase 006a Immediate Security Containment is implemented, pushed, deployed, and production-verified. The unauthenticated inventory route is retired, maintenance authorizes before DDL, `schema.ensure` is Owner/Admin-only, unexpected 500s are masked, and production requires a dedicated `SESSION_SECRET`.
+- The sensitive Production secret is configured on the existing Vercel project and deployment `dpl_EHgWLn3YWvWRhwY7U9wYUWU5VSCi` is Ready. Health, containment probes, the complete live-audit smoke family, and cleanup passed on 2026-07-11.
+- The immediate next action is Phase 007-A Order Event Truth. The S0 live gate is green, but the broader Phase 006a manual role-matrix UAT remains partial and the D1 Demo Trust gate is not approved.
 
 The app is not launch-ready or claimable as `100/100`. Product integrity blockers from the July 10 audit must close first; certification still additionally needs external email DNS/operator sign-offs, backup/restore or rollback drills, and manual evidence.
 
@@ -135,7 +138,7 @@ Primary routes:
 
 Legacy/thin routes still present:
 
-- `POST /api/inventory-movements`: direct stock adjustment route with FEFO deduction planning.
+- `POST /api/inventory-movements`: retired compatibility route; always returns 410 and directs callers to authenticated `inventory.adjust`.
 - `POST /api/orders/[orderId]/produced`: direct production completion route.
 
 Important backend files:
@@ -305,7 +308,7 @@ Smoke/audit scripts:
 - `npm run smoke:phase4-pastry-depth`: live checks for allergen/storage/cost/scoped conversion/QC fields and production completion with QC.
 - `npm run smoke:navigation-routing`: live navigation/routing smoke for durable record links, form exits, unsaved-change guard, return context, and five-item mobile nav.
 - `npm run smoke:import-onboarding`: live import smoke for `import.extract`, `import.commit`, source evidence reload, mobile import page overflow, CSV template visibility, and cleanup.
-- `npm run smoke:live-audit`: umbrella live audit smoke. As of Phase 006 it runs Phase 002, Milestone 7, regression audit, Phase 003, Phase 004, navigation routing, and import onboarding smoke suites.
+- `npm run smoke:live-audit`: umbrella live audit smoke. It runs Phase 002, Milestone 7, regression audit, Phase 003, Phase 004, navigation routing, and import onboarding smoke suites, with a bounded cooldown after its fifth Owner/Admin login so the production login limit is respected.
 - `npm run audit:reconcile-fefo`: checks/fixes FEFO overstatements.
 
 Historical verified snapshot through Phase 006 (regression evidence, not current launch approval):
@@ -326,6 +329,13 @@ Current July 11 planning baseline verification after pulling `123643b`:
 - `npm.cmd run build`: passed; 334.46 kB JS (93.82 kB gzip), matching the expanded audit's observed build.
 - `npm.cmd audit --audit-level=moderate`: passed with zero known vulnerabilities.
 - Planning traceability/diff checks: PCO-001..016 and RS-001..007 mapped; phase artifacts complete; `git diff --check` passed.
+
+Phase 006a production verification on 2026-07-11:
+
+- `SESSION_SECRET`: configured as a sensitive Production variable; value intentionally not recorded.
+- `GET /api/health`: HTTP 200 with `sessionSecret: "configured"`.
+- Unauthenticated movement/schema probes: HTTP 410/401 as designed.
+- `npm.cmd run smoke:live-audit`: all component suites and cleanup passed against production.
 
 Use the live deployment for browser smoke tests when local env vars are unavailable. Read live test credentials only from ignored `.env.local`.
 
@@ -349,9 +359,10 @@ The importer preserves source workbook metadata in recipe item prep state fields
 
 - `/api/bootstrap` must require a signed active session. Unauthenticated requests should return 401 and no private snapshot.
 - Session tokens are HMAC-signed, expire after 12 hours, and are invalidated when the corresponding user is disabled or `session_revoked_at` is newer than token issue time.
+- Production session signing requires the sensitive Vercel `SESSION_SECRET`; missing configuration fails closed rather than falling back to the database URL or a development constant.
 - Viewer/non-admin bootstrap snapshots must omit `appUsers`, `auditLogs`, and `settings.lowStockNotificationEmail`.
 - Mutating actions must validate the actor against current DB user state.
-- Critical current exception: `api/inventory-movements.js` does not yet do this; Phase 006a must secure or retire that deployed route before other remediation.
+- `api/inventory-movements.js` is retired with HTTP 410; stock adjustments must use the authenticated `inventory.adjust` action.
 - Rate limiting exists for login and actions.
 - Audit exports/search must redact passwords, tokens, sessions, hashes, secrets, and API keys.
 - User-visible API errors should be operationally clear and should not expose raw SQL/internal syntax.
@@ -362,6 +373,7 @@ The importer preserves source workbook metadata in recipe item prep state fields
 
 - Do not assume local app smoke tests can run without `DATABASE_URL`; use production when local env is missing.
 - The app is private and Vercel Hobby deployments may be blocked by commits from an unrecognized identity. Use the ADxZimmy noreply identity before committing.
+- Keep GitHub and Vercel identities distinct: `ADxZimmy` is the required Git author/repository identity; production is the existing Vercel project under team `sanuske2-2147s-projects`. Do not relink based only on the GitHub username.
 - Keep schema changes additive and idempotent. Phase 012 will move current hot-path drift repair out of ordinary requests into explicit migration/preflight tooling.
 - Keep `src/types.ts`, DB rows in `api/_db.js`, normalizers in `api/_actions.js`, and form fields in `src/App.tsx` aligned.
 - `src/App.tsx` is currently a 3,201-line hotspot. Keep remediation slices small; Phase 012 plans mechanical page extraction and route chunks.
@@ -382,7 +394,7 @@ The importer preserves source workbook metadata in recipe item prep state fields
 
 ## Backlog / Next Likely Work
 
-- Execute Phase 006a security containment, then Phases 007-010 and the Phase 015-A Demo Trust Gate.
+- Execute Phase 007-A Order Event Truth, then complete Phases 007-010 and the Phase 015-A Demo Trust Gate.
 - Continue MVP hardening through Phases 011-014, then Phase 015-B and a fresh independent audit.
 - Configure/verify OCR or model providers only after cost, data-retention, privacy, and environment decisions; do not block truthful core operations on an external provider.
 - Scope direct order import separately if approved; Phase 006 previews customer/order templates but intentionally does not create live orders or stock movements from them.
@@ -390,4 +402,4 @@ The importer preserves source workbook metadata in recipe item prep state fields
 
 ## Quick Orientation Summary
 
-This is a substantial bakery operations app with strong Phase 001-006 regression coverage, but the active July 10 audit rates it `54/100` and Not Ready. The remediation priority is security containment, truthful order/financial data, transaction-safe production, effective validation/settings, honest helper behavior, and authenticated evidence—not further visual expansion or a carried-forward score.
+This is a substantial bakery operations app with strong Phase 001-006 regression coverage, but the active July 10 audit rates it `54/100` and Not Ready. Immediate security containment is now deployed and live-verified; the next priorities are truthful order/financial data, transaction-safe production, effective validation/settings, honest helper behavior, and authenticated evidence—not further visual expansion or a carried-forward score.

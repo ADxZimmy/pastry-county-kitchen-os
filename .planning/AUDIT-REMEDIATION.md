@@ -21,6 +21,8 @@ This audit is the active release signal. The June 22 96/100 result remains regre
 
 No unscripted operator or investor demo is approved before D1. No MVP release claim is approved before M1. No recovered score should be self-assigned; request a fresh external audit at R1.
 
+Status update 2026-07-11: S0 production exit checks passed after Phase 006a deployed with a sensitive dedicated `SESSION_SECRET`. Health, unauthenticated containment probes, the complete live-audit smoke family, and cleanup are green. The broader Phase 006a manual role-matrix UAT remains partially outstanding and is not being represented as complete. D1 remains blocked pending Phases 007-010 and 015-A.
+
 ## Finding Traceability
 
 | Finding | Gate | Phase | Acceptance evidence |

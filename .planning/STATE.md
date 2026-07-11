@@ -4,7 +4,7 @@ Last updated: 2026-07-11
 
 ## Current Focus
 
-Execute the revised audit-remediation program from the July 10 expanded production audit (54/100, Not Ready). Phase 006a Immediate Security Containment is implemented and locally verified; it must be deployed (with `SESSION_SECRET` set in Vercel) and live-smoke checked before Phase 007 feature work or any unscripted demo.
+Execute the revised audit-remediation program from the July 10 expanded production audit (54/100, Not Ready). Phase 006a Immediate Security Containment is deployed and its S0 exit checks are green. Phase 007-A Order Event Truth is now the next implementation slice; no unscripted demo is approved before the full D1 Demo Trust gate passes.
 
 ## Completed
 
@@ -21,11 +21,14 @@ Execute the revised audit-remediation program from the July 10 expanded producti
   - RS-004: `sessionSecret` fails closed in production (no `DATABASE_URL`/dev fallback); added `sessionSecretConfigured`, a `/api/health` preflight, and documented `SESSION_SECRET` in `.env.example`.
   - Added `private, no-store` to login/actions/bootstrap/produced responses (full centralization deferred to Phase 011).
   - Added `api/security-containment.test.js`; suite now 94/94 across 6 files.
+- Configured a generated 48-byte base64url `SESSION_SECRET` as a sensitive Production environment variable on the existing Vercel project; the value was never written to the repository or planning record.
+- Corrected the deployment-account diagnosis: `ADxZimmy` is the required GitHub commit identity, while the production Vercel project has remained linked to team `sanuske2-2147s-projects` (`team_SumcS7BfGXgJWdQc7y2iAxSk`). No account-link revert was required.
+- Redeployed production as `dpl_EHgWLn3YWvWRhwY7U9wYUWU5VSCi`; the canonical alias is Ready. Verified health 200 with `sessionSecret: "configured"`, the retired movement route at 410, and unauthenticated `schema.ensure` at 401.
+- Updated the umbrella smoke runner to respect the existing five-login/60-second production limit. `npm.cmd run smoke:live-audit` then passed all component suites and verified cleanup with zero temporary smoke users, active smoke ingredients, or FEFO overstatements.
 
 ## In Progress
 
-- Phase 006a is implemented and locally verified at commit `6b2ea8c`, but held unpushed by owner decision on 2026-07-11 until `SESSION_SECRET` is set on the real production project. Deploying without it makes login/bootstrap/actions fail closed (503) for all users.
-- Deploy blocker discovered 2026-07-11: the local Vercel CLI is authenticated as `nnazimuzoo` (team `nnazimuzoos-projects`), which does NOT own the production project. Production (`pastry-county-kitchen-os.vercel.app`) is deployed from the `ADxZimmy` account (the GitHub repo owner). `vercel link` under `nnazimuzoo` created an empty stray project, which has been deleted; the local `.vercel` link was removed. `SESSION_SECRET` must be set on the `ADxZimmy` project via its dashboard (or the CLI logged into that account) before any push.
+- Phase 007 is planned in three independently deployable slices. Work has not started; 007-A adds truthful persistent order events, actor attribution, transactional event/audit writes, and a focused production smoke before canonical pricing work begins.
 
 ## Blocked
 
@@ -37,7 +40,7 @@ Execute the revised audit-remediation program from the July 10 expanded producti
 
 ## Next Action
 
-Waiting on the owner to set `SESSION_SECRET` (Production scope) on the real `ADxZimmy` Vercel project — via the dashboard, or by logging the CLI into that account. Generate a value locally with `node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'))"`. Once set, push `6b2ea8c` to deploy, then verify `/api/health` reports `sessionSecret: "configured"`, confirm unauthenticated `POST /api/inventory-movements` returns 410 and `POST /api/actions {action:"schema.ensure"}` returns 401 with no schema change, and run `npm.cmd run smoke:live-audit`. Then begin Phase 007.
+Begin Phase 007-A Order Event Truth from `.planning/phases/007-truthful-orders-financials/PLAN.md`: add the idempotent `order_events` migration and types, backfill only truthful legacy creation events, make order/event/audit writes transactional with authenticated actor attribution, replace the fabricated timeline, and ship the focused isolation/rollback/smoke evidence before 007-B.
 
 ## Verification Snapshot
 
@@ -54,4 +57,4 @@ Waiting on the owner to set `SESSION_SECRET` (Production scope) on the real `ADx
 - Check: Legacy movement route caller audit
   Result: No tracked caller; `src/App.tsx` and `scripts/regression-audit-smoke.mjs` use the `inventory.adjust` action, so the route was retired rather than wrapped.
 - Command/check: Deploy + live smoke
-  Result: Pending; requires `SESSION_SECRET` configured in Vercel and production access.
+  Result: Passed on 2026-07-11; sensitive Production `SESSION_SECRET` configured, deployment `dpl_EHgWLn3YWvWRhwY7U9wYUWU5VSCi` Ready, health 200/configured, retired route 410, unauthenticated `schema.ensure` 401, full live-audit smoke and cleanup green.
