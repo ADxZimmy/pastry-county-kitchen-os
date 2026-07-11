@@ -49,7 +49,7 @@ Execute the revised audit-remediation program from the July 10 expanded producti
 
 ## Next Action
 
-Start Phase 009 (Validation, Settings And Unit Policy) per `.planning/phases/009-validation-settings-policy/PLAN.md` — client/server yield validation, a genuinely shared policy module wiring every setting into behavior (gram rounding, deduction stage, negative inventory, count rounding), and divisible-vs-indivisible units (PCO-006, 007, 008). It reuses the safe completion transaction from Phase 008. Deploy in slices; gate each DB-touching slice with `smoke:live-audit`.
+Continue Phase 009. Slice 009-A `6d33a07` (validation + shared policy module) is implemented and committed locally (136/136 tests, build clean). It introduces `shared/policy.js`/`.d.ts` (imported by both frontend and API) and makes `scaleRecipe` throw on invalid yield — a behavioral change the scaling UI now guards against, but which warrants a production smoke (a scaling-view white-screen would be bad). Deploy 009-A and run `smoke:live-audit` (which navigates + scales), then implement 009-B Shared Settings Contract (wire `defaultDeductionStage` into the Phase 008 completion, negative-inventory semantics, enforce/rename/remove every setting with contract tests) and 009-C Unit Divisibility.
 
 Phase 008 shipped 2026-07-11: pushed 008-A/B/C, `smoke:live-audit` green, and a controlled probe proved the completion idempotency live (repeat produce -> `alreadyProduced`, stock deducted exactly once) and that a produced order cannot be cancelled.
 
