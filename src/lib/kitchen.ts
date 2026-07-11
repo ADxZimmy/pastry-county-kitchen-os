@@ -1,5 +1,5 @@
 import { conversionRules, ingredients, inventoryMovements, orderItems, orders, products, recipeItems, recipes, settings, suppliers } from "../data";
-import type { ConversionRule, Ingredient, Order, OrderItem, Product, Recipe, RecipeItem, RecipeItemPrepState, Settings, Unit } from "../types";
+import type { ConversionRule, Ingredient, Order, OrderEvent, OrderItem, Product, Recipe, RecipeItem, RecipeItemPrepState, Settings, Unit } from "../types";
 
 export interface ScaledIngredient {
   ingredientId: string;
@@ -120,6 +120,30 @@ export function roundScaledQuantity(value: number, unit: Unit, preferences: Scal
 
 export function formatScaledIngredientQuantity(item: Pick<ScaledIngredient, "scaledQuantity" | "unit" | "displayQuantity" | "displayUnit">) {
   return formatQuantity(item.displayQuantity ?? item.scaledQuantity, item.displayUnit ?? item.unit);
+}
+
+const orderEventLabels: Record<string, string> = {
+  created: "Order created",
+  updated: "Order details updated",
+  reserved: "Stock reserved",
+  reservation_released: "Reservation released",
+  production_started: "Production started",
+  produced: "Marked produced",
+  delivered: "Delivered",
+  cancelled: "Order cancelled",
+  restored: "Order restored"
+};
+
+export function orderEventLabel(event: Pick<OrderEvent, "eventType" | "newStatus">): string {
+  return orderEventLabels[event.eventType]
+    ?? (event.newStatus ? `Status changed to ${event.newStatus}` : "Order updated");
+}
+
+export function orderEventsForOrder(events: OrderEvent[], orderId: string): OrderEvent[] {
+  return events
+    .filter((event) => event.orderId === orderId)
+    .slice()
+    .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
 }
 
 export function scaleRecipe(recipeId: string, requestedYieldQuantity: number, recipeList = recipes, itemList = recipeItems, ingredientList = ingredients, preferences: ScalingPreferences = settings): ScaledIngredient[] {

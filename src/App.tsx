@@ -32,7 +32,7 @@ import {
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { apiBaseUrl, backendMode } from "./lib/backend";
 import { auditChangedFields, auditChangeSummary, auditDataJson, auditExportRows, auditFieldLabel, auditRecordLabel, auditSearchText, type AuditRecordNameLookup } from "./lib/audit";
-import { appUsers, auditLogs, conversionRules, ingredientBatches, ingredients, inventoryMovements, orderItems, orders, products, productionQcLogs, recipeItems, recipes, settings, suppliers, setKitchenSnapshot } from "./data";
+import { appUsers, auditLogs, conversionRules, ingredientBatches, ingredients, inventoryMovements, orderEvents, orderItems, orders, products, productionQcLogs, recipeItems, recipes, settings, suppliers, setKitchenSnapshot } from "./data";
 import type { AppStaffUser, AuditLog, ConversionRule, ImportDraft, ImportDraftRecipeItem, Ingredient, IngredientAllergenProfile, IngredientStorageProfile, Order, Recipe, RecipeCostProfile, RecipeFormulaMetadata, RecipeItemPrepState, StockStatus, Supplier, Unit } from "./types";
 import {
   calculateMargin,
@@ -48,6 +48,8 @@ import {
   formatScaledIngredientQuantity,
   generateShoppingList,
   netSellingPrice,
+  orderEventLabel,
+  orderEventsForOrder,
   parseRecipeText,
   requirementsForOrder,
   requirementsForOrderLines,
@@ -1979,6 +1981,7 @@ function OrderDetail({ orderId, user, setPage, notify, askConfirm, reloadData }:
   const canDeliver = order.status === "Produced";
   const cost = calculateOrderCost(orderId);
   const qcLogs = productionQcLogs.filter((log) => log.orderId === orderId);
+  const events = orderEventsForOrder(orderEvents, orderId);
   return (
     <div className="detail-layout">
       <article className="detail-hero">
@@ -2004,7 +2007,16 @@ function OrderDetail({ orderId, user, setPage, notify, askConfirm, reloadData }:
         const unit = requirements.find((requirement) => requirement.ingredientId === item.ingredientId)?.unit ?? "g";
         return <div className="row-card" key={item.ingredientId}><span>{item.ingredientName}<small>Required {formatQuantity(item.requiredQuantity, unit)}, available {formatQuantity(item.availableStock, unit)}</small></span><Badge tone={item.shortageQuantity > 0 ? "danger" : "success"}>{item.shortageQuantity > 0 ? "Shortage" : "Enough Stock"}</Badge></div>;
       })}</div></Section>
-      <Section title="Timeline"><div className="timeline"><article><CheckCircle2 size={18} /><div><strong>Order confirmed</strong><small>May 18, 2026</small></div></article><article><AlertTriangle size={18} /><div><strong>Stock shortage detected</strong><small>Dark Chocolate and Eggs need restock</small></div></article></div></Section>
+      <Section title="Timeline">
+        {events.length === 0
+          ? <p className="section-note">No recorded events yet for this order.</p>
+          : <div className="timeline">{events.map((event) => (
+              <article key={event.id}>
+                {event.eventType === "cancelled" ? <AlertTriangle size={18} /> : <CheckCircle2 size={18} />}
+                <div><strong>{orderEventLabel(event)}</strong><small>{[event.actorName, new Date(event.createdAt).toLocaleString()].filter(Boolean).join(" · ")}</small></div>
+              </article>
+            ))}</div>}
+      </Section>
       <Section title="Production QC Logs"><div className="timeline">{qcLogs.length === 0 && <p>No QC logs recorded for this order yet.</p>}{qcLogs.map((log) => <article key={log.id}><ClipboardList size={18} /><div><strong>{log.passedQc ? "QC passed" : "QC issue logged"}{log.actualYieldQuantity ? ` | actual ${log.actualYieldQuantity}${log.yieldUnit ?? ""}` : ""}</strong><small>{[log.ovenTemperature, log.bakeTimeMinutes ? `${log.bakeTimeMinutes} min` : "", log.sensoryNotes].filter(Boolean).join(" | ") || "No process notes"} | {new Date(log.createdAt).toLocaleString()}</small></div></article>)}</div></Section>
       {qcOrderId && <ProductionQcModal orderId={qcOrderId} onClose={() => setQcOrderId("")} notify={notify} reloadData={reloadData} />}
     </div>

@@ -353,6 +353,19 @@ export interface AuditLog {
   createdAt: string;
 }
 
+export interface OrderEvent {
+  id: string;
+  orderId: string;
+  eventType: string;
+  actorUserId?: string | null;
+  actorName: string;
+  previousStatus?: string | null;
+  newStatus?: string | null;
+  metadata?: Record<string, unknown>;
+  note?: string | null;
+  createdAt: string;
+}
+
 export interface ConversionRule {
   id: string;
   ingredientId: string;

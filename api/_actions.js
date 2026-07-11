@@ -51,6 +51,7 @@ function convertPurchaseQuantity(quantity, purchaseUnit, baseUnit) {
 const movementTypes = new Set(["purchase", "production_use", "reservation", "reservation_release", "adjustment", "waste", "return", "correction"]);
 let decimalOperationalColumnsReady = false;
 let auditConversionRulesReady = false;
+let orderEventsBackfilled = false;
 const auditConversionRuleSpecs = [
   { id: "cr-flour", ingredientId: "flour", fromUnit: "cup", toUnit: "g", conversionFactor: 120, confidenceLevel: "High" },
   { id: "cr-sugar", ingredientId: "sugar", fromUnit: "cup", toUnit: "g", conversionFactor: 200, confidenceLevel: "High" },
@@ -476,12 +477,13 @@ async function stockStatusForRequirements(sql, requirements) {
   return statuses.includes("Shortage") ? "Shortage" : "In Stock";
 }
 
-async function reserveOrder(sql, orderId) {
+async function reserveOrder(sql, orderId, actor = null) {
   const orderRows = await sql`select status from orders where id = ${orderId}`;
   if (!orderRows.length) throw Object.assign(new Error("Order not found."), { statusCode: 404 });
   if (["Produced", "Delivered", "Cancelled"].includes(orderRows[0].status)) {
     return { reserved: false, alreadyFinal: true };
   }
+  const reserveActor = actorLabel(actor);
 
   const requirements = await requirementsForOrder(sql, orderId);
   const reservations = await reservationBalancesForOrder(sql, orderId);
@@ -515,7 +517,7 @@ async function reserveOrder(sql, orderId) {
       ...reservationsToCreate.flatMap((item, index) => [
         txn`
           insert into inventory_movements (id, ingredient_id, movement_type, quantity_change, unit, related_order_id, note, created_by)
-          values (${id(`mov-res-${index}`)}, ${item.ingredientId}, 'reservation', ${item.reserveQuantity}, ${item.unit}, ${orderId}, ${isComplete ? "Reserved stock for confirmed order" : "Partially reserved available stock for confirmed order"}, 'system')
+          values (${id(`mov-res-${index}`)}, ${item.ingredientId}, 'reservation', ${item.reserveQuantity}, ${item.unit}, ${orderId}, ${isComplete ? "Reserved stock for confirmed order" : "Partially reserved available stock for confirmed order"}, ${reserveActor})
         `,
         txn`
           update ingredients
@@ -530,7 +532,16 @@ async function reserveOrder(sql, orderId) {
           production_status = ${isComplete ? "Ready" : orderRows[0].production_status ?? "Not Started"},
           updated_at = now()
         where id = ${orderId}
-      `
+      `,
+      orderEventStatement(txn, {
+        orderId,
+        eventType: "reserved",
+        actor,
+        previousStatus: orderRows[0].status,
+        newStatus: isComplete ? "Stock Reserved" : orderRows[0].status,
+        metadata: { complete: isComplete, reservedLines: reservationsToCreate.length, shortages: shortages.length },
+        note: isComplete ? "Stock reserved for order." : "Partial stock reserved; shortages remain."
+      })
     ]);
   } else {
     await sql`
@@ -617,6 +628,20 @@ async function ensureOperationalTables(sql) {
     )
   `;
   await sql`
+    create table if not exists order_events (
+      id text primary key,
+      order_id text not null references orders(id),
+      event_type text not null,
+      actor_user_id text,
+      actor_name text not null default 'system',
+      previous_status text,
+      new_status text,
+      metadata jsonb not null default '{}'::jsonb,
+      note text,
+      created_at timestamptz not null default now()
+    )
+  `;
+  await sql`
     create table if not exists production_qc_logs (
       id text primary key,
       order_id text not null references orders(id),
@@ -654,6 +679,7 @@ async function ensureOperationalTables(sql) {
   `;
   await ensureDecimalOperationalColumns(sql);
   await ensureAuditConversionRules(sql);
+  await ensureOrderEventsBackfill(sql);
 }
 
 async function ensureDecimalOperationalColumns(sql) {
@@ -722,11 +748,38 @@ async function ensureAuditConversionRules(sql) {
   auditConversionRulesReady = true;
 }
 
-async function audit(sql, entityType, entityId, action, beforeData, afterData) {
+export function actorLabel(actor) {
+  return actor?.fullName || actor?.email || actor?.sub || "system";
+}
+
+async function audit(sql, entityType, entityId, action, beforeData, afterData, actor = null) {
   await sql`
     insert into audit_logs (id, entity_type, entity_id, action, before_data, after_data, actor)
-    values (${id("audit")}, ${entityType}, ${entityId}, ${action}, ${beforeData ? JSON.stringify(beforeData) : null}, ${afterData ? JSON.stringify(afterData) : null}, 'system')
+    values (${id("audit")}, ${entityType}, ${entityId}, ${action}, ${beforeData ? JSON.stringify(beforeData) : null}, ${afterData ? JSON.stringify(afterData) : null}, ${actorLabel(actor)})
   `;
+}
+
+// Returns an order_events insert. Pass a transaction tag (txn) to include it in
+// the same atomic write as the business change, or the plain sql tag to run it
+// standalone. Human actions carry the authenticated actor; automated jobs pass null.
+function orderEventStatement(runner, { orderId, eventType, actor = null, previousStatus = null, newStatus = null, metadata = {}, note = null }) {
+  return runner`
+    insert into order_events (id, order_id, event_type, actor_user_id, actor_name, previous_status, new_status, metadata, note)
+    values (${id("oevt")}, ${orderId}, ${eventType}, ${actor?.sub ?? null}, ${actorLabel(actor)}, ${previousStatus}, ${newStatus}, ${JSON.stringify(metadata ?? {})}::jsonb, ${note})
+  `;
+}
+
+async function ensureOrderEventsBackfill(sql) {
+  if (orderEventsBackfilled) return;
+  await sql`
+    insert into order_events (id, order_id, event_type, actor_user_id, actor_name, previous_status, new_status, metadata, note, created_at)
+    select 'oevt-backfill-' || orders.id, orders.id, 'created', null, 'system', null, null,
+      jsonb_build_object('backfill', true), 'Backfilled from the order record creation date.', orders.created_at
+    from orders
+    where not exists (select 1 from order_events where order_events.order_id = orders.id)
+    on conflict (id) do nothing
+  `;
+  orderEventsBackfilled = true;
 }
 
 async function rowById(sql, table, entityId) {
@@ -980,7 +1033,7 @@ async function batchDeductionsForStockRemoval(sql, { ingredientId, unit, quantit
   return planBatchDeductions(batches, quantity);
 }
 
-async function releaseReservation(sql, orderId) {
+async function releaseReservation(sql, orderId, actor = null) {
   const reservations = await sql`
     select ingredient_id, unit, sum(quantity_change)::float as quantity
     from inventory_movements
@@ -999,17 +1052,26 @@ async function releaseReservation(sql, orderId) {
     .filter((row) => row.quantity > 0);
 
   if (!pending.length) return { released: false };
-  await sql.transaction((txn) => pending.flatMap((item, index) => [
-    txn`
-      insert into inventory_movements (id, ingredient_id, movement_type, quantity_change, unit, related_order_id, note, created_by)
-      values (${id(`mov-rel-${index}`)}, ${item.ingredient_id}, 'reservation_release', ${-item.quantity}, ${item.unit}, ${orderId}, 'Released order reservation', 'system')
-    `,
-    txn`
-      update ingredients
-      set reserved_stock = greatest(0, reserved_stock - ${item.quantity}), updated_at = now()
-      where id = ${item.ingredient_id}
-    `
-  ]));
+  const releaseActor = actorLabel(actor);
+  await sql.transaction((txn) => [
+    ...pending.flatMap((item, index) => [
+      txn`
+        insert into inventory_movements (id, ingredient_id, movement_type, quantity_change, unit, related_order_id, note, created_by)
+        values (${id(`mov-rel-${index}`)}, ${item.ingredient_id}, 'reservation_release', ${-item.quantity}, ${item.unit}, ${orderId}, 'Released order reservation', ${releaseActor})
+      `,
+      txn`
+        update ingredients
+        set reserved_stock = greatest(0, reserved_stock - ${item.quantity}), updated_at = now()
+        where id = ${item.ingredient_id}
+      `
+    ]),
+    orderEventStatement(txn, {
+      orderId,
+      eventType: "reservation_released",
+      actor,
+      note: "Order reservation released."
+    })
+  ]);
   return { released: true };
 }
 
@@ -1126,11 +1188,12 @@ export async function produceOrder(sql, orderId, actor, qcInput = {}) {
 
   const batchDeductions = await Promise.all(requirements.map((requirement) => batchDeductionsForRequirement(sql, requirement)));
   const qcLog = await productionQcLogForOrder(sql, orderId, qcInput, actor);
+  const produceActor = actorLabel(actor);
   await sql.transaction((txn) => [
     ...requirements.flatMap((requirement, index) => [
       txn`
         insert into inventory_movements (id, ingredient_id, movement_type, quantity_change, unit, related_order_id, note, created_by)
-        values (${id(`mov-prod-${index}`)}, ${requirement.ingredient_id}, 'production_use', ${-Number(requirement.quantity)}, ${requirement.unit}, ${orderId}, 'Deducted when order was marked produced', 'system')
+        values (${id(`mov-prod-${index}`)}, ${requirement.ingredient_id}, 'production_use', ${-Number(requirement.quantity)}, ${requirement.unit}, ${orderId}, 'Deducted when order was marked produced', ${produceActor})
       `,
       txn`
         update ingredients
@@ -1149,9 +1212,18 @@ export async function produceOrder(sql, orderId, actor, qcInput = {}) {
       insert into production_qc_logs (id, order_id, recipe_id, batch_key, formula_version, expected_yield_quantity, actual_yield_quantity, yield_unit, room_temperature, mix_temperature, oven_temperature, bake_time_minutes, rest_time_minutes, sensory_notes, defects, next_adjustment, passed_qc, logged_by)
       values (${qcLog.id}, ${qcLog.orderId}, ${qcLog.recipeId}, ${qcLog.batchKey}, ${qcLog.formulaVersion}, ${qcLog.expectedYieldQuantity}, ${qcLog.actualYieldQuantity}, ${qcLog.yieldUnit}, ${qcLog.roomTemperature}, ${qcLog.mixTemperature}, ${qcLog.ovenTemperature}, ${qcLog.bakeTimeMinutes}, ${qcLog.restTimeMinutes}, ${qcLog.sensoryNotes}, ${qcLog.defects}, ${qcLog.nextAdjustment}, ${qcLog.passedQc}, ${qcLog.loggedBy})
     `,
-    txn`update orders set status = 'Produced', production_status = 'Completed', stock_status = 'In Stock', updated_at = now() where id = ${orderId}`
+    txn`update orders set status = 'Produced', production_status = 'Completed', stock_status = 'In Stock', updated_at = now() where id = ${orderId}`,
+    orderEventStatement(txn, {
+      orderId,
+      eventType: "produced",
+      actor,
+      previousStatus: status,
+      newStatus: "Produced",
+      metadata: { qcLogId: qcLog.id, passedQc: qcLog.passedQc },
+      note: "Order marked produced; ingredients deducted from stock."
+    })
   ]);
-  await audit(sql, "orders", orderId, "produce", { status }, await rowById(sql, "orders", orderId));
+  await audit(sql, "orders", orderId, "produce", { status }, await rowById(sql, "orders", orderId), actor);
   return { produced: true, qcLogId: qcLog.id };
 }
 
@@ -1196,10 +1268,20 @@ export async function handleAction(sql, body, actor) {
         txn`update recipes set active = true, updated_at = now() where id = ${entityId}`,
         ...(rows[0]?.product_id ? [txn`update products set active = true, updated_at = now() where id = ${rows[0].product_id}`] : [])
       ]);
-    } else if (entityType === "order") await sql`update orders set archived = false, updated_at = now() where id = ${entityId}`;
+    } else if (entityType === "order") await sql.transaction((txn) => [
+      txn`update orders set archived = false, updated_at = now() where id = ${entityId}`,
+      orderEventStatement(txn, {
+        orderId: entityId,
+        eventType: "restored",
+        actor,
+        previousStatus: before?.status ?? null,
+        newStatus: before?.status ?? null,
+        note: "Order restored to the active list."
+      })
+    ]);
     else if (entityType === "supplier") await sql`update suppliers set active = true, updated_at = now() where id = ${entityId}`;
     else if (entityType === "conversion") await sql`update conversion_rules set active = true, updated_at = now() where id = ${entityId}`;
-    await audit(sql, entityType, entityId, "restore", before, { restored: true });
+    await audit(sql, entityType, entityId, "restore", before, { restored: true }, actor);
     return { ok: true, restored: true };
   }
 
@@ -1431,30 +1513,48 @@ export async function handleAction(sql, body, actor) {
       ...items.map((item, index) => txn`
         insert into order_items (id, order_id, product_id, recipe_id, requested_yield_quantity, yield_unit, quantity_multiplier, notes)
         values (${id(`oi-${index}`)}, ${orderId}, ${item.productId}, ${item.recipeId}, ${num(item.requestedYieldQuantity, 1)}, ${item.yieldUnit || "pieces"}, ${num(item.quantityMultiplier, 1)}, ${item.notes || null})
-      `)
+      `),
+      orderEventStatement(txn, {
+        orderId,
+        eventType: data.id ? "updated" : "created",
+        actor,
+        previousStatus: before?.status ?? null,
+        newStatus: data.status || "Confirmed",
+        note: data.id ? "Order details updated." : "Order created."
+      })
     ]);
     const stockStatus = await stockStatusForRequirements(sql, await requirementsForOrder(sql, orderId));
     await sql`update orders set stock_status = ${stockStatus}, updated_at = now() where id = ${orderId}`;
-    const reservation = body.reserve ? await reserveOrder(sql, orderId) : null;
-    await audit(sql, "orders", orderId, data.id ? "update" : "create", before, await rowById(sql, "orders", orderId));
+    const reservation = body.reserve ? await reserveOrder(sql, orderId, actor) : null;
+    await audit(sql, "orders", orderId, data.id ? "update" : "create", before, await rowById(sql, "orders", orderId), actor);
     return { ok: true, id: orderId, stockStatus, reservation };
   }
 
-  if (action === "order.reserve") return reserveOrder(sql, required(body.orderId, "Order"));
-  if (action === "order.releaseReservation") return releaseReservation(sql, required(body.orderId, "Order"));
+  if (action === "order.reserve") return reserveOrder(sql, required(body.orderId, "Order"), actor);
+  if (action === "order.releaseReservation") return releaseReservation(sql, required(body.orderId, "Order"), actor);
   if (action === "order.produce") return produceOrder(sql, required(body.orderId, "Order"), actor, body.qcLog ?? {});
 
   if (action === "order.delete") {
     await sql`alter table orders add column if not exists archived boolean not null default false`;
     const orderId = required(body.orderId, "Order");
     const before = await rowById(sql, "orders", orderId);
-    await releaseReservation(sql, orderId);
-    await sql`
-      update orders
-      set archived = true, status = 'Cancelled', stock_status = 'In Stock', updated_at = now()
-      where id = ${orderId}
-    `;
-    await audit(sql, "orders", orderId, "archive", before, await rowById(sql, "orders", orderId));
+    await releaseReservation(sql, orderId, actor);
+    await sql.transaction((txn) => [
+      txn`
+        update orders
+        set archived = true, status = 'Cancelled', stock_status = 'In Stock', updated_at = now()
+        where id = ${orderId}
+      `,
+      orderEventStatement(txn, {
+        orderId,
+        eventType: "cancelled",
+        actor,
+        previousStatus: before?.status ?? null,
+        newStatus: "Cancelled",
+        note: "Order deleted from the active list; reservation released."
+      })
+    ]);
+    await audit(sql, "orders", orderId, "archive", before, await rowById(sql, "orders", orderId), actor);
     return { ok: true, archived: true };
   }
 
@@ -1464,7 +1564,7 @@ export async function handleAction(sql, body, actor) {
     const before = await rowById(sql, "orders", orderId);
     const productionStatus = body.productionStatus || (status === "In Production" ? "In Progress" : status === "Delivered" || status === "Produced" ? "Completed" : undefined);
     if (status === "In Production") {
-      const reservation = await reserveOrder(sql, orderId);
+      const reservation = await reserveOrder(sql, orderId, actor);
       if (reservation.shortage) {
         throw Object.assign(new Error(`Cannot start production until shortages are resolved: ${shortageSummary(reservation.shortages)}.`), { statusCode: 409, details: reservation.shortages });
       }
@@ -1479,13 +1579,24 @@ export async function handleAction(sql, body, actor) {
         throw Object.assign(new Error("Resolve ingredient shortages before delivery."), { statusCode: 409 });
       }
     }
-    await sql`
-      update orders
-      set status = ${status}, production_status = coalesce(${productionStatus || null}, production_status), updated_at = now()
-      where id = ${orderId}
-    `;
-    if (status === "Cancelled") await releaseReservation(sql, orderId);
-    await audit(sql, "orders", orderId, "status_change", before, await rowById(sql, "orders", orderId));
+    const statusEventType = status === "Delivered" ? "delivered" : status === "Cancelled" ? "cancelled" : status === "In Production" ? "production_started" : "status_changed";
+    await sql.transaction((txn) => [
+      txn`
+        update orders
+        set status = ${status}, production_status = coalesce(${productionStatus || null}, production_status), updated_at = now()
+        where id = ${orderId}
+      `,
+      orderEventStatement(txn, {
+        orderId,
+        eventType: statusEventType,
+        actor,
+        previousStatus: before?.status ?? null,
+        newStatus: status,
+        note: `Status changed to ${status}.`
+      })
+    ]);
+    if (status === "Cancelled") await releaseReservation(sql, orderId, actor);
+    await audit(sql, "orders", orderId, "status_change", before, await rowById(sql, "orders", orderId), actor);
     return { ok: true };
   }
 
@@ -1497,7 +1608,7 @@ export async function handleAction(sql, body, actor) {
     if (status === "Produced") {
       const results = [];
       for (const orderId of orderIds) {
-        const reservation = await reserveOrder(sql, orderId);
+        const reservation = await reserveOrder(sql, orderId, actor);
         if (reservation.shortage) {
           throw Object.assign(new Error(`Cannot complete this batch until shortages are resolved: ${shortageSummary(reservation.shortages)}.`), { statusCode: 409, details: reservation.shortages });
         }
@@ -1512,17 +1623,28 @@ export async function handleAction(sql, body, actor) {
     }
     if (status === "In Production") {
       for (const orderId of orderIds) {
-        const reservation = await reserveOrder(sql, orderId);
+        const reservation = await reserveOrder(sql, orderId, actor);
         if (reservation.shortage) {
           throw Object.assign(new Error(`Cannot start this batch until shortages are resolved: ${shortageSummary(reservation.shortages)}.`), { statusCode: 409, details: reservation.shortages });
         }
       }
     }
-    await sql.transaction((txn) => orderIds.map((orderId) => txn`
-      update orders
-      set status = ${status}, production_status = ${productionStatus}, updated_at = now()
-      where id = ${orderId}
-    `));
+    const batchEventType = status === "In Production" ? "production_started" : "status_changed";
+    await sql.transaction((txn) => orderIds.flatMap((orderId) => [
+      txn`
+        update orders
+        set status = ${status}, production_status = ${productionStatus}, updated_at = now()
+        where id = ${orderId}
+      `,
+      orderEventStatement(txn, {
+        orderId,
+        eventType: batchEventType,
+        actor,
+        newStatus: status,
+        metadata: { batch: true },
+        note: `Batch status changed to ${status}.`
+      })
+    ]));
     return { ok: true, count: orderIds.length };
   }
 

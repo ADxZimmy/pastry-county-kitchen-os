@@ -222,6 +222,19 @@ create table if not exists notification_events (
   created_at timestamptz not null default now()
 );
 
+create table if not exists order_events (
+  id text primary key,
+  order_id text not null references orders(id),
+  event_type text not null,
+  actor_user_id text,
+  actor_name text not null default 'system',
+  previous_status text,
+  new_status text,
+  metadata jsonb not null default '{}'::jsonb,
+  note text,
+  created_at timestamptz not null default now()
+);
+
 create table if not exists settings (
   id text primary key,
   business_name text not null default 'Pastry County',
@@ -242,6 +255,7 @@ create index if not exists ingredients_category_idx on ingredients(category);
 create index if not exists inventory_movements_ingredient_idx on inventory_movements(ingredient_id, created_at desc);
 create index if not exists ingredient_batches_fefo_idx on ingredient_batches(ingredient_id, expiry_date nulls last, received_date);
 create index if not exists audit_logs_entity_idx on audit_logs(entity_type, entity_id, created_at desc);
+create index if not exists order_events_order_idx on order_events(order_id, created_at);
 create index if not exists order_items_order_idx on order_items(order_id);
 create index if not exists recipe_items_recipe_idx on recipe_items(recipe_id);
 create index if not exists conversion_rules_lookup_idx on conversion_rules(ingredient_id, from_unit, to_unit);

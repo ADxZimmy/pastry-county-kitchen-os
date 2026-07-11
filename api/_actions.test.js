@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { allowedRolesForAction, archiveTableForEntity, canRolePerformAction, normalizeConversionScope, normalizeIngredientAllergenProfile, normalizeIngredientStorageProfile, normalizeProductionQcLog, normalizeRecipeCostProfile, normalizeRecipeFormulaMetadata, normalizeRecipeItemPrepState, normalizeShoppingPurchaseInput, planBatchDeductions, productionCompletionPreflight, productionShortageForRequirement, safePurchasePersistenceError, sendResendEmail, sessionAccessError } from "./_actions.js";
+import { actorLabel, allowedRolesForAction, archiveTableForEntity, canRolePerformAction, normalizeConversionScope, normalizeIngredientAllergenProfile, normalizeIngredientStorageProfile, normalizeProductionQcLog, normalizeRecipeCostProfile, normalizeRecipeFormulaMetadata, normalizeRecipeItemPrepState, normalizeShoppingPurchaseInput, planBatchDeductions, productionCompletionPreflight, productionShortageForRequirement, safePurchasePersistenceError, sendResendEmail, sessionAccessError } from "./_actions.js";
 
 describe("FEFO batch deduction planning", () => {
   it("deducts stock removals or production use across lots in the provided FEFO order", () => {
@@ -105,6 +105,19 @@ describe("API role permissions", () => {
     expect(canRolePerformAction("Baker", "import.extract")).toBe(true);
     expect(canRolePerformAction("Inventory Manager", "import.extract")).toBe(true);
     expect(canRolePerformAction("Viewer", "import.extract")).toBe(false);
+  });
+});
+
+describe("actor attribution (RS-005)", () => {
+  it("prefers full name, then email, then id for the recorded actor", () => {
+    expect(actorLabel({ sub: "user-1", fullName: "Ada Baker", email: "ada@example.com" })).toBe("Ada Baker");
+    expect(actorLabel({ sub: "user-1", email: "ada@example.com" })).toBe("ada@example.com");
+    expect(actorLabel({ sub: "user-1" })).toBe("user-1");
+  });
+
+  it("falls back to system only when there is no authenticated actor", () => {
+    expect(actorLabel(null)).toBe("system");
+    expect(actorLabel(undefined)).toBe("system");
   });
 });
 

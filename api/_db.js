@@ -77,6 +77,20 @@ export async function loadKitchenSnapshot(sql = getSql()) {
     )
   `;
   await sql`
+    create table if not exists order_events (
+      id text primary key,
+      order_id text not null references orders(id),
+      event_type text not null,
+      actor_user_id text,
+      actor_name text not null default 'system',
+      previous_status text,
+      new_status text,
+      metadata jsonb not null default '{}'::jsonb,
+      note text,
+      created_at timestamptz not null default now()
+    )
+  `;
+  await sql`
     create table if not exists ingredient_batches (
       id text primary key,
       ingredient_id text not null references ingredients(id),
@@ -135,6 +149,7 @@ export async function loadKitchenSnapshot(sql = getSql()) {
     recipeItemRows,
     orderRows,
     orderItemRows,
+    orderEventRows,
     movementRows,
     batchRows,
     qcRows,
@@ -197,6 +212,17 @@ export async function loadKitchenSnapshot(sql = getSql()) {
       join orders on orders.id = order_items.order_id
       where coalesce(orders.archived, false) = false
       order by order_id, id
+    `,
+    sql`
+      select order_events.id, order_id as "orderId", event_type as "eventType",
+        actor_user_id as "actorUserId", actor_name as "actorName",
+        previous_status as "previousStatus", new_status as "newStatus",
+        coalesce(metadata, '{}'::jsonb) as metadata, note, created_at as "createdAt"
+      from order_events
+      join orders on orders.id = order_events.order_id
+      where coalesce(orders.archived, false) = false
+      order by order_events.created_at
+      limit 1000
     `,
     sql`
       select id, ingredient_id as "ingredientId", movement_type as "movementType",
@@ -276,6 +302,7 @@ export async function loadKitchenSnapshot(sql = getSql()) {
     recipeItems: recipeItemRows.map((item) => ({ ...item, prepState: item.prepState ?? {} })),
     orders: orderRows,
     orderItems: orderItemRows,
+    orderEvents: orderEventRows,
     inventoryMovements: movementRows,
     ingredientBatches: batchRows,
     productionQcLogs: qcRows,

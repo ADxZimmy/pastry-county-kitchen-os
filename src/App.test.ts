@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { resolveSessionPage } from "./App";
 import { recipes as kitchenRecipes, setKitchenSnapshot } from "./data";
 import { auditChangeSummary, auditDataJson, auditExportRows, auditRecordLabel, auditSearchText } from "./lib/audit";
-import { buildKitchenAssistantResponse, calculateMargin, calculateRecipeCost, checkStockAvailability, convertUnit, dashboardProductionQueue, formatNaira, formatQuantity, formatScaledIngredientQuantity, generateShoppingList, netSellingPrice, parseRecipeText, roundScaledQuantity, scaleRecipe, stockAdjustmentValidation } from "./lib/kitchen";
+import { buildKitchenAssistantResponse, calculateMargin, calculateRecipeCost, checkStockAvailability, convertUnit, dashboardProductionQueue, formatNaira, formatQuantity, formatScaledIngredientQuantity, generateShoppingList, netSellingPrice, orderEventLabel, orderEventsForOrder, parseRecipeText, roundScaledQuantity, scaleRecipe, stockAdjustmentValidation } from "./lib/kitchen";
 import { activeSelectedIdsForRoute, parseAppRoute, routeBackLabel, routeParent, serializeAppRoute } from "./lib/routes";
 import type { AuditLog, ConversionRule, Ingredient, Recipe, RecipeItem } from "./types";
 
@@ -397,5 +397,44 @@ describe("audit report export helpers", () => {
     expect(auditSearchText(purchaseEntry, lookup).toLowerCase()).toContain("audit-flour");
     expect(auditExportRows([purchaseEntry], lookup)[0][1]).toBe("AUDIT-Flour (ingredient-audit-flour)");
     expect(auditSearchText(purchaseEntry, lookup)).not.toContain("hidden");
+  });
+});
+
+describe("order event timeline (PCO-001)", () => {
+  const events = [
+    { id: "e1", orderId: "ord-a", eventType: "created", actorName: "Ada Baker", newStatus: "Confirmed", createdAt: "2026-07-10T09:00:00.000Z" },
+    { id: "e3", orderId: "ord-a", eventType: "produced", actorName: "Ada Baker", newStatus: "Produced", createdAt: "2026-07-10T11:00:00.000Z" },
+    { id: "e2", orderId: "ord-a", eventType: "reserved", actorName: "Sam Stock", newStatus: "Stock Reserved", createdAt: "2026-07-10T10:00:00.000Z" },
+    { id: "e4", orderId: "ord-b", eventType: "created", actorName: "Ada Baker", newStatus: "Confirmed", createdAt: "2026-07-10T09:30:00.000Z" }
+  ];
+
+  it("returns only the selected order's events in chronological order", () => {
+    const timeline = orderEventsForOrder(events, "ord-a");
+    expect(timeline.map((event) => event.id)).toEqual(["e1", "e2", "e3"]);
+    expect(timeline.every((event) => event.orderId === "ord-a")).toBe(true);
+  });
+
+  it("never leaks another order's events (isolation)", () => {
+    expect(orderEventsForOrder(events, "ord-b").map((event) => event.id)).toEqual(["e4"]);
+    expect(orderEventsForOrder(events, "ord-a").some((event) => event.id === "e4")).toBe(false);
+  });
+
+  it("returns an empty timeline for an order with no events (honest legacy/empty state)", () => {
+    expect(orderEventsForOrder(events, "ord-missing")).toEqual([]);
+  });
+
+  it("preserves the real actor for each event rather than a fabricated one", () => {
+    const timeline = orderEventsForOrder(events, "ord-a");
+    expect(timeline.map((event) => event.actorName)).toEqual(["Ada Baker", "Sam Stock", "Ada Baker"]);
+  });
+
+  it("labels each event type and falls back to the status for unknown types", () => {
+    expect(orderEventLabel({ eventType: "created", newStatus: "Confirmed" })).toBe("Order created");
+    expect(orderEventLabel({ eventType: "reserved", newStatus: "Stock Reserved" })).toBe("Stock reserved");
+    expect(orderEventLabel({ eventType: "produced", newStatus: "Produced" })).toBe("Marked produced");
+    expect(orderEventLabel({ eventType: "delivered", newStatus: "Delivered" })).toBe("Delivered");
+    expect(orderEventLabel({ eventType: "cancelled", newStatus: "Cancelled" })).toBe("Order cancelled");
+    expect(orderEventLabel({ eventType: "status_changed", newStatus: "Confirmed" })).toBe("Status changed to Confirmed");
+    expect(orderEventLabel({ eventType: "mystery", newStatus: null })).toBe("Order updated");
   });
 });
