@@ -24,7 +24,8 @@ Execute the revised audit-remediation program from the July 10 expanded producti
 
 ## In Progress
 
-- Phase 006a is implemented and locally verified; deploy is pending. Configure `SESSION_SECRET` in Vercel first (or login/bootstrap/actions fail closed with 503), deploy with the owner identity, verify `/api/health`, then run the live smoke family.
+- Phase 006a is implemented and locally verified at commit `6b2ea8c`, but held unpushed by owner decision on 2026-07-11 until `SESSION_SECRET` is set on the real production project. Deploying without it makes login/bootstrap/actions fail closed (503) for all users.
+- Deploy blocker discovered 2026-07-11: the local Vercel CLI is authenticated as `nnazimuzoo` (team `nnazimuzoos-projects`), which does NOT own the production project. Production (`pastry-county-kitchen-os.vercel.app`) is deployed from the `ADxZimmy` account (the GitHub repo owner). `vercel link` under `nnazimuzoo` created an empty stray project, which has been deleted; the local `.vercel` link was removed. `SESSION_SECRET` must be set on the `ADxZimmy` project via its dashboard (or the CLI logged into that account) before any push.
 
 ## Blocked
 
@@ -36,7 +37,7 @@ Execute the revised audit-remediation program from the July 10 expanded producti
 
 ## Next Action
 
-Set `SESSION_SECRET` in the Vercel project environment, then deploy Phase 006a with the owner Git identity. After deploy, verify `/api/health` reports `sessionSecret: "configured"`, confirm unauthenticated `POST /api/inventory-movements` returns 410 and `POST /api/actions {action:"schema.ensure"}` returns 401 with no schema change, and run `npm.cmd run smoke:live-audit`. Then begin Phase 007.
+Waiting on the owner to set `SESSION_SECRET` (Production scope) on the real `ADxZimmy` Vercel project — via the dashboard, or by logging the CLI into that account. Generate a value locally with `node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'))"`. Once set, push `6b2ea8c` to deploy, then verify `/api/health` reports `sessionSecret: "configured"`, confirm unauthenticated `POST /api/inventory-movements` returns 410 and `POST /api/actions {action:"schema.ensure"}` returns 401 with no schema change, and run `npm.cmd run smoke:live-audit`. Then begin Phase 007.
 
 ## Verification Snapshot
 
