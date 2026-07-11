@@ -49,14 +49,14 @@ Execute the revised audit-remediation program from the July 10 expanded producti
 
 ## Next Action
 
-Deploy the stacked Phase 008 work (008-A `376509b` + 008-B `b17c05f`) and run `smoke:live-audit` before 008-C. Both are un-smoked DB-touching changes: the order state machine, the production queue filters, and the new `production_runs` table + idempotency guard. An integration smoke MUST gate them (the Phase 007 bootstrap outage — an ambiguous-column bug invisible to the DB-less unit suite — is why). After deploy, also verify a repeat completion of the same order returns `alreadyProduced` with no second deduction. Then implement 008-C Safe Cancellation (consequence-aware cancellation, reason capture, block-after-deduction with an explicit correction path).
+Deploy the stacked Phase 008 work (008-A `376509b`, 008-B `b17c05f`, 008-C `6b44f0b`) together and run `smoke:live-audit` plus targeted probes. These are THREE un-smoked DB-touching slices: the order state machine, the corrected production queue filters, the new `production_runs` table + idempotency guarantee, and consequence-aware cancellation. An integration smoke MUST gate them (the Phase 007 bootstrap outage — an ambiguous-column bug invisible to the DB-less unit suite — is why). Post-deploy probes: verify `/api/bootstrap` 200, a repeat completion of the same order returns `alreadyProduced` with no second deduction, and cancellation requires a reason and is blocked after produced. Then Phase 009 (Validation, Settings And Unit Policy), which reuses the safe completion transaction built here.
 
-## Phase 008 status (implemented locally 2026-07-11)
+## Phase 008 status (implemented locally 2026-07-11, complete)
 
-- 008-A `376509b`: Africa/Lagos production eligibility + corrected Today/Tomorrow/This Week buckets; server-enforced order state machine (`isValidOrderTransition`) (PCO-004, PCO-005 lifecycle).
-- 008-B `b17c05f`: `production_runs` table with `unique(order_id)`; produceOrder claims the run as the first transaction statement so a concurrent/repeat completion fails with 23505 and rolls back (idempotent `alreadyProduced`, no double deduction); batch "Complete Batch" now routes through a confirmation modal with a current->deducts->resulting-stock preview (PCO-005 completion).
-- 008-C Safe Cancellation: not started.
-- Local gates green: 126/126 tests, build clean. DB-level behavior (migration, idempotency, filters) pending the production smoke.
+- 008-A `376509b`: Africa/Lagos production eligibility + corrected Today/Tomorrow/This Week buckets; server-enforced order state machine `isValidOrderTransition` (PCO-004, PCO-005 lifecycle).
+- 008-B `b17c05f`: `production_runs` table with `unique(order_id)`; produceOrder claims the run as the first transaction statement so a concurrent/repeat completion fails with 23505 and rolls back (idempotent `alreadyProduced`, no double deduction); batch completion routes through a confirmation modal with a current->deducts->resulting-stock preview (PCO-005 completion).
+- 008-C `6b44f0b`: `cancellationConsequences` helper; cancellation requires a reason (recorded on event + audit) and is blocked after deduction; consequence-aware cancellation modal (PCO-009).
+- Local gates green: 131/131 tests, build clean. DB-level behavior (migration, idempotency, filters, cancellation) pending the production smoke.
 
 Phase 007 shipped 2026-07-11: pushed the four 007 commits + merge `add3079`, then hotfix `a75c688` after the first build 500'd `/api/bootstrap` (ambiguous `created_at` in the new order_events join). `smoke:live-audit` is green; bootstrap returns 200 with orderEvents + pricing fields.
 
