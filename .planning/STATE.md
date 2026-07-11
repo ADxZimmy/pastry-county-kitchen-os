@@ -49,9 +49,11 @@ Execute the revised audit-remediation program from the July 10 expanded producti
 
 ## Next Action
 
-Continue Phase 009. Slice 009-A `6d33a07` (validation + shared policy module) is implemented and committed locally (136/136 tests, build clean). It introduces `shared/policy.js`/`.d.ts` (imported by both frontend and API) and makes `scaleRecipe` throw on invalid yield — a behavioral change the scaling UI now guards against, but which warrants a production smoke (a scaling-view white-screen would be bad). Deploy 009-A and run `smoke:live-audit` (which navigates + scales), then implement 009-B Shared Settings Contract (wire `defaultDeductionStage` into the Phase 008 completion, negative-inventory semantics, enforce/rename/remove every setting with contract tests) and 009-C Unit Divisibility.
+Resume Phase 009-B with the stock-integrity-critical piece, ideally with fresh context: wire `defaultDeductionStage` into the Phase 008 idempotent completion (deduct at confirmation / production_start / completion, using the `production_runs` unique key so it deducts exactly once across stages; default stays `production_completion`), define `allowNegativeInventory` semantics (disabled blocks; enabled records an aggregate deficit while FEFO lots stay >= 0 and the order shows shortage), and enforce/rename/remove every remaining setting with contract tests. Then 009-C Unit Divisibility (per-ingredient allows_decimals / minimum_increment). Deploy each DB-touching slice with `smoke:live-audit`.
 
-Phase 008 shipped 2026-07-11: pushed 008-A/B/C, `smoke:live-audit` green, and a controlled probe proved the completion idempotency live (repeat produce -> `alreadyProduced`, stock deducted exactly once) and that a produced order cannot be cancelled.
+Owner decision 2026-07-11: after a very long session, deployed the safe 009-A + gram-rounding increment and paused before the deduction-stage wiring rather than rush a change that moves real stock.
+
+Deployed so far (all production-verified): S0/006a, Phase 007, Phase 008, Phase 009-A, and the 009-B gram-rounding increment. `main` is synced with origin at `7b91198`. Remediation: 9 of 16 PCO findings fully closed; PCO-006 closed and half of PCO-007.
 
 ## Phase 008 status (implemented locally 2026-07-11, complete)
 
