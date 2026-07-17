@@ -32,7 +32,7 @@ create table if not exists ingredients (
   category text not null,
   base_unit text not null check (base_unit in ('g','kg','ml','litre','pcs','cup','tablespoon','teaspoon','pack','roll','egg','yolk','white')),
   purchase_unit text not null default 'g' check (purchase_unit in ('g','kg','ml','litre','pcs','cup','tablespoon','teaspoon','pack','roll','egg','yolk','white')),
-  current_stock numeric(14,3) not null default 0 check (current_stock >= 0),
+  current_stock numeric(14,3) not null default 0,
   reserved_stock numeric(14,3) not null default 0 check (reserved_stock >= 0),
   reorder_level numeric(14,3) not null default 0 check (reorder_level >= 0),
   latest_unit_cost numeric(14,4) not null default 0 check (latest_unit_cost >= 0),

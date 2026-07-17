@@ -645,6 +645,10 @@ async function ensureOperationalTables(sql) {
   await sql`alter table ingredients add column if not exists purchase_unit text`;
   await sql`alter table ingredients add column if not exists allergen_profile jsonb not null default '{}'`;
   await sql`alter table ingredients add column if not exists storage_profile jsonb not null default '{}'`;
+  // Aggregate stock may go negative only via an explicit allowNegativeInventory
+  // backorder at production; the app-level shortage/adjustment guards keep it >= 0
+  // otherwise. FEFO lots stay >= 0 via greatest(0, ...).
+  await sql`alter table ingredients drop constraint if exists ingredients_current_stock_check`;
   await sql`update ingredients set purchase_unit = base_unit where purchase_unit is null or purchase_unit = ''`;
   await sql`alter table ingredients alter column purchase_unit set default 'g'`;
   await sql`alter table ingredients alter column purchase_unit set not null`;
@@ -1278,6 +1282,11 @@ async function orderDeductionStage(sql) {
   return normalizeDeductionStage(rows[0]?.default_deduction_stage);
 }
 
+async function allowNegativeInventory(sql) {
+  const rows = await sql`select allow_negative_inventory from settings order by updated_at desc limit 1`;
+  return rows[0]?.allow_negative_inventory === true;
+}
+
 function wasteFromQc(qcLog, qcInput = {}) {
   return num(qcInput.wasteQuantity) > 0
     ? num(qcInput.wasteQuantity)
@@ -1299,17 +1308,22 @@ function productionQcInsert(txn, qcLog) {
 //   same transaction (the completion path, unchanged behavior).
 // - requireStock: false returns { shortage } instead of throwing, so an early
 //   stage never blocks its lifecycle action when stock is not yet available.
-async function deductOrderStock(sql, orderId, actor, { stage = "production_completion", finalize = false, qcLog = null, qcInput = {}, requireStock = true } = {}) {
+// - allowNegative: when short at a required (completion) deduction, proceed as a
+//   backorder instead of throwing. Aggregate current_stock may go negative;
+//   FEFO lots still stop at zero and the order is flagged Shortage.
+async function deductOrderStock(sql, orderId, actor, { stage = "production_completion", finalize = false, qcLog = null, qcInput = {}, requireStock = true, allowNegative = false } = {}) {
   const requirements = await requirementsForOrder(sql, orderId);
   const shortages = await shortagesForProduction(sql, orderId, requirements);
-  if (shortages.length) {
-    if (!requireStock) return { deducted: false, shortage: shortages };
+  const isBackorder = shortages.length > 0;
+  if (isBackorder && !requireStock) return { deducted: false, shortage: shortages };
+  if (isBackorder && !allowNegative) {
     await sql`update orders set stock_status = 'Shortage', updated_at = now() where id = ${orderId}`;
     throw Object.assign(new Error(`Cannot mark produced while ingredients are short: ${shortageSummary(shortages)}.`), { statusCode: 409, details: shortages });
   }
   const batchDeductions = await Promise.all(requirements.map((requirement) => batchDeductionsForRequirement(sql, requirement)));
   const deductActor = actorLabel(actor);
-  const stageLabel = stage.replace(/_/g, " ");
+  const stageLabel = `${stage.replace(/_/g, " ")}${isBackorder ? " (backorder)" : ""}`;
+  const finalStockStatus = isBackorder ? "Shortage" : "In Stock";
   const orderRows = await sql`select status from orders where id = ${orderId}`;
   const previousStatus = orderRows[0]?.status ?? null;
   try {
@@ -1337,10 +1351,10 @@ async function deductOrderStock(sql, orderId, actor, { stage = "production_compl
         where id = ${deduction.batchId}
       `)),
       ...(finalize && qcLog ? [productionQcInsert(txn, qcLog)] : []),
-      ...(finalize ? [txn`update orders set status = 'Produced', production_status = 'Completed', stock_status = 'In Stock', updated_at = now() where id = ${orderId}`] : []),
+      ...(finalize ? [txn`update orders set status = 'Produced', production_status = 'Completed', stock_status = ${finalStockStatus}, updated_at = now() where id = ${orderId}`] : []),
       orderEventStatement(txn, finalize
-        ? { orderId, eventType: "produced", actor, previousStatus, newStatus: "Produced", metadata: { qcLogId: qcLog?.id, passedQc: qcLog?.passedQc, stage }, note: "Order marked produced; ingredients deducted from stock." }
-        : { orderId, eventType: "deducted", actor, previousStatus, newStatus: previousStatus, metadata: { stage }, note: `Ingredients deducted from stock at ${stageLabel}.` })
+        ? { orderId, eventType: "produced", actor, previousStatus, newStatus: "Produced", metadata: { qcLogId: qcLog?.id, passedQc: qcLog?.passedQc, stage, backorder: isBackorder }, note: isBackorder ? "Order marked produced on backorder; aggregate stock is negative." : "Order marked produced; ingredients deducted from stock." }
+        : { orderId, eventType: "deducted", actor, previousStatus, newStatus: previousStatus, metadata: { stage, backorder: isBackorder }, note: `Ingredients deducted from stock at ${stageLabel}.` })
     ]);
     return { deducted: true };
   } catch (error) {
@@ -1374,7 +1388,8 @@ export async function produceOrder(sql, orderId, actor, qcInput = {}) {
   // second shortage recalculation would falsely report a shortage.
   const priorRun = await sql`select id from production_runs where order_id = ${orderId} limit 1`;
   if (!priorRun.length) {
-    const result = await deductOrderStock(sql, orderId, actor, { stage: "production_completion", finalize: true, qcLog, qcInput, requireStock: true });
+    const allowNegative = await allowNegativeInventory(sql);
+    const result = await deductOrderStock(sql, orderId, actor, { stage: "production_completion", finalize: true, qcLog, qcInput, requireStock: true, allowNegative });
     if (result.deducted) {
       await audit(sql, "orders", orderId, "produce", { status }, await rowById(sql, "orders", orderId), actor);
       return { produced: true, qcLogId: qcLog.id };
@@ -1940,7 +1955,7 @@ export async function handleAction(sql, body, actor) {
     const before = await rowById(sql, "settings", "default");
     await sql`
       insert into settings (id, business_name, currency, default_deduction_stage, allow_negative_inventory, require_ai_conversion_confirmation, gram_rounding_preference, egg_rounding_preference, safety_margin_percentage, default_tax_percentage, low_stock_notification_email)
-      values ('default', ${data.businessName || "Pastry County"}, ${data.currency || "NGN"}, ${data.defaultDeductionStage || "production_completion"}, ${bool(data.allowNegativeInventory)}, ${bool(data.requireAiConversionConfirmation)}, ${num(data.gramRoundingPreference, 5)}, ${data.eggRoundingPreference || "nearest_whole_egg"}, ${nonNegative(num(data.safetyMarginPercentage, 10), "Safety margin")}, ${nonNegative(num(data.defaultTaxPercentage, 0), "Tax percentage")}, ${data.lowStockNotificationEmail || null})
+      values ('default', ${data.businessName || "Pastry County"}, ${data.currency || "NGN"}, ${normalizeDeductionStage(data.defaultDeductionStage)}, ${bool(data.allowNegativeInventory)}, ${true}, ${num(data.gramRoundingPreference, 5)}, ${data.eggRoundingPreference || "nearest_whole_egg"}, ${nonNegative(num(data.safetyMarginPercentage, 10), "Safety margin")}, ${nonNegative(num(data.defaultTaxPercentage, 0), "Tax percentage")}, ${data.lowStockNotificationEmail || null})
       on conflict (id) do update set business_name = excluded.business_name, currency = excluded.currency, default_deduction_stage = excluded.default_deduction_stage,
         allow_negative_inventory = excluded.allow_negative_inventory, require_ai_conversion_confirmation = excluded.require_ai_conversion_confirmation,
         gram_rounding_preference = excluded.gram_rounding_preference, egg_rounding_preference = excluded.egg_rounding_preference,
