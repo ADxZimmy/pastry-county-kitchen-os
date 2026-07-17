@@ -38,9 +38,19 @@
 
 - Production's `defaultDeductionStage` was found to be `production_start` (it had no effect before this deploy because the setting was unwired — the exact PCO-007 bug). Now that 009-B honours it, live orders deduct stock when production STARTS, not at completion. This is the fix working, but it is a real behaviour change: if production starts and is then cancelled, stock is already gone and needs an explicit correction. The owner should confirm `production_start` is intended, or set it to `production_completion` (the conservative default matching all prior behaviour). Flagged 2026-07-11; not changed unilaterally.
 
+## Negative inventory + settings inventory (deployed 2026-07-11, commits `09890d5`, `e8a733f`)
+
+- `allowNegativeInventory` is now enforced end to end. Disabled (default) blocks a short production at every gate (order.status In Production, production.batchStatus, and the completion deduction). Enabled lets a short order flow start -> produce as a backorder: aggregate `current_stock` goes negative, FEFO lots stop at zero (`greatest(0, ...)`), and the order is flagged Shortage/Produced. The `ingredients current_stock >= 0` CHECK was dropped (schema + idempotent migration) to permit the deficit; app-level shortage/adjustment guards keep stock >= 0 otherwise. Frontend production buttons and the batch confirm modal respect the setting.
+- Settings inventory: removed the non-functional "Require confirmation before AI conversions" toggle from the UI (it did nothing and implied a bypass); the server now always stores `require_ai_conversion_confirmation = true` (mandatory-review invariant, Phase 010 owns the flow). settings.save normalizes the deduction stage. Confirmed the other controls are already effective in code.
+- Command/check: backorder probe (temp ingredient stock 500, requirement 1000; settings saved+restored; self-cleaning; script removed)
+  Result: 8/8 passed against real Postgres. Disabled: short produce blocked 409, stock unchanged 500, order not produced. Enabled: short produce succeeds, aggregate stock -> -500, order Produced + Shortage. requireAiConversionConfirmation stayed true after a settings save. Original setting restored.
+- Command/check: `npm.cmd run smoke:live-audit`
+  Result: Passed with the default (disabled) setting; all child smokes green, temporary records archived.
+
 ## Residual Risk
 
-- Risk: `allowNegativeInventory` still needs consistent enforcement and the settings inventory (enforce/rename/remove every control) is not complete; remaining 009-B work.
-  Owner: Phase 009-B continuation.
+- Risk: negative aggregate stock is now possible for opt-in backorders; the DB CHECK no longer backstops it. Mitigation: disabled by default, gated at every production entry point, manual `inventory.adjust` keeps its own non-negative guard, and FEFO lots never go below zero.
+  Owner: acceptable per plan (explicit deficit); revisit if a correction/reversal flow for backorders is needed.
+- Remaining in Phase 009: 009-C Unit Divisibility (per-ingredient allows_decimals / minimum_increment).
 - Risk: legacy fractional count stock conflicts with the future unit policy (009-C).
   Owner: Phase 009-C; flag for operator correction without silent rewrite.
