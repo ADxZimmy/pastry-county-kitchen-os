@@ -49,11 +49,11 @@ Execute the revised audit-remediation program from the July 10 expanded producti
 
 ## Next Action
 
-Resume Phase 009-B with the stock-integrity-critical piece, ideally with fresh context: wire `defaultDeductionStage` into the Phase 008 idempotent completion (deduct at confirmation / production_start / completion, using the `production_runs` unique key so it deducts exactly once across stages; default stays `production_completion`), define `allowNegativeInventory` semantics (disabled blocks; enabled records an aggregate deficit while FEFO lots stay >= 0 and the order shows shortage), and enforce/rename/remove every remaining setting with contract tests. Then 009-C Unit Divisibility (per-ingredient allows_decimals / minimum_increment). Deploy each DB-touching slice with `smoke:live-audit`.
+CONFIRM WITH OWNER: production's `defaultDeductionStage` is `production_start`. It did nothing before 009-B (the PCO-007 bug); now it is honoured, so live orders deduct stock at production start, not completion. Confirm that is intended or set it to `production_completion` (conservative default). Not changed unilaterally.
 
-Owner decision 2026-07-11: after a very long session, deployed the safe 009-A + gram-rounding increment and paused before the deduction-stage wiring rather than rush a change that moves real stock.
+Then finish Phase 009-B: define `allowNegativeInventory` semantics (disabled blocks the deduction; enabled records an aggregate deficit while FEFO lots stay >= 0 and the order/UI shows shortage) and complete the settings inventory (enforce/rename/remove every remaining control; `requireAiConversionConfirmation` must not disable the mandatory review). Then Phase 009-C Unit Divisibility (per-ingredient allows_decimals / minimum_increment). Deploy each DB-touching slice with `smoke:live-audit`.
 
-Deployed so far (all production-verified): S0/006a, Phase 007, Phase 008, Phase 009-A, and the 009-B gram-rounding increment. `main` is synced with origin at `7b91198`. Remediation: 9 of 16 PCO findings fully closed; PCO-006 closed and half of PCO-007.
+Deployed and production-verified 2026-07-11: S0/006a, Phase 007, Phase 008, Phase 009-A, the 009-B gram-rounding increment, AND the 009-B deduction-stage wiring (`18d2c69`) — a stage-toggling probe proved stock deducts EXACTLY ONCE at the configured stage (confirmation / production_start / completion), never twice. `main` synced with origin at `18d2c69`. Remediation: 9 of 16 PCO findings fully closed; PCO-006 closed; PCO-007 mostly closed (gram rounding + deduction stage effective; negative inventory + full settings inventory remain).
 
 ## Phase 008 status (implemented locally 2026-07-11, complete)
 

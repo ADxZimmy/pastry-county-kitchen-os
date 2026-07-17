@@ -26,9 +26,21 @@
 - Command/check: `npm.cmd run smoke:live-audit`
   Result: Passed; all child smokes green, including phase3/phase4 (recipe.save exercises the shared import) and navigation-routing (the scaleRecipe-throws change did not crash any scaling view). Temporary records archived.
 
+## Deduction-stage wiring (deployed 2026-07-11, commit `18d2c69`)
+
+- Extracted `deductOrderStock` as the single deduction path; it claims the `production_runs` unique(order_id) row as the first statement so any stage deducts at most once. produceOrder checks for a prior run before deducting so an early-stage deduction is not re-shortage-checked against depleted stock. Early deduction triggers at the configured stage (confirmation on reserve/order.save; production_start when the order moves In Production) and defers on shortage. Default `production_completion` path is behaviour-preserved and the wiring is inert for it.
+- Command/check: stage-toggling production probe (temp ingredient/recipe/order, settings saved+restored, self-cleaning; script removed)
+  Result: 17/17 passed against real Postgres. For each of production_completion / production_start / confirmation, stock deducted EXACTLY ONCE at the configured stage (100000 -> 99000, never 98000), completion after an early deduction returned `deductedEarlier` without a second deduction, and a repeat produce was idempotent (`alreadyProduced`, stock unchanged). Original setting restored.
+- Command/check: `npm.cmd run smoke:live-audit`
+  Result: Passed with production's current `production_start` setting active; all child smokes green, temporary records archived.
+
+## Action needed — production setting
+
+- Production's `defaultDeductionStage` was found to be `production_start` (it had no effect before this deploy because the setting was unwired — the exact PCO-007 bug). Now that 009-B honours it, live orders deduct stock when production STARTS, not at completion. This is the fix working, but it is a real behaviour change: if production starts and is then cancelled, stock is already gone and needs an explicit correction. The owner should confirm `production_start` is intended, or set it to `production_completion` (the conservative default matching all prior behaviour). Flagged 2026-07-11; not changed unilaterally.
+
 ## Residual Risk
 
-- Risk: `defaultDeductionStage` and `allowNegativeInventory` still need enforcement; deferred to a focused pass because moving deduction timing is stock-integrity critical (owner decision 2026-07-11 to deploy the safe 009-A + gram-rounding increment and pause before it).
+- Risk: `allowNegativeInventory` still needs consistent enforcement and the settings inventory (enforce/rename/remove every control) is not complete; remaining 009-B work.
   Owner: Phase 009-B continuation.
 - Risk: legacy fractional count stock conflicts with the future unit policy (009-C).
   Owner: Phase 009-C; flag for operator correction without silent rewrite.
