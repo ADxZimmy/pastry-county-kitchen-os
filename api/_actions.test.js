@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { actorLabel, allowedRolesForAction, archiveTableForEntity, canRolePerformAction, computeOrderPricing, isUniqueViolation, isValidOrderTransition, normalizeConversionScope, normalizeIngredientAllergenProfile, normalizeIngredientStorageProfile, normalizeProductionQcLog, normalizeRecipeCostProfile, normalizeRecipeFormulaMetadata, normalizeRecipeItemPrepState, normalizeShoppingPurchaseInput, planBatchDeductions, productionCompletionPreflight, productionShortageForRequirement, safePurchasePersistenceError, sendResendEmail, sessionAccessError } from "./_actions.js";
+import { actorLabel, allowedRolesForAction, archiveTableForEntity, canRolePerformAction, computeOrderPricing, isUniqueViolation, isValidOrderTransition, normalizeConversionScope, normalizeDeductionStage, normalizeIngredientAllergenProfile, normalizeIngredientStorageProfile, normalizeProductionQcLog, normalizeRecipeCostProfile, normalizeRecipeFormulaMetadata, normalizeRecipeItemPrepState, normalizeShoppingPurchaseInput, planBatchDeductions, productionCompletionPreflight, productionShortageForRequirement, safePurchasePersistenceError, sendResendEmail, sessionAccessError } from "./_actions.js";
 
 describe("FEFO batch deduction planning", () => {
   it("deducts stock removals or production use across lots in the provided FEFO order", () => {
@@ -159,6 +159,17 @@ describe("canonical order pricing (PCO-002)", () => {
     expect(() => computeOrderPricing({ lines: [line(-1)] })).toThrow();
     expect(() => computeOrderPricing({ lines: [line(100)], discountAmount: -5 })).toThrow();
     expect(() => computeOrderPricing({ lines: [line(100)], taxRate: Number.POSITIVE_INFINITY })).toThrow();
+  });
+});
+
+describe("deduction stage policy (PCO-007)", () => {
+  it("normalizes the deduction stage and defaults safely to production completion", () => {
+    expect(normalizeDeductionStage("confirmation")).toBe("confirmation");
+    expect(normalizeDeductionStage("production_start")).toBe("production_start");
+    expect(normalizeDeductionStage("production_completion")).toBe("production_completion");
+    expect(normalizeDeductionStage("bogus")).toBe("production_completion");
+    expect(normalizeDeductionStage(undefined)).toBe("production_completion");
+    expect(normalizeDeductionStage(null)).toBe("production_completion");
   });
 });
 

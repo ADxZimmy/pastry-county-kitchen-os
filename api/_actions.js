@@ -1267,6 +1267,97 @@ async function productionQcLogForOrder(sql, orderId, qcInput, actor) {
   };
 }
 
+const DEDUCTION_STAGES = ["confirmation", "production_start", "production_completion"];
+
+export function normalizeDeductionStage(value) {
+  return DEDUCTION_STAGES.includes(value) ? value : "production_completion";
+}
+
+async function orderDeductionStage(sql) {
+  const rows = await sql`select default_deduction_stage from settings order by updated_at desc limit 1`;
+  return normalizeDeductionStage(rows[0]?.default_deduction_stage);
+}
+
+function wasteFromQc(qcLog, qcInput = {}) {
+  return num(qcInput.wasteQuantity) > 0
+    ? num(qcInput.wasteQuantity)
+    : Math.max(0, Number(qcLog?.expectedYieldQuantity ?? 0) - Number(qcLog?.actualYieldQuantity ?? 0));
+}
+
+function productionQcInsert(txn, qcLog) {
+  return txn`
+    insert into production_qc_logs (id, order_id, recipe_id, batch_key, formula_version, expected_yield_quantity, actual_yield_quantity, yield_unit, room_temperature, mix_temperature, oven_temperature, bake_time_minutes, rest_time_minutes, sensory_notes, defects, next_adjustment, passed_qc, logged_by)
+    values (${qcLog.id}, ${qcLog.orderId}, ${qcLog.recipeId}, ${qcLog.batchKey}, ${qcLog.formulaVersion}, ${qcLog.expectedYieldQuantity}, ${qcLog.actualYieldQuantity}, ${qcLog.yieldUnit}, ${qcLog.roomTemperature}, ${qcLog.mixTemperature}, ${qcLog.ovenTemperature}, ${qcLog.bakeTimeMinutes}, ${qcLog.restTimeMinutes}, ${qcLog.sensoryNotes}, ${qcLog.defects}, ${qcLog.nextAdjustment}, ${qcLog.passedQc}, ${qcLog.loggedBy})
+  `;
+}
+
+// Deduct an order's ingredients from stock EXACTLY ONCE by claiming the
+// production_runs row (unique order_id) as the first statement of the
+// transaction; a concurrent or repeat call fails with 23505 and rolls back with
+// no stock change. Reused by every deduction stage.
+// - finalize: true also writes the QC log and sets the order Produced in the
+//   same transaction (the completion path, unchanged behavior).
+// - requireStock: false returns { shortage } instead of throwing, so an early
+//   stage never blocks its lifecycle action when stock is not yet available.
+async function deductOrderStock(sql, orderId, actor, { stage = "production_completion", finalize = false, qcLog = null, qcInput = {}, requireStock = true } = {}) {
+  const requirements = await requirementsForOrder(sql, orderId);
+  const shortages = await shortagesForProduction(sql, orderId, requirements);
+  if (shortages.length) {
+    if (!requireStock) return { deducted: false, shortage: shortages };
+    await sql`update orders set stock_status = 'Shortage', updated_at = now() where id = ${orderId}`;
+    throw Object.assign(new Error(`Cannot mark produced while ingredients are short: ${shortageSummary(shortages)}.`), { statusCode: 409, details: shortages });
+  }
+  const batchDeductions = await Promise.all(requirements.map((requirement) => batchDeductionsForRequirement(sql, requirement)));
+  const deductActor = actorLabel(actor);
+  const stageLabel = stage.replace(/_/g, " ");
+  const orderRows = await sql`select status from orders where id = ${orderId}`;
+  const previousStatus = orderRows[0]?.status ?? null;
+  try {
+    await sql.transaction((txn) => [
+      txn`
+        insert into production_runs (id, order_id, batch_key, actor, planned_yield, actual_yield, waste_quantity, qc_log_id)
+        values (${id("prun")}, ${orderId}, ${qcLog?.batchKey ?? null}, ${deductActor}, ${qcLog?.expectedYieldQuantity ?? null}, ${qcLog?.actualYieldQuantity ?? null}, ${qcLog ? wasteFromQc(qcLog, qcInput) : null}, ${qcLog?.id ?? null})
+      `,
+      ...requirements.flatMap((requirement, index) => [
+        txn`
+          insert into inventory_movements (id, ingredient_id, movement_type, quantity_change, unit, related_order_id, note, created_by)
+          values (${id(`mov-prod-${index}`)}, ${requirement.ingredient_id}, 'production_use', ${-Number(requirement.quantity)}, ${requirement.unit}, ${orderId}, ${`Deducted at ${stageLabel}`}, ${deductActor})
+        `,
+        txn`
+          update ingredients
+          set current_stock = current_stock - ${Number(requirement.quantity)},
+            reserved_stock = greatest(0, reserved_stock - ${Number(requirement.quantity)}),
+            updated_at = now()
+          where id = ${requirement.ingredient_id}
+        `
+      ]),
+      ...batchDeductions.flatMap((deductions) => deductions.map((deduction) => txn`
+        update ingredient_batches
+        set quantity_remaining = greatest(0, quantity_remaining - ${deduction.quantity}), updated_at = now()
+        where id = ${deduction.batchId}
+      `)),
+      ...(finalize && qcLog ? [productionQcInsert(txn, qcLog)] : []),
+      ...(finalize ? [txn`update orders set status = 'Produced', production_status = 'Completed', stock_status = 'In Stock', updated_at = now() where id = ${orderId}`] : []),
+      orderEventStatement(txn, finalize
+        ? { orderId, eventType: "produced", actor, previousStatus, newStatus: "Produced", metadata: { qcLogId: qcLog?.id, passedQc: qcLog?.passedQc, stage }, note: "Order marked produced; ingredients deducted from stock." }
+        : { orderId, eventType: "deducted", actor, previousStatus, newStatus: previousStatus, metadata: { stage }, note: `Ingredients deducted from stock at ${stageLabel}.` })
+    ]);
+    return { deducted: true };
+  } catch (error) {
+    if (isUniqueViolation(error)) return { deducted: false, alreadyDeducted: true };
+    throw error;
+  }
+}
+
+// Deduct at an early lifecycle stage (confirmation / production_start) when the
+// deduction-stage setting selects it. Never throws on shortage or double claim:
+// the physical deduction is deferred to a later stage the same way completion
+// deducts today. Callers pass the current setting to avoid re-querying.
+async function maybeDeductAtStage(sql, orderId, actor, stage, currentStage) {
+  if (currentStage !== stage) return null;
+  return deductOrderStock(sql, orderId, actor, { stage, finalize: false, requireStock: false });
+}
+
 export async function produceOrder(sql, orderId, actor, qcInput = {}) {
   await requirePermission(sql, "order.produce", actor);
   await ensureOperationalTables(sql);
@@ -1276,67 +1367,32 @@ export async function produceOrder(sql, orderId, actor, qcInput = {}) {
   const preflightResult = productionCompletionPreflight(status);
   if (preflightResult) return preflightResult;
 
-  const requirements = await requirementsForOrder(sql, orderId);
-  const shortages = await shortagesForProduction(sql, orderId, requirements);
-  if (shortages.length) {
-    await sql`update orders set stock_status = 'Shortage', updated_at = now() where id = ${orderId}`;
-    throw Object.assign(new Error(`Cannot mark produced while ingredients are short: ${shortageSummary(shortages)}.`), { statusCode: 409, details: shortages });
-  }
-
-  const batchDeductions = await Promise.all(requirements.map((requirement) => batchDeductionsForRequirement(sql, requirement)));
   const qcLog = await productionQcLogForOrder(sql, orderId, qcInput, actor);
-  const produceActor = actorLabel(actor);
-  const wasteQuantity = num(qcInput.wasteQuantity) > 0
-    ? num(qcInput.wasteQuantity)
-    : Math.max(0, Number(qcLog.expectedYieldQuantity ?? 0) - Number(qcLog.actualYieldQuantity ?? 0));
-  try {
-    await sql.transaction((txn) => [
-      // First statement: claim the completion. unique(order_id) makes a concurrent
-      // or repeat completion fail here and roll the whole transaction back, so
-      // stock is never deducted twice.
-      txn`
-        insert into production_runs (id, order_id, batch_key, actor, planned_yield, actual_yield, waste_quantity, qc_log_id)
-        values (${id("prun")}, ${orderId}, ${qcLog.batchKey}, ${produceActor}, ${qcLog.expectedYieldQuantity}, ${qcLog.actualYieldQuantity}, ${wasteQuantity}, ${qcLog.id})
-      `,
-    ...requirements.flatMap((requirement, index) => [
-      txn`
-        insert into inventory_movements (id, ingredient_id, movement_type, quantity_change, unit, related_order_id, note, created_by)
-        values (${id(`mov-prod-${index}`)}, ${requirement.ingredient_id}, 'production_use', ${-Number(requirement.quantity)}, ${requirement.unit}, ${orderId}, 'Deducted when order was marked produced', ${produceActor})
-      `,
-      txn`
-        update ingredients
-        set current_stock = current_stock - ${Number(requirement.quantity)},
-          reserved_stock = greatest(0, reserved_stock - ${Number(requirement.quantity)}),
-          updated_at = now()
-        where id = ${requirement.ingredient_id}
-      `
-    ]),
-    ...batchDeductions.flatMap((deductions) => deductions.map((deduction) => txn`
-      update ingredient_batches
-      set quantity_remaining = greatest(0, quantity_remaining - ${deduction.quantity}), updated_at = now()
-      where id = ${deduction.batchId}
-    `)),
-    txn`
-      insert into production_qc_logs (id, order_id, recipe_id, batch_key, formula_version, expected_yield_quantity, actual_yield_quantity, yield_unit, room_temperature, mix_temperature, oven_temperature, bake_time_minutes, rest_time_minutes, sensory_notes, defects, next_adjustment, passed_qc, logged_by)
-      values (${qcLog.id}, ${qcLog.orderId}, ${qcLog.recipeId}, ${qcLog.batchKey}, ${qcLog.formulaVersion}, ${qcLog.expectedYieldQuantity}, ${qcLog.actualYieldQuantity}, ${qcLog.yieldUnit}, ${qcLog.roomTemperature}, ${qcLog.mixTemperature}, ${qcLog.ovenTemperature}, ${qcLog.bakeTimeMinutes}, ${qcLog.restTimeMinutes}, ${qcLog.sensoryNotes}, ${qcLog.defects}, ${qcLog.nextAdjustment}, ${qcLog.passedQc}, ${qcLog.loggedBy})
-    `,
-    txn`update orders set status = 'Produced', production_status = 'Completed', stock_status = 'In Stock', updated_at = now() where id = ${orderId}`,
-    orderEventStatement(txn, {
-      orderId,
-      eventType: "produced",
-      actor,
-      previousStatus: status,
-      newStatus: "Produced",
-      metadata: { qcLogId: qcLog.id, passedQc: qcLog.passedQc },
-      note: "Order marked produced; ingredients deducted from stock."
-    })
-    ]);
-  } catch (error) {
-    if (isUniqueViolation(error)) return { produced: false, alreadyProduced: true };
-    throw error;
+  // If stock has NOT already been deducted at an earlier stage, deduct now (the
+  // default completion path: deduct + QC + Produced status in one transaction).
+  // The pre-check matters because once early deduction has depleted stock, a
+  // second shortage recalculation would falsely report a shortage.
+  const priorRun = await sql`select id from production_runs where order_id = ${orderId} limit 1`;
+  if (!priorRun.length) {
+    const result = await deductOrderStock(sql, orderId, actor, { stage: "production_completion", finalize: true, qcLog, qcInput, requireStock: true });
+    if (result.deducted) {
+      await audit(sql, "orders", orderId, "produce", { status }, await rowById(sql, "orders", orderId), actor);
+      return { produced: true, qcLogId: qcLog.id };
+    }
+    // Lost a race to a concurrent claim between the pre-check and here; fall
+    // through to finalize (QC + Produced) without deducting again.
   }
+  // Stock was already deducted (early stage, or the race above). Complete without
+  // deducting. Re-check status so a concurrent completion cannot double-write QC.
+  const currentRows = await sql`select status from orders where id = ${orderId}`;
+  if (currentRows[0]?.status === "Produced") return { produced: false, alreadyProduced: true };
+  await sql.transaction((txn) => [
+    productionQcInsert(txn, qcLog),
+    txn`update orders set status = 'Produced', production_status = 'Completed', stock_status = 'In Stock', updated_at = now() where id = ${orderId}`,
+    orderEventStatement(txn, { orderId, eventType: "produced", actor, previousStatus: status, newStatus: "Produced", metadata: { qcLogId: qcLog.id, passedQc: qcLog.passedQc, deductedEarlier: true }, note: "Order marked produced; stock was deducted at an earlier stage." })
+  ]);
   await audit(sql, "orders", orderId, "produce", { status }, await rowById(sql, "orders", orderId), actor);
-  return { produced: true, qcLogId: qcLog.id };
+  return { produced: true, qcLogId: qcLog.id, deductedEarlier: true };
 }
 
 export async function handleAction(sql, body, actor) {
@@ -1662,11 +1718,17 @@ export async function handleAction(sql, body, actor) {
     const stockStatus = await stockStatusForRequirements(sql, await requirementsForOrder(sql, orderId));
     await sql`update orders set stock_status = ${stockStatus}, updated_at = now() where id = ${orderId}`;
     const reservation = body.reserve ? await reserveOrder(sql, orderId, actor) : null;
+    if (body.reserve) await maybeDeductAtStage(sql, orderId, actor, "confirmation", await orderDeductionStage(sql));
     await audit(sql, "orders", orderId, data.id ? "update" : "create", before, await rowById(sql, "orders", orderId), actor);
     return { ok: true, id: orderId, stockStatus, reservation };
   }
 
-  if (action === "order.reserve") return reserveOrder(sql, required(body.orderId, "Order"), actor);
+  if (action === "order.reserve") {
+    const orderId = required(body.orderId, "Order");
+    const reservation = await reserveOrder(sql, orderId, actor);
+    await maybeDeductAtStage(sql, orderId, actor, "confirmation", await orderDeductionStage(sql));
+    return reservation;
+  }
   if (action === "order.releaseReservation") return releaseReservation(sql, required(body.orderId, "Order"), actor);
   if (action === "order.produce") return produceOrder(sql, required(body.orderId, "Order"), actor, body.qcLog ?? {});
 
@@ -1736,6 +1798,7 @@ export async function handleAction(sql, body, actor) {
         note: cancellationReason ? `Order cancelled: ${cancellationReason}` : `Status changed to ${status}.`
       })
     ]);
+    if (status === "In Production") await maybeDeductAtStage(sql, orderId, actor, "production_start", await orderDeductionStage(sql));
     if (status === "Cancelled") await releaseReservation(sql, orderId, actor);
     await audit(sql, "orders", orderId, "status_change", before, await rowById(sql, "orders", orderId), actor);
     return { ok: true };
