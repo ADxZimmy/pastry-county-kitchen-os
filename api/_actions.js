@@ -1782,7 +1782,7 @@ export async function handleAction(sql, body, actor) {
     const productionStatus = body.productionStatus || (status === "In Production" ? "In Progress" : status === "Delivered" || status === "Produced" ? "Completed" : undefined);
     if (status === "In Production") {
       const reservation = await reserveOrder(sql, orderId, actor);
-      if (reservation.shortage) {
+      if (reservation.shortage && !(await allowNegativeInventory(sql))) {
         throw Object.assign(new Error(`Cannot start production until shortages are resolved: ${shortageSummary(reservation.shortages)}.`), { statusCode: 409, details: reservation.shortages });
       }
     }
@@ -1824,11 +1824,12 @@ export async function handleAction(sql, body, actor) {
     if (!orderIds.length) throw Object.assign(new Error("Select at least one order for this production batch."), { statusCode: 400 });
     const status = required(body.status, "Status");
     const productionStatus = body.productionStatus || (status === "In Production" ? "In Progress" : status === "Produced" ? "Completed" : "Ready");
+    const batchAllowNegative = await allowNegativeInventory(sql);
     if (status === "Produced") {
       const results = [];
       for (const orderId of orderIds) {
         const reservation = await reserveOrder(sql, orderId, actor);
-        if (reservation.shortage) {
+        if (reservation.shortage && !batchAllowNegative) {
           throw Object.assign(new Error(`Cannot complete this batch until shortages are resolved: ${shortageSummary(reservation.shortages)}.`), { statusCode: 409, details: reservation.shortages });
         }
         await sql`
@@ -1843,7 +1844,7 @@ export async function handleAction(sql, body, actor) {
     if (status === "In Production") {
       for (const orderId of orderIds) {
         const reservation = await reserveOrder(sql, orderId, actor);
-        if (reservation.shortage) {
+        if (reservation.shortage && !batchAllowNegative) {
           throw Object.assign(new Error(`Cannot start this batch until shortages are resolved: ${shortageSummary(reservation.shortages)}.`), { statusCode: 409, details: reservation.shortages });
         }
       }
