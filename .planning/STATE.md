@@ -49,9 +49,9 @@ Execute the revised audit-remediation program from the July 10 expanded producti
 
 ## Next Action
 
-CONFIRM WITH OWNER: production's `defaultDeductionStage` is `production_start`. It did nothing before 009-B (the PCO-007 bug); now it is honoured, so live orders deduct stock at production start, not completion. Confirm that is intended or set it to `production_completion` (conservative default). Not changed unilaterally.
+Resolved 2026-07-11: production's `defaultDeductionStage` was `production_start` (unwired/ineffective before 009-B); on the owner's instruction it was set to `production_completion` via `settings.save` and verified against production (before `production_start` -> save 200 -> after `production_completion`). Live orders again deduct only at completion, matching all prior behaviour.
 
-Then finish Phase 009-B: define `allowNegativeInventory` semantics (disabled blocks the deduction; enabled records an aggregate deficit while FEFO lots stay >= 0 and the order/UI shows shortage) and complete the settings inventory (enforce/rename/remove every remaining control; `requireAiConversionConfirmation` must not disable the mandatory review). Then Phase 009-C Unit Divisibility (per-ingredient allows_decimals / minimum_increment). Deploy each DB-touching slice with `smoke:live-audit`.
+Finish Phase 009-B: define `allowNegativeInventory` semantics (disabled blocks the deduction; enabled records an aggregate deficit while FEFO lots stay >= 0 and the order/UI shows shortage) and complete the settings inventory (enforce/rename/remove every remaining control; `requireAiConversionConfirmation` must not disable the mandatory review). Then Phase 009-C Unit Divisibility (per-ingredient allows_decimals / minimum_increment). Deploy each DB-touching slice with `smoke:live-audit`.
 
 Deployed and production-verified 2026-07-11: S0/006a, Phase 007, Phase 008, Phase 009-A, the 009-B gram-rounding increment, AND the 009-B deduction-stage wiring (`18d2c69`) — a stage-toggling probe proved stock deducts EXACTLY ONCE at the configured stage (confirmation / production_start / completion), never twice. `main` synced with origin at `18d2c69`. Remediation: 9 of 16 PCO findings fully closed; PCO-006 closed; PCO-007 mostly closed (gram rounding + deduction stage effective; negative inventory + full settings inventory remain).
 
