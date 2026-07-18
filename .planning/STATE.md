@@ -4,7 +4,7 @@ Last updated: 2026-07-11
 
 ## Current Focus
 
-Execute the revised audit-remediation program from the July 10 expanded production audit (54/100, Not Ready). S0 (Phase 006a), Phase 007 Truthful Orders And Financials, and Phase 008 Production Transaction Safety are all deployed and production-verified. Phase 009 (Validation, Settings And Unit Policy) is next, then Phase 010, then the 015-A Demo Trust gate. No unscripted demo is approved before the full D1 Demo Trust gate passes.
+Execute the revised audit-remediation program from the July 10 expanded production audit (54/100, Not Ready). The Demo Trust Program is COMPLETE: S0 (006a), 007, 008, 009 and 010 are all deployed and production-verified, and the **D1 Demo Trust Gate (015-A) PASSED 30/30 against production on 2026-07-11**. An unscripted operator/investor demo is now approvable for the Demo Trust scope. Next is the MVP Hardening Program: Phase 011 (auth/session), 012 (performance), 013 (accessibility), 014 (real AI, optional and gated), then 015-B full UAT + external audit rerun.
 
 ## Completed
 
@@ -32,7 +32,7 @@ Execute the revised audit-remediation program from the July 10 expanded producti
 
 ## In Progress
 
-- Phase 007 (007-A/B/C) is implemented and committed locally; it awaits deploy + production smoke to close its Demo Trust items. Phase 006a is fully shipped and production-verified (see Completed).
+- Nothing in flight. The Demo Trust Program closed with the 015-A gate; Phase 011 has not started.
 
 ## Deploy notes (2026-07-11)
 
@@ -41,8 +41,7 @@ Execute the revised audit-remediation program from the July 10 expanded producti
 
 ## Blocked
 
-- Item: Operator/investor demo approval.
-  Reason: Demo Trust Gate has not passed; PCO-001 through PCO-009, PCO-014, and PCO-016 remain open until Phase 007 (deployed) plus 008-010 close them.
+- CLEARED 2026-07-11: Operator/investor demo approval. The D1 Demo Trust Gate passed 30/30 against production (`AUDIT-UAT-1784387883299-53b5tx`), so an unscripted demo is approved for the Demo Trust scope (PCO-001..009, 014, 016). This is a demo-readiness clearance only — not MVP readiness and not a certification claim.
 
 - Item: 100/100 certification claim.
   Reason: Product remediation plus external email DNS/operator sign-offs, backup/restore or rollback drills, and manual evidence remain outstanding.
@@ -59,7 +58,9 @@ Slice 010-B is deployed and verified (`0511095`): `conversion.applyToRecipeItem`
 
 PHASE 010 IS COMPLETE for its demo-trust scope, so ALL Demo Trust Program phases (007, 008, 009, 010) are now deployed and production-verified.
 
-Next: the 015-A Authenticated Demo Trust UAT gate per `.planning/phases/015-authenticated-uat-audit-rerun/PLAN.md` stage 015-A — build `scripts/uat-core-smoke.mjs` around a unique run id + manifest that may only touch records it created, cover the audit's Prompt 10 fixtures and the PCO-001..009/014/016 behaviours end to end with refresh-after-write, and clean up in `finally`. No unscripted operator/investor demo is approved until that gate is green.
+THE D1 DEMO TRUST GATE PASSED 2026-07-11. `scripts/uat-core-smoke.mjs` (`npm.cmd run smoke:uat-core`) ran 30/30 green against production under run id `AUDIT-UAT-1784387883299-53b5tx`: it verified its run id was unique before writing anything, built the audit's Prompt 10 fixtures, and asserted every Demo Trust finding end to end — including proving the 16->12 scaling table by REAL server-side deductions (flour 225, sugar 375, cocoa 90, chocolate 187.5, eggs 3, oil 135) rather than trusting the client calculation. Cleanup ran in `finally` with `archiveFailures: []` and `activeResidue: []`. Full evidence in `.planning/phases/015-authenticated-uat-audit-rerun/VERIFICATION.md`.
+
+Next: Phase 011 Authentication And Session Hardening, which starts the MVP Hardening Program (M1 gate) — httpOnly cookie sessions, CSRF, real password reset, server-side revocation, shared throttling. 015-B (full UAT + fresh external audit) stays last, after 011-014.
 
 Deployed and production-verified 2026-07-11: S0/006a, Phase 007, Phase 008, Phase 009-A, the 009-B gram-rounding increment, AND the 009-B deduction-stage wiring (`18d2c69`) — a stage-toggling probe proved stock deducts EXACTLY ONCE at the configured stage (confirmation / production_start / completion), never twice. `main` synced with origin at `18d2c69`. Remediation: 9 of 16 PCO findings fully closed; PCO-006 closed; PCO-007 mostly closed (gram rounding + deduction stage effective; negative inventory + full settings inventory remain).
 
@@ -90,3 +91,5 @@ Phase 007 shipped 2026-07-11: pushed the four 007 commits + merge `add3079`, the
   Result: Passed; all child smokes green, cleanup verified with zero temporary smoke users/ingredients/FEFO overstatements.
 - Command/check: Phase 007 deploy + smoke (production, 2026-07-11)
   Result: Passed after hotfix `a75c688`. First 007 build 500'd `/api/bootstrap` (ambiguous `created_at` where the order_events query joins orders); fully qualifying the query columns fixed it. Post-fix bootstrap 200 with orderEvents + pricing; full `smoke:live-audit` green with cleanup. Lesson recorded: DB-query changes need an integration smoke, not just the DB-less unit suite.
+- Command/check: `npm.cmd run smoke:uat-core` — D1 Demo Trust Gate (production, 2026-07-11)
+  Result: **PASSED, 30/30.** Run id uniqueness asserted before any write; PCO-001 real per-order events with a real actor and no fabricated entries; PCO-002 orders netting 7,500 and 40,000 (never 18,000); PCO-003 stale apply 409 + reviewed apply persisted with provenance + honest helper copy in the shipped bundle; PCO-004/005 forward-only transitions and idempotent produce (stock 4812.5 -> 4812.5 on repeat); PCO-006 zero yield 400; PCO-008 fractional pack 400; PCO-009 reason required, produced-order cancel blocked, pre-production cancel recorded; PCO-016 no mojibake; audit scaling table proven by real deductions. Cleanup manifest clean (`archiveFailures: []`, `activeResidue: []`).

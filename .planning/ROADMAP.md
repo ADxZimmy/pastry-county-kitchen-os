@@ -18,37 +18,37 @@ Revised 2026-07-11 after reconciling the July 10 expanded external audit (54/100
 
 ## Now
 
-- Phase: 007 Truthful Orders And Financials
-  Outcome: Real per-order event history and actor attribution; server-canonical pricing and totals; data-derived dashboard guidance; no hard-coded 18,000 or mojibake. (PCO-001, 002, 014, 016; RS-005)
-  Status: Ready to begin with slice 007-A Order Event Truth.
+- Phase: 011 Auth And Session Hardening
+  Outcome: Opaque server-side sessions in HttpOnly cookies, CSRF protection, private/no-store responses, distributed auth throttling, and hashed single-use password-reset tokens. (PCO-012, 015)
+  Status: Ready to begin. Starts the MVP Hardening Program now that the D1 Demo Trust Gate is green.
 
-## Completed Gate
+## Completed Gates
 
 - Phase: 006a Immediate Security Containment / S0
   Outcome: Retired unauthenticated stock mutation, authorized maintenance before DDL, restricted `schema.ensure`, masked unexpected errors, and required a dedicated production session secret.
   Status: Deployed and production-verified 2026-07-11. Health, unauthenticated route probes, full live smoke, and cleanup passed.
 
-## Demo Trust Program
+- Gate: D1 Demo Trust / 015-A Authenticated Demo Trust UAT
+  Outcome: Core Prompt 10 create/edit/refresh/lifecycle checks pass against production with isolated, reversible, manifest-owned data.
+  Status: PASSED 2026-07-11, 30/30 (`npm.cmd run smoke:uat-core`, run id `AUDIT-UAT-1784387883299-53b5tx`). Unscripted operator/investor demos are approved for the Demo Trust scope. Cleanup left no residue.
+
+## Demo Trust Program (complete)
 
 - Phase: 007 Truthful Orders And Financials
   Outcome: Real per-order event history and actor attribution; server-canonical pricing and totals; data-derived dashboard guidance; no hard-coded 18,000 or mojibake. (PCO-001, 002, 014, 016)
-  Status: Planned in independently deployable slices.
+  Status: Deployed and production-verified 2026-07-11 (`85ee60e`, `596ca01`, `c1c958e`, hotfix `a75c688`).
 
 - Phase: 008 Production Transaction Safety
   Outcome: Correct timezone-aware queues; server-enforced lifecycle; locked, atomic, idempotent completion; explicit QC/confirmation; safe cancellation policy. (PCO-004, 005, 009)
-  Status: Planned in queue/state-machine and completion/cancellation slices.
+  Status: Deployed and production-verified 2026-07-11 (`376509b`, `b17c05f`, `6b44f0b`).
 
 - Phase: 009 Validation, Settings And Unit Policy
   Outcome: Client/server validation, a genuinely shared policy module, effective or explicitly retired settings, and divisible-unit rules. (PCO-006, 007, 008)
-  Status: Planned in validation/rounding and lifecycle/unit-policy slices.
+  Status: Deployed and production-verified 2026-07-11 (`6d33a07`, `09890d5`, `e8a733f`, `18d2c69`, `7abc4bc`).
 
 - Phase: 010 Conversion Apply And Honest Helper
   Outcome: Conversion actions truthfully distinguish saving a rule from changing a recipe; recipe changes use review, confirmation, provenance, audited persistence, and reload verification; deterministic assistant is labelled Kitchen Helper. (PCO-003 demo closure)
-  Status: Planned.
-
-- Gate: 015-A Authenticated Demo Trust UAT
-  Outcome: Core Prompt 10 create/edit/refresh/lifecycle checks and all phase smokes pass with isolated, reversible data; no unscripted demo before this gate passes.
-  Status: Planned immediately after Phase 010.
+  Status: Deployed and production-verified 2026-07-11 (`926861a`, `e4d3f1e`, `0511095`). Model-backed assistance remains Phase 014 and optional.
 
 ## MVP Hardening Program
 
