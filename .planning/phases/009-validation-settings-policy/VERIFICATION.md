@@ -47,6 +47,18 @@
 - Command/check: `npm.cmd run smoke:live-audit`
   Result: Passed with the default (disabled) setting; all child smokes green, temporary records archived.
 
+## Unit divisibility (deployed 2026-07-11, commit `7abc4bc`)
+
+- Shared policy gained `defaultAllowsDecimals` / `unitIncrement` / `validateQuantityIncrement`; per-ingredient `allows_decimals` + `minimum_increment` columns added (canonical schema, idempotent migrations, snapshot projection, types). Null falls back to the unit default and legacy fractional rows are left alone rather than silently rewritten. Enforced in `ingredient.save` (current stock, reorder level, purchase quantity) and `inventory.adjust`; the ingredient form derives its numeric step from the unit and exposes an "Allow partial units" control.
+- Command/check: divisibility probe against production (temp ingredients, self-cleaning; script removed)
+  Result: 6/6 passed. `1.5 pack` rejected 400 ("Current stock must be a whole number of pack."); `2 pack` and `1.5 kg` accepted; `1.5 pack` accepted when the ingredient opts into partial units; fractional `inventory.adjust` on a pack ingredient rejected 400 while a whole adjustment succeeded. Three temp ingredients archived.
+- Command/check: `npm.cmd run smoke:live-audit`
+  Result: Passed; all child smokes green, so the ingredient-creation paths still work under the new divisibility rule. Temporary records archived.
+
+## Phase status
+
+Phase 009 is COMPLETE and production-verified across 009-A (`6d33a07`), 009-B (`09890d5`, `e8a733f`), and 009-C (`7abc4bc`). PCO-006, PCO-007, and PCO-008 are closed.
+
 ## Residual Risk
 
 - Risk: negative aggregate stock is now possible for opt-in backorders; the DB CHECK no longer backstops it. Mitigation: disabled by default, gated at every production entry point, manual `inventory.adjust` keeps its own non-negative guard, and FEFO lots never go below zero.
