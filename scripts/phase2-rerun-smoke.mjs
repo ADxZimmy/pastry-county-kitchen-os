@@ -136,8 +136,10 @@ async function assertFreshLoginAndMobile() {
     assert(storedSession.user?.token, "Fresh UI login did not persist user.token.");
     assert(!await page.getByText(/Session expired/i).isVisible().catch(() => false), "Fresh UI login showed Session expired.");
 
-    await page.getByRole("button", { name: "Ask AI" }).click();
-    await page.getByRole("heading", { name: "Ask AI" }).waitFor({ state: "visible" });
+    // Phase 010 renamed the deterministic helper from "AI Assistant"/"Ask AI" to
+    // "Kitchen Helper" (PCO-003 honest labelling).
+    await page.getByRole("button", { name: "Kitchen Helper" }).click();
+    await page.getByRole("heading", { name: "Kitchen Helper" }).waitFor({ state: "visible" });
     const prompts = [
       ["Convert 4 cups flour to grams.", "Flour: 4 cup -> 480g"],
       ["Convert 1 cup sugar to grams.", "Sugar: 1 cup -> 200g"],
