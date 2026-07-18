@@ -1,6 +1,6 @@
 import { getSql, sendError, setPrivateNoStore } from "./_db.js";
 import { handleAction } from "./_actions.js";
-import { actorFromRequest } from "./_auth.js";
+import { authenticateRequest, enforceRequestCsrf } from "./_auth.js";
 import { rateLimit, rateLimitKey, sendRateLimit } from "./_rateLimit.js";
 
 export default async function handler(req, res) {
@@ -12,7 +12,10 @@ export default async function handler(req, res) {
 
   try {
     setPrivateNoStore(res);
-    const actor = actorFromRequest(req);
+    res.setHeader("Vary", "Cookie");
+    const sql = getSql();
+    const actor = await authenticateRequest(sql, req);
+    enforceRequestCsrf(req, actor);
     const actionName = req.body?.action || "unknown";
     const actionLimit = rateLimit({
       key: rateLimitKey(req, actor ? "api.actions.authenticated" : "api.actions.unauthenticated", actor?.sub || actionName),
@@ -23,7 +26,7 @@ export default async function handler(req, res) {
       sendRateLimit(res, actionLimit);
       return;
     }
-    res.status(200).json(await handleAction(getSql(), req.body ?? {}, actor));
+    res.status(200).json(await handleAction(sql, req.body ?? {}, actor));
   } catch (error) {
     sendError(res, error);
   }

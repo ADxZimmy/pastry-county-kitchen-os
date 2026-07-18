@@ -1,5 +1,6 @@
 import bcrypt from "bcryptjs";
-import { createSessionToken } from "../_auth.js";
+import { bearerCompatEnabled, createSessionToken } from "../_auth.js";
+import { issueSession, readSessionCookie, revokeSession, setSessionCookie } from "../_sessions.js";
 import { first, getSql, sendError, setPrivateNoStore } from "../_db.js";
 import { rateLimit, rateLimitKey, sendRateLimit } from "../_rateLimit.js";
 
@@ -35,7 +36,22 @@ export default async function handler(req, res) {
       res.status(401).json({ error: "Invalid email or password" });
       return;
     }
-    res.status(200).json({ id: user.id, email: user.email, fullName: user.full_name, role: user.role, token: createSessionToken(user) });
+
+    // Rotate: whatever session the browser arrived with is retired before a new
+    // one is issued, so a fixated cookie cannot survive a login.
+    const presented = readSessionCookie(req);
+    if (presented) await revokeSession(sql, presented, "login-rotation");
+
+    const session = await issueSession(sql, user, req);
+    setSessionCookie(res, session.token, { maxAgeSeconds: session.ttlSeconds });
+    res.status(200).json({
+      id: user.id,
+      email: user.email,
+      fullName: user.full_name,
+      role: user.role,
+      csrfToken: session.csrfToken,
+      ...(bearerCompatEnabled() ? { token: createSessionToken(user) } : {})
+    });
   } catch (error) {
     sendError(res, error);
   }

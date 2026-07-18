@@ -1,6 +1,7 @@
 import bcrypt from "bcryptjs";
 import { Resend } from "resend";
 import { ensureSessionColumns, sessionAccessError } from "./_auth.js";
+import { revokeAllUserSessions } from "./_sessions.js";
 import { extractImportDraft, importParserVersion } from "./_imports.js";
 import { validatePositiveNumber, validateQuantityIncrement } from "../shared/policy.js";
 
@@ -2080,7 +2081,10 @@ export async function handleAction(sql, body, actor) {
     const userId = required(body.userId, "User");
     const before = await rowById(sql, "app_users", userId);
     await sql`update app_users set active = false, session_revoked_at = now(), updated_at = now() where id = ${userId}`;
-    await audit(sql, "app_users", userId, "disable", before, await rowById(sql, "app_users", userId));
+    // session_revoked_at is the security boundary (it is checked on every request);
+    // marking the rows too keeps the stored session list honest.
+    await revokeAllUserSessions(sql, userId, "user-disabled");
+    await audit(sql, "app_users", userId, "disable", before, await rowById(sql, "app_users", userId), actor);
     return { ok: true };
   }
 
@@ -2088,8 +2092,9 @@ export async function handleAction(sql, body, actor) {
     const userId = required(body.userId, "User");
     const before = await rowById(sql, "app_users", userId);
     await sql`update app_users set session_revoked_at = now(), updated_at = now() where id = ${userId}`;
-    await audit(sql, "app_users", userId, "revoke_sessions", before, await rowById(sql, "app_users", userId));
-    return { ok: true };
+    const revokedCount = await revokeAllUserSessions(sql, userId, "staff-revoked");
+    await audit(sql, "app_users", userId, "revoke_sessions", before, await rowById(sql, "app_users", userId), actor);
+    return { ok: true, revokedSessions: revokedCount };
   }
 
   if (action === "notification.lowStockEmail") {

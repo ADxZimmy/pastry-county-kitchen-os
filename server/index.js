@@ -5,7 +5,15 @@ import bcrypt from "bcryptjs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { handleAction, produceOrder } from "../api/_actions.js";
-import { actorFromRequest, createSessionToken } from "../api/_auth.js";
+import { authenticateRequest, bearerCompatEnabled, createSessionToken, enforceRequestCsrf } from "../api/_auth.js";
+import {
+  clearSessionCookie,
+  issueSession,
+  originAllowed,
+  readSessionCookie,
+  revokeSession,
+  setSessionCookie
+} from "../api/_sessions.js";
 import { loadAuthenticatedKitchenSnapshot } from "../api/bootstrap.js";
 import { sendError, setPrivateNoStore } from "../api/_db.js";
 import { rateLimit, rateLimitKey, sendRateLimit } from "../api/_rateLimit.js";
@@ -64,7 +72,55 @@ app.post("/api/auth/login", requireDatabase, async (req, res, next) => {
       res.status(401).json({ error: "Invalid email or password" });
       return;
     }
-    res.json({ id: user.id, email: user.email, fullName: user.full_name, role: user.role, token: createSessionToken(user) });
+    const presented = readSessionCookie(req);
+    if (presented) await revokeSession(sql, presented, "login-rotation");
+    const session = await issueSession(sql, user, req);
+    setSessionCookie(res, session.token, { maxAgeSeconds: session.ttlSeconds });
+    res.json({
+      id: user.id,
+      email: user.email,
+      fullName: user.full_name,
+      role: user.role,
+      csrfToken: session.csrfToken,
+      ...(bearerCompatEnabled() ? { token: createSessionToken(user) } : {})
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/api/auth/session", requireDatabase, async (req, res, next) => {
+  try {
+    setPrivateNoStore(res);
+    res.setHeader("Vary", "Cookie");
+    const actor = await authenticateRequest(sql, req);
+    if (!actor) {
+      if (readSessionCookie(req)) clearSessionCookie(res);
+      res.status(401).json({ error: "Sign in again to continue.", authenticated: false });
+      return;
+    }
+    res.json({
+      authenticated: true,
+      user: { id: actor.sub, email: actor.email, fullName: actor.fullName, role: actor.role },
+      csrfToken: actor.csrfToken ?? null,
+      via: actor.via ?? "cookie"
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/auth/logout", requireDatabase, async (req, res, next) => {
+  try {
+    setPrivateNoStore(res);
+    const presented = readSessionCookie(req);
+    if (presented && !originAllowed(req)) {
+      res.status(403).json({ error: "This request did not come from the Kitchen OS app." });
+      return;
+    }
+    if (presented) await revokeSession(sql, presented, "logout");
+    clearSessionCookie(res);
+    res.json({ ok: true });
   } catch (error) {
     next(error);
   }
@@ -73,6 +129,7 @@ app.post("/api/auth/login", requireDatabase, async (req, res, next) => {
 app.get("/api/bootstrap", requireDatabase, async (req, res, next) => {
   try {
     setPrivateNoStore(res);
+    res.setHeader("Vary", "Cookie");
     res.json(await loadAuthenticatedKitchenSnapshot(req));
   } catch (error) {
     next(error);
@@ -82,7 +139,9 @@ app.get("/api/bootstrap", requireDatabase, async (req, res, next) => {
 app.post("/api/actions", requireDatabase, async (req, res, next) => {
   try {
     setPrivateNoStore(res);
-    const actor = actorFromRequest(req);
+    res.setHeader("Vary", "Cookie");
+    const actor = await authenticateRequest(sql, req);
+    enforceRequestCsrf(req, actor);
     const actionName = req.body?.action || "unknown";
     const actionLimit = rateLimit({
       key: rateLimitKey(req, actor ? "api.actions.authenticated" : "api.actions.unauthenticated", actor?.sub || actionName),
@@ -111,7 +170,9 @@ app.post("/api/orders/:orderId/produced", requireDatabase, async (req, res, next
   try {
     setPrivateNoStore(res);
     const { orderId } = req.params;
-    res.json(await produceOrder(sql, orderId, actorFromRequest(req), req.body?.qcLog ?? {}));
+    const actor = await authenticateRequest(sql, req);
+    enforceRequestCsrf(req, actor);
+    res.json(await produceOrder(sql, orderId, actor, req.body?.qcLog ?? {}));
   } catch (error) {
     next(error);
   }

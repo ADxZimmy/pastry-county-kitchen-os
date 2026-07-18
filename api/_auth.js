@@ -1,32 +1,22 @@
 import crypto from "node:crypto";
+import { isProductionRuntime, sessionSecret, sessionSecretConfigured } from "./_runtime.js";
+import { csrfViolation, readSessionCookie, resolveSession } from "./_sessions.js";
 
 const roles = new Set(["Owner/Admin", "Baker", "Inventory Manager", "Viewer"]);
-const MINIMUM_SECRET_LENGTH = 16;
-const DEVELOPMENT_SESSION_SECRET = "pastry-county-dev-session";
 
-export function isProductionRuntime() {
-  if (process.env.VERCEL_ENV) return process.env.VERCEL_ENV === "production";
-  return process.env.NODE_ENV === "production";
-}
+// Re-exported so existing importers keep a single auth entry point.
+export { isProductionRuntime, sessionSecret, sessionSecretConfigured };
 
-export function sessionSecretConfigured() {
-  if (!isProductionRuntime()) return true;
-  const secret = process.env.SESSION_SECRET;
-  return Boolean(secret && secret.length >= MINIMUM_SECRET_LENGTH);
-}
+// Bearer tokens are the pre-Phase-011 credential. They stay accepted only while
+// the smoke harness and any signed-in operator migrate to cookies; Phase 011
+// closes with this off. Removal criteria are recorded in the phase VERIFICATION.
+const BEARER_COMPAT_DEFAULT = true;
 
-export function sessionSecret() {
-  const secret = process.env.SESSION_SECRET;
-  if (isProductionRuntime()) {
-    if (!secret || secret.length < MINIMUM_SECRET_LENGTH) {
-      throw Object.assign(
-        new Error("SESSION_SECRET is not configured for production. Set a dedicated random SESSION_SECRET (at least 16 characters)."),
-        { statusCode: 503 }
-      );
-    }
-    return secret;
-  }
-  return secret || DEVELOPMENT_SESSION_SECRET;
+export function bearerCompatEnabled() {
+  const flag = String(process.env.AUTH_BEARER_COMPAT || "").trim().toLowerCase();
+  if (flag === "off" || flag === "false" || flag === "0") return false;
+  if (flag === "on" || flag === "true" || flag === "1") return true;
+  return BEARER_COMPAT_DEFAULT;
 }
 
 function encode(value) {
@@ -65,9 +55,40 @@ export function verifySessionToken(token) {
 }
 
 export function actorFromRequest(req) {
+  if (!bearerCompatEnabled()) return null;
   const header = req.headers.authorization || req.headers.Authorization || "";
   const token = String(header).replace(/^Bearer\s+/i, "");
-  return verifySessionToken(token);
+  const actor = verifySessionToken(token);
+  return actor ? { ...actor, via: "bearer" } : null;
+}
+
+// Cookies are the real mechanism; bearer is the compatibility window.
+//
+// While that window is open a valid bearer credential wins, because during the
+// rollout a browser holds BOTH: it still sends its pre-Phase-011 bearer token and
+// now also receives the new cookie. Resolving the cookie first would classify
+// those requests as cookie-authenticated and demand a CSRF header the shipped
+// frontend does not send yet — every write would 403. A bearer token is attached
+// deliberately by a script or the app, never automatically by the browser, so
+// preferring it here costs nothing in CSRF terms: a forged cross-site request
+// carries only the cookie and still lands on the enforced path below.
+//
+// Once the compatibility flag is off this is cookie-only, and the ordering
+// question disappears with it.
+export async function authenticateRequest(sql, req) {
+  if (bearerCompatEnabled()) {
+    const bearerActor = actorFromRequest(req);
+    if (bearerActor) return bearerActor;
+  }
+  const cookieToken = readSessionCookie(req);
+  if (cookieToken) return await resolveSession(sql, cookieToken);
+  return null;
+}
+
+export function enforceRequestCsrf(req, actor) {
+  const violation = csrfViolation(req, actor);
+  if (violation) throw Object.assign(new Error(violation.message), { statusCode: violation.statusCode });
+  return actor;
 }
 
 export function sessionAccessError(actor, userRow) {
