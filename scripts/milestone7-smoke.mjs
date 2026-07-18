@@ -1,4 +1,5 @@
 import { config } from "dotenv";
+import { seedBrowserSession, sessionCookieFrom } from "./_smoke-session.mjs";
 
 config({ path: ".env.local" });
 config();
@@ -33,7 +34,7 @@ async function login() {
   });
   const result = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(result.error || `Login failed with ${response.status}.`);
-  return result;
+  return { ...result, sessionCookie: sessionCookieFrom(response, baseURL) };
 }
 
 async function clickVisible(locator, label) {
@@ -106,9 +107,7 @@ async function main() {
 
   try {
     const user = await login();
-    await page.addInitScript((session) => {
-      window.localStorage.setItem("pastry-county-session", JSON.stringify(session));
-    }, { page: "dashboard", user });
+    await seedBrowserSession(page, baseURL, user.sessionCookie, { page: "dashboard" });
     await page.goto(`${baseURL}/#dashboard`, { waitUntil: "networkidle" });
     await page.locator(".app-shell").waitFor({ state: "visible", timeout: 30000 });
     await page.getByRole("heading", { name: "Kitchen Command Center" }).first().waitFor({ state: "visible", timeout: 30000 });

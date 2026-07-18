@@ -1,4 +1,5 @@
 import { config } from "dotenv";
+import { sessionCookieName } from "./_smoke-session.mjs";
 
 config({ path: ".env.local" });
 config();
@@ -132,8 +133,15 @@ async function assertFreshLoginAndMobile() {
     await page.getByRole("button", { name: /login/i }).click();
     await page.locator(".app-shell").waitFor({ state: "visible", timeout: 30000 });
     await page.getByRole("heading", { name: "Kitchen Command Center" }).first().waitFor({ state: "visible", timeout: 30000 });
-    const storedSession = await page.evaluate(() => JSON.parse(window.localStorage.getItem("pastry-county-session") || "{}"));
-    assert(storedSession.user?.token, "Fresh UI login did not persist user.token.");
+    // Phase 011 (PCO-012): the credential now lives in an HttpOnly cookie, so a
+    // real UI login must leave nothing readable behind in the browser.
+    const storedSession = await page.evaluate(() => window.localStorage.getItem("pastry-county-session") || "");
+    assert(!/token/i.test(storedSession), `Fresh UI login left a credential in localStorage: ${storedSession}`);
+    const sessionCookie = (await page.context().cookies()).find((cookie) => cookie.name === sessionCookieName(baseURL));
+    assert(sessionCookie, "Fresh UI login did not set the session cookie.");
+    assert(sessionCookie.httpOnly, "Session cookie is readable by JavaScript.");
+    const scriptVisibleCookies = await page.evaluate(() => document.cookie);
+    assert(!scriptVisibleCookies.includes("pcko_session"), `Session cookie is exposed to document.cookie: ${scriptVisibleCookies}`);
     assert(!await page.getByText(/Session expired/i).isVisible().catch(() => false), "Fresh UI login showed Session expired.");
 
     // Phase 010 renamed the deterministic helper from "AI Assistant"/"Ask AI" to

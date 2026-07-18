@@ -1,4 +1,5 @@
 import { config } from "dotenv";
+import { seedBrowserSession, sessionCookieFrom } from "./_smoke-session.mjs";
 
 config({ path: ".env.local" });
 config();
@@ -59,10 +60,14 @@ async function requestJson(path, options = {}) {
 }
 
 async function login() {
-  return requestJson("/api/auth/login", {
+  const response = await fetch(new URL("/api/auth/login", baseURL), {
     method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ email, password })
   });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(body.error || `Login failed with ${response.status}.`);
+  return { ...body, sessionCookie: sessionCookieFrom(response, baseURL) };
 }
 
 function actionClient(token) {
@@ -135,9 +140,7 @@ async function runBrowserChecks(user, flourName) {
   const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
 
   try {
-    await page.addInitScript((session) => {
-      window.localStorage.setItem("pastry-county-session", JSON.stringify(session));
-    }, { page: "inventory", user });
+    await seedBrowserSession(page, baseURL, user.sessionCookie, { page: "inventory" });
     await page.goto(`${baseURL}/#inventory`, { waitUntil: "networkidle" });
     await page.getByText("Pastry County Kitchen OS").first().waitFor({ state: "visible" });
     await assertNoHorizontalOverflow(page, "Inventory");

@@ -1,4 +1,5 @@
 import { config } from "dotenv";
+import { seedBrowserSession, sessionCookieFrom } from "./_smoke-session.mjs";
 
 config({ path: ".env.local" });
 config();
@@ -54,8 +55,7 @@ async function login() {
       body: JSON.stringify({ email, password })
     }, false);
     if (response.ok) {
-      assert(body.token, "Login did not return a session token.");
-      return body;
+      return { ...body, sessionCookie: sessionCookieFrom(response, baseURL) };
     }
     if (response.status === 429 && attempt < 2) {
       const retryAfter = Number(response.headers.get("Retry-After") || "60");
@@ -76,9 +76,7 @@ async function bootstrap(token) {
 }
 
 async function seedUiSession(page, owner) {
-  await page.addInitScript((session) => {
-    window.localStorage.setItem("pastry-county-session", JSON.stringify(session));
-  }, { route: { name: "dashboard" }, page: "dashboard", user: owner });
+  await seedBrowserSession(page, baseURL, owner.sessionCookie, { route: { name: "dashboard" }, page: "dashboard" });
   await page.goto(`${baseURL}/#dashboard`, { waitUntil: "networkidle" });
   await page.locator(".app-shell").waitFor({ state: "visible", timeout: 30000 });
   await page.getByRole("heading", { name: "Kitchen Command Center" }).waitFor({ state: "visible", timeout: 30000 });

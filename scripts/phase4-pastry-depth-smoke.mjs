@@ -1,4 +1,5 @@
 import { config } from "dotenv";
+import { seedBrowserSession, sessionCookieFrom } from "./_smoke-session.mjs";
 
 config({ path: ".env.local" });
 config();
@@ -52,12 +53,11 @@ async function requestJson(path, options = {}, expectedOk = true) {
 }
 
 async function login() {
-  const { body } = await requestJson("/api/auth/login", {
+  const { response, body } = await requestJson("/api/auth/login", {
     method: "POST",
     body: JSON.stringify({ email, password })
   });
-  assert(body.token, "Login did not return a session token.");
-  return body;
+  return { ...body, sessionCookie: sessionCookieFrom(response, baseURL) };
 }
 
 function actionClient(token) {
@@ -309,9 +309,7 @@ async function verifyUi(owner) {
   const browser = await chromium.launch();
   const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
   try {
-    await page.addInitScript((session) => {
-      window.localStorage.setItem("pastry-county-session", JSON.stringify(session));
-    }, { route: { name: "dashboard" }, page: "dashboard", user: owner });
+    await seedBrowserSession(page, baseURL, owner.sessionCookie, { route: { name: "dashboard" }, page: "dashboard" });
     await page.goto(`${baseURL}/#inventory`, { waitUntil: "networkidle" });
     await page.locator(".app-shell").waitFor({ state: "visible", timeout: 30000 });
     await page.getByPlaceholder("Search ingredients").fill(ingredientName);

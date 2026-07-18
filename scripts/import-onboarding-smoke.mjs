@@ -1,4 +1,5 @@
 import { config } from "dotenv";
+import { seedBrowserSession, sessionCookieFrom } from "./_smoke-session.mjs";
 
 config({ path: ".env.local" });
 config();
@@ -48,8 +49,7 @@ async function login() {
       body: JSON.stringify({ email, password })
     }, false);
     if (response.ok) {
-      assert(body.token, "Login did not return a session token.");
-      return body;
+      return { ...body, sessionCookie: sessionCookieFrom(response, baseURL) };
     }
     if (response.status === 429 && attempt < 2) {
       const retryAfter = Number(response.headers.get("Retry-After") || "60");
@@ -87,9 +87,7 @@ async function loadPlaywright() {
 }
 
 async function seedUiSession(page, owner) {
-  await page.addInitScript((session) => {
-    window.localStorage.setItem("pastry-county-session", JSON.stringify(session));
-  }, { route: { name: "imports" }, page: "imports", user: owner });
+  await seedBrowserSession(page, baseURL, owner.sessionCookie, { route: { name: "imports" }, page: "imports" });
   await page.goto(`${baseURL}/#imports`, { waitUntil: "networkidle" });
   await page.locator(".app-shell").waitFor({ state: "visible", timeout: 30000 });
 }
