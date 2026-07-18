@@ -60,6 +60,8 @@ export async function loadKitchenSnapshot(sql = getSql()) {
   await sql`alter table ingredients add column if not exists purchase_unit text`;
   await sql`alter table ingredients add column if not exists allergen_profile jsonb not null default '{}'`;
   await sql`alter table ingredients add column if not exists storage_profile jsonb not null default '{}'`;
+  await sql`alter table ingredients add column if not exists allows_decimals boolean`;
+  await sql`alter table ingredients add column if not exists minimum_increment numeric(14,4)`;
   await sql`update ingredients set purchase_unit = base_unit where purchase_unit is null or purchase_unit = ''`;
   await sql`alter table ingredients alter column purchase_unit set default 'g'`;
   await sql`alter table ingredients alter column purchase_unit set not null`;
@@ -178,7 +180,8 @@ export async function loadKitchenSnapshot(sql = getSql()) {
         default_expiry_days as "defaultExpiryDays", notes, reserved_stock::float as "reservedStock",
         expiry_date::text as "expiryDate",
         coalesce(allergen_profile, '{}'::jsonb) as "allergenProfile",
-        coalesce(storage_profile, '{}'::jsonb) as "storageProfile"
+        coalesce(storage_profile, '{}'::jsonb) as "storageProfile",
+        allows_decimals as "allowsDecimals", minimum_increment::float as "minimumIncrement"
       from ingredients
       left join lateral (
         select cost_per_base_unit

@@ -36,6 +36,41 @@ export function isCountUnit(unit) {
   return COUNT_UNITS.includes(unit);
 }
 
+// Divisibility defaults: count units (pcs/pack/box/roll/egg/...) are whole-number
+// unless an ingredient explicitly permits partial quantities; measured mass and
+// volume are divisible.
+export function defaultAllowsDecimals(unit) {
+  return !isCountUnit(unit);
+}
+
+// The smallest legal step for a quantity in this unit. A per-ingredient
+// minimumIncrement overrides the unit default.
+export function unitIncrement(unit, { allowsDecimals, minimumIncrement } = {}) {
+  const override = Number(minimumIncrement);
+  if (Number.isFinite(override) && override > 0) return override;
+  const divisible = allowsDecimals === undefined || allowsDecimals === null
+    ? defaultAllowsDecimals(unit)
+    : Boolean(allowsDecimals);
+  return divisible ? 0.001 : 1;
+}
+
+// Validate a quantity against its unit's increment. Returns a field-level error
+// string, or null when the quantity is a whole multiple of the increment.
+export function validateQuantityIncrement(value, unit, label, options = {}) {
+  const parsed = Number(value);
+  if (value === "" || value === null || value === undefined || !Number.isFinite(parsed)) {
+    return `${label} must be a number.`;
+  }
+  const increment = unitIncrement(unit, options);
+  const ratio = parsed / increment;
+  if (Math.abs(ratio - Math.round(ratio)) > 1e-6) {
+    return increment === 1
+      ? `${label} must be a whole number of ${unit}.`
+      : `${label} must be a multiple of ${increment} ${unit}.`;
+  }
+  return null;
+}
+
 // Round a gram quantity to the configured step (nearest 1/5/10g). Falls back to
 // nearest-1g for an invalid step.
 export function roundGrams(value, gramRounding) {

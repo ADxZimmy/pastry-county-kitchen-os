@@ -45,6 +45,10 @@ export interface Ingredient {
   expiryDate?: string;
   allergenProfile?: IngredientAllergenProfile;
   storageProfile?: IngredientStorageProfile;
+  // Null falls back to the unit default: count units (pcs/pack/box/roll) are
+  // whole-number, measured mass/volume are divisible.
+  allowsDecimals?: boolean | null;
+  minimumIncrement?: number | null;
 }
 
 export interface IngredientAllergenProfile {

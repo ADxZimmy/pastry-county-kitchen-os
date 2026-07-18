@@ -2,7 +2,7 @@ import bcrypt from "bcryptjs";
 import { Resend } from "resend";
 import { ensureSessionColumns, sessionAccessError } from "./_auth.js";
 import { extractImportDraft, importParserVersion } from "./_imports.js";
-import { validatePositiveNumber } from "../shared/policy.js";
+import { validatePositiveNumber, validateQuantityIncrement } from "../shared/policy.js";
 
 export { sessionAccessError } from "./_auth.js";
 
@@ -649,6 +649,10 @@ async function ensureOperationalTables(sql) {
   // backorder at production; the app-level shortage/adjustment guards keep it >= 0
   // otherwise. FEFO lots stay >= 0 via greatest(0, ...).
   await sql`alter table ingredients drop constraint if exists ingredients_current_stock_check`;
+  // Per-ingredient divisibility. Null falls back to the unit default (count units
+  // whole, measured units divisible); legacy fractional counts are left alone.
+  await sql`alter table ingredients add column if not exists allows_decimals boolean`;
+  await sql`alter table ingredients add column if not exists minimum_increment numeric(14,4)`;
   await sql`update ingredients set purchase_unit = base_unit where purchase_unit is null or purchase_unit = ''`;
   await sql`alter table ingredients alter column purchase_unit set default 'g'`;
   await sql`alter table ingredients alter column purchase_unit set not null`;
@@ -1483,6 +1487,22 @@ export async function handleAction(sql, body, actor) {
     if (purchasePrice > 0 && purchaseQuantity <= 0) {
       throw Object.assign(new Error("Purchase quantity is required when purchase price is entered."), { statusCode: 400 });
     }
+    // PCO-008: count units (pcs/pack/box/roll) are whole-number unless this
+    // ingredient explicitly permits partial quantities. Legacy fractional rows
+    // are left alone; this only guards new input.
+    const allowsDecimals = data.allowsDecimals === undefined || data.allowsDecimals === null || data.allowsDecimals === ""
+      ? null
+      : bool(data.allowsDecimals);
+    const minimumIncrement = num(data.minimumIncrement) > 0 ? num(data.minimumIncrement) : null;
+    const divisibility = { allowsDecimals, minimumIncrement };
+    for (const [value, label] of [[currentStock, "Current stock"], [reorderLevel, "Reorder level"]]) {
+      const incrementError = validateQuantityIncrement(value, baseUnit, label, divisibility);
+      if (incrementError) throw Object.assign(new Error(incrementError), { statusCode: 400 });
+    }
+    if (purchaseQuantity > 0) {
+      const purchaseError = validateQuantityIncrement(purchaseQuantity, purchaseUnit, "Purchase quantity", divisibility);
+      if (purchaseError) throw Object.assign(new Error(purchaseError), { statusCode: 400 });
+    }
     const duplicateRows = data.id ? [] : await sql`
       select id
       from ingredients
@@ -1508,13 +1528,14 @@ export async function handleAction(sql, body, actor) {
     const purchaseId = id("pur");
     await sql.transaction((txn) => [
       txn`
-        insert into ingredients (id, name, category, base_unit, purchase_unit, current_stock, reorder_level, latest_unit_cost, supplier_id, expiry_tracking_enabled, default_expiry_days, expiry_date, notes, allergen_profile, storage_profile)
-        values (${ingredientId}, ${name}, ${category}, ${baseUnit}, ${purchaseUnit}, ${stockAfterPurchase}, ${reorderLevel}, ${latestUnitCost}, ${supplierId}, ${bool(data.expiryTrackingEnabled)}, ${defaultExpiryDays}, ${expiryDate}, ${data.notes || null}, ${allergenProfileJson}::jsonb, ${storageProfileJson}::jsonb)
+        insert into ingredients (id, name, category, base_unit, purchase_unit, current_stock, reorder_level, latest_unit_cost, supplier_id, expiry_tracking_enabled, default_expiry_days, expiry_date, notes, allergen_profile, storage_profile, allows_decimals, minimum_increment)
+        values (${ingredientId}, ${name}, ${category}, ${baseUnit}, ${purchaseUnit}, ${stockAfterPurchase}, ${reorderLevel}, ${latestUnitCost}, ${supplierId}, ${bool(data.expiryTrackingEnabled)}, ${defaultExpiryDays}, ${expiryDate}, ${data.notes || null}, ${allergenProfileJson}::jsonb, ${storageProfileJson}::jsonb, ${allowsDecimals}, ${minimumIncrement})
         on conflict (id) do update set name = excluded.name, category = excluded.category, base_unit = excluded.base_unit, purchase_unit = excluded.purchase_unit,
           current_stock = excluded.current_stock, reorder_level = excluded.reorder_level, latest_unit_cost = excluded.latest_unit_cost,
           supplier_id = excluded.supplier_id, expiry_tracking_enabled = excluded.expiry_tracking_enabled, default_expiry_days = excluded.default_expiry_days,
           expiry_date = excluded.expiry_date, notes = excluded.notes, allergen_profile = excluded.allergen_profile,
-          storage_profile = excluded.storage_profile, updated_at = now()
+          storage_profile = excluded.storage_profile, allows_decimals = excluded.allows_decimals,
+          minimum_increment = excluded.minimum_increment, updated_at = now()
       `,
       ...(purchaseQuantity > 0 ? [
         txn`
@@ -1575,7 +1596,17 @@ export async function handleAction(sql, body, actor) {
     if (quantity === 0) {
       throw Object.assign(new Error("Adjustment quantity cannot be zero."), { statusCode: 400 });
     }
-    const ingredientRows = await sql`select current_stock::float as current_stock from ingredients where id = ${ingredientId}`;
+    const ingredientRows = await sql`
+      select current_stock::float as current_stock, base_unit, allows_decimals, minimum_increment::float as minimum_increment
+      from ingredients where id = ${ingredientId}
+    `;
+    if (ingredientRows.length) {
+      const incrementError = validateQuantityIncrement(Math.abs(quantity), ingredientRows[0].base_unit, "Adjustment quantity", {
+        allowsDecimals: ingredientRows[0].allows_decimals,
+        minimumIncrement: ingredientRows[0].minimum_increment
+      });
+      if (incrementError) throw Object.assign(new Error(incrementError), { statusCode: 400 });
+    }
     const before = await rowById(sql, "ingredients", ingredientId);
     if (!ingredientRows.length) throw Object.assign(new Error("Ingredient not found."), { statusCode: 404 });
     if (Number(ingredientRows[0].current_stock) + quantity < 0) {

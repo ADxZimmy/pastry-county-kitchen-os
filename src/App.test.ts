@@ -4,7 +4,7 @@ import { recipes as kitchenRecipes, setKitchenSnapshot } from "./data";
 import { auditChangeSummary, auditDataJson, auditExportRows, auditRecordLabel, auditSearchText } from "./lib/audit";
 import { buildKitchenAssistantResponse, calculateMargin, calculateRecipeCost, cancellationConsequences, checkStockAvailability, computeOrderPricing, convertUnit, dashboardProductionQueue, formatNaira, formatQuantity, formatScaledIngredientQuantity, generateShoppingList, netSellingPrice, orderEventLabel, orderEventsForOrder, ordersForProductionBucket, parseRecipeText, productionPeriodBounds, recommendedRestockDate, restockSuggestions, roundScaledQuantity, scaleRecipe, stockAdjustmentValidation } from "./lib/kitchen";
 import { activeSelectedIdsForRoute, parseAppRoute, routeBackLabel, routeParent, serializeAppRoute } from "./lib/routes";
-import { practicalQuantity, roundGrams, validateNonNegativeNumber, validatePositiveNumber } from "../shared/policy.js";
+import { defaultAllowsDecimals, practicalQuantity, roundGrams, unitIncrement, validateNonNegativeNumber, validatePositiveNumber, validateQuantityIncrement } from "../shared/policy.js";
 import type { AuditLog, ConversionRule, Ingredient, Recipe, RecipeItem } from "./types";
 
 describe("kitchen calculations", () => {
@@ -447,6 +447,39 @@ describe("shared policy validation and rounding (PCO-006/007)", () => {
     expect(practicalQuantity(2.1, "pcs", 5)).toBe(3);
     expect(practicalQuantity(187.5, "g", 5)).toBe(190);
     expect(practicalQuantity(135.44, "ml", 5)).toBe(135.4);
+  });
+});
+
+describe("unit divisibility (PCO-008)", () => {
+  it("treats count units as whole-number and measured units as divisible by default", () => {
+    for (const unit of ["pcs", "pack", "box", "roll", "egg"]) expect(defaultAllowsDecimals(unit)).toBe(false);
+    for (const unit of ["g", "kg", "ml", "litre"]) expect(defaultAllowsDecimals(unit)).toBe(true);
+    expect(unitIncrement("pack")).toBe(1);
+    expect(unitIncrement("g")).toBe(0.001);
+  });
+
+  it("rejects fractional count stock but allows fractional measured stock", () => {
+    expect(validateQuantityIncrement(1.5, "pack", "Current stock")).toMatch(/whole number of pack/);
+    expect(validateQuantityIncrement(1.5, "pcs", "Current stock")).toMatch(/whole number of pcs/);
+    expect(validateQuantityIncrement(2, "pack", "Current stock")).toBeNull();
+    expect(validateQuantityIncrement(1.5, "kg", "Current stock")).toBeNull();
+    expect(validateQuantityIncrement(187.5, "g", "Current stock")).toBeNull();
+  });
+
+  it("honours a per-ingredient override that permits partial units", () => {
+    expect(validateQuantityIncrement(1.5, "pack", "Current stock", { allowsDecimals: true })).toBeNull();
+    expect(validateQuantityIncrement(1.5, "kg", "Current stock", { allowsDecimals: false })).toMatch(/whole number of kg/);
+  });
+
+  it("honours a per-ingredient minimum increment", () => {
+    expect(unitIncrement("pcs", { minimumIncrement: 0.5 })).toBe(0.5);
+    expect(validateQuantityIncrement(1.5, "pcs", "Current stock", { minimumIncrement: 0.5 })).toBeNull();
+    expect(validateQuantityIncrement(1.25, "pcs", "Current stock", { minimumIncrement: 0.5 })).toMatch(/multiple of 0.5/);
+  });
+
+  it("rejects non-numeric quantities", () => {
+    expect(validateQuantityIncrement("", "pack", "Current stock")).toMatch(/must be a number/);
+    expect(validateQuantityIncrement("abc", "g", "Current stock")).toMatch(/must be a number/);
   });
 });
 

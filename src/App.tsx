@@ -79,6 +79,7 @@ import {
   type AppRoute,
   type Page
 } from "./lib/routes";
+import { defaultAllowsDecimals, unitIncrement } from "../shared/policy.js";
 
 type OrderDraft = {
   recipeId: string;
@@ -1524,6 +1525,8 @@ function IngredientForm({ ingredientId, setPage, setFormDirty, notify, reloadDat
   const ingredient = ingredients.find((item) => item.id === ingredientId);
   const [baseUnit, setBaseUnit] = useState<Unit>(ingredient?.baseUnit ?? "g");
   const [purchaseUnit, setPurchaseUnit] = useState<Unit>(ingredient?.purchaseUnit ?? ingredient?.baseUnit ?? "g");
+  const [allowsDecimals, setAllowsDecimals] = useState<boolean>(ingredient?.allowsDecimals ?? defaultAllowsDecimals(ingredient?.baseUnit ?? "g"));
+  const stockStep = unitIncrement(baseUnit, { allowsDecimals, minimumIncrement: ingredient?.minimumIncrement ?? null });
   if (ingredientId && !ingredient) return <EmptyState title="Ingredient not found" message="Return to inventory and choose an active ingredient." action={<Button variant="secondary" onClick={() => setPage({ name: "inventory" })}>Back to Inventory</Button>} />;
   const returnRoute: AppRoute = ingredient ? { name: "inventory", ingredientId: ingredient.id, mode: "detail" } : { name: "inventory" };
   return (
@@ -1537,6 +1540,7 @@ function IngredientForm({ ingredientId, setPage, setFormDirty, notify, reloadDat
           baseUnit: formValue(form, "baseUnit"),
           currentStock: formNumber(form, "currentStock"),
           reorderLevel: formNumber(form, "reorderLevel"),
+          allowsDecimals: formValue(form, "allowsDecimals"),
           latestUnitCost: formNumber(form, "latestUnitCost", ingredient?.latestUnitCost ?? 0),
           purchaseQuantity: formNumber(form, "purchaseQuantity"),
           purchaseUnit: formValue(form, "purchaseUnit"),
@@ -1576,10 +1580,14 @@ function IngredientForm({ ingredientId, setPage, setFormDirty, notify, reloadDat
             const nextUnit = event.target.value as Unit;
             setPurchaseUnit((currentUnit) => currentUnit === baseUnit ? nextUnit : currentUnit);
             setBaseUnit(nextUnit);
+            setAllowsDecimals(ingredient?.allowsDecimals ?? defaultAllowsDecimals(nextUnit));
           }}><option>g</option><option>kg</option><option>ml</option><option>litre</option><option>pcs</option><option>pack</option><option>roll</option></select>
         </Field>
-        <Field label="Current stock"><input name="currentStock" type="number" min="0" step="0.001" defaultValue={ingredient?.currentStock ?? 0} placeholder="0" required /></Field>
-        <Field label="Reorder level"><input name="reorderLevel" type="number" min="0" step="0.001" defaultValue={ingredient?.reorderLevel ?? 0} placeholder="0" required /></Field>
+        <Field label="Allow partial units" helper={`Counted units like pcs, pack and roll are whole numbers unless this is on. Current step: ${stockStep}${baseUnit}.`}>
+          <select name="allowsDecimals" value={allowsDecimals ? "Yes" : "No"} onChange={(event) => setAllowsDecimals(event.target.value === "Yes")}><option>No</option><option>Yes</option></select>
+        </Field>
+        <Field label="Current stock"><input name="currentStock" type="number" min="0" step={stockStep} defaultValue={ingredient?.currentStock ?? 0} placeholder="0" required /></Field>
+        <Field label="Reorder level"><input name="reorderLevel" type="number" min="0" step={stockStep} defaultValue={ingredient?.reorderLevel ?? 0} placeholder="0" required /></Field>
         <Field label="Latest unit cost" helper={`Cost per ${baseUnit} used for costing when no purchase price is entered.`}><input name="latestUnitCost" type="number" min="0" step="0.0001" defaultValue={ingredient?.latestUnitCost ?? 0} placeholder="0" required /></Field>
         <Field label="Purchase quantity" helper="Optional. Added on top of current stock."><input name="purchaseQuantity" type="number" min="0" step="0.001" placeholder="0" /></Field>
         <Field label="Purchase unit" helper="Saved as the default purchase unit. kg/g and litre/ml purchases are converted into the base unit.">
