@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { actorLabel, allowedRolesForAction, archiveTableForEntity, canRolePerformAction, computeOrderPricing, isUniqueViolation, isValidOrderTransition, normalizeConversionScope, normalizeDeductionStage, normalizeIngredientAllergenProfile, normalizeIngredientStorageProfile, normalizeProductionQcLog, normalizeRecipeCostProfile, normalizeRecipeFormulaMetadata, normalizeRecipeItemPrepState, normalizeShoppingPurchaseInput, planBatchDeductions, productionCompletionPreflight, productionShortageForRequirement, safePurchasePersistenceError, sendResendEmail, sessionAccessError } from "./_actions.js";
+import { actorLabel, allowedRolesForAction, archiveTableForEntity, canRolePerformAction, computeOrderPricing, conversionApplyConflict, isUniqueViolation, isValidOrderTransition, normalizeConversionScope, normalizeDeductionStage, normalizeIngredientAllergenProfile, normalizeIngredientStorageProfile, normalizeProductionQcLog, normalizeRecipeCostProfile, normalizeRecipeFormulaMetadata, normalizeRecipeItemPrepState, normalizeShoppingPurchaseInput, planBatchDeductions, productionCompletionPreflight, productionShortageForRequirement, safePurchasePersistenceError, sendResendEmail, sessionAccessError } from "./_actions.js";
 
 describe("FEFO batch deduction planning", () => {
   it("deducts stock removals or production use across lots in the provided FEFO order", () => {
@@ -170,6 +170,52 @@ describe("deduction stage policy (PCO-007)", () => {
     expect(normalizeDeductionStage("bogus")).toBe("production_completion");
     expect(normalizeDeductionStage(undefined)).toBe("production_completion");
     expect(normalizeDeductionStage(null)).toBe("production_completion");
+  });
+});
+
+describe("reviewed conversion apply (PCO-003)", () => {
+  it("allows the apply when the line still matches what the review showed", () => {
+    expect(conversionApplyConflict({ quantity: 300, unit: "g" }, { quantity: 300, unit: "g" })).toBeNull();
+    // Float tolerance, not exact equality.
+    expect(conversionApplyConflict({ quantity: 187.5, unit: "g" }, { quantity: 187.5000001, unit: "g" })).toBeNull();
+  });
+
+  it("refuses a stale write when the line changed since the review opened", () => {
+    expect(conversionApplyConflict({ quantity: 250, unit: "g" }, { quantity: 300, unit: "g" })).toMatch(/now 250g, not 300g/);
+    expect(conversionApplyConflict({ quantity: 300, unit: "cup" }, { quantity: 300, unit: "g" })).toMatch(/Reopen the conversion review/);
+  });
+
+  it("reports a missing recipe line rather than writing", () => {
+    expect(conversionApplyConflict(undefined, { quantity: 300, unit: "g" })).toMatch(/not found/i);
+  });
+
+  it("only permits recipe roles to apply a conversion to a recipe", () => {
+    expect(canRolePerformAction("Owner/Admin", "conversion.applyToRecipeItem")).toBe(true);
+    expect(canRolePerformAction("Baker", "conversion.applyToRecipeItem")).toBe(true);
+    expect(canRolePerformAction("Inventory Manager", "conversion.applyToRecipeItem")).toBe(false);
+    expect(canRolePerformAction("Viewer", "conversion.applyToRecipeItem")).toBe(false);
+  });
+
+  it("keeps import/source evidence when conversion provenance is recorded", () => {
+    const merged = normalizeRecipeItemPrepState({
+      sourceFile: "dish-costing.xlsx",
+      sourceLineAmount: 3955,
+      ingredientState: "Sifted",
+      convertedFromQuantity: 2,
+      convertedFromUnit: "cup",
+      conversionRuleId: "cr-flour",
+      conversionAppliedBy: "Ada Baker",
+      conversionAppliedAt: "2026-07-11T10:00:00.000Z"
+    });
+    expect(merged).toMatchObject({
+      sourceFile: "dish-costing.xlsx",
+      sourceLineAmount: 3955,
+      ingredientState: "Sifted",
+      convertedFromQuantity: 2,
+      convertedFromUnit: "cup",
+      conversionRuleId: "cr-flour",
+      conversionAppliedBy: "Ada Baker"
+    });
   });
 });
 

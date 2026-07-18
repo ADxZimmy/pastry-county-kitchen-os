@@ -743,10 +743,13 @@ export function convertUnit(quantity: number, fromUnit: Unit, toUnit: Unit, ingr
       convertedQuantity: quantity * rule.conversionFactor,
       confidenceLevel: rule.confidenceLevel,
       source: rule.source,
-      needsReview: !rule.verified
+      needsReview: !rule.verified,
+      ruleId: rule.id
     };
   }
-  return { convertedQuantity: quantity, confidenceLevel: "Low" as const, source: "AI estimate required", needsReview: true };
+  // No saved rule covers this pair. Say so plainly rather than implying an
+  // estimate was produced by something intelligent (PCO-003).
+  return { convertedQuantity: quantity, confidenceLevel: "Low" as const, source: "No saved rule", needsReview: true };
 }
 
 export function parseRecipeText(text: string) {

@@ -111,6 +111,13 @@ export interface RecipeItemPrepState {
   sourcePackagePrice?: number;
   sourceNeededQuantity?: number;
   sourceLineAmount?: number;
+  // Conversion provenance, recorded alongside (never replacing) the import
+  // evidence above when a reviewed conversion is applied to this line.
+  convertedFromQuantity?: number;
+  convertedFromUnit?: string;
+  conversionRuleId?: string;
+  conversionAppliedBy?: string;
+  conversionAppliedAt?: string;
 }
 
 export interface RecipeFormulaMetadata {

@@ -85,6 +85,7 @@ const actionRoles = {
   "shopping.purchaseSuggested": ["Owner/Admin", "Inventory Manager"],
   "conversion.save": ["Owner/Admin", "Baker"],
   "conversion.verify": ["Owner/Admin", "Baker"],
+  "conversion.applyToRecipeItem": ["Owner/Admin", "Baker"],
   "conversion.delete": ["Owner/Admin"],
   "settings.save": ["Owner/Admin"],
   "user.save": ["Owner/Admin"],
@@ -115,6 +116,19 @@ const orderStatusTransitions = {
   "Delivered": [],
   "Cancelled": []
 };
+
+export const RECIPE_ITEM_UNITS = ["g", "kg", "ml", "litre", "pcs", "cup", "tablespoon", "teaspoon", "pack", "roll", "egg", "yolk", "white"];
+
+// Guard a reviewed conversion against a stale write: the review was opened
+// against a specific before-value, so if the stored line has moved since, refuse
+// rather than silently overwriting someone else's edit.
+export function conversionApplyConflict(current, expected) {
+  if (!current) return "Recipe ingredient not found.";
+  const sameQuantity = Math.abs(Number(current.quantity) - Number(expected.quantity)) < 1e-6;
+  const sameUnit = String(current.unit) === String(expected.unit);
+  if (sameQuantity && sameUnit) return null;
+  return `This ingredient line is now ${current.quantity}${current.unit}, not ${expected.quantity}${expected.unit}. Reopen the conversion review and check the current value.`;
+}
 
 export function isValidOrderTransition(from, to) {
   if (!from || from === to) return true;
@@ -282,7 +296,13 @@ const recipePrepTextFields = [
   "sourceText",
   "sourceSheet",
   "sourceWorkbook",
-  "sourceWorkbookRevision"
+  "sourceWorkbookRevision",
+  // Conversion provenance (010-B). Kept alongside the import/source evidence so
+  // applying a conversion never erases where a line originally came from.
+  "convertedFromUnit",
+  "conversionRuleId",
+  "conversionAppliedBy",
+  "conversionAppliedAt"
 ];
 const recipePrepNumberFields = [
   "sourcePackageQuantity",
@@ -291,7 +311,8 @@ const recipePrepNumberFields = [
   "sourceLineAmount",
   "sourcePage",
   "sourceRow",
-  "sourceColumn"
+  "sourceColumn",
+  "convertedFromQuantity"
 ];
 const recipeTestBakeStatuses = new Set(["untested", "test_bake_needed", "tested", "production_ready"]);
 const allergenFields = ["contains", "mayContain", "dietaryFlags"];
@@ -1956,8 +1977,48 @@ export async function handleAction(sql, body, actor) {
     const ruleId = required(body.ruleId, "Rule");
     const before = await rowById(sql, "conversion_rules", ruleId);
     await sql`update conversion_rules set verified = true, source = 'measured in kitchen', updated_at = now() where id = ${ruleId}`;
-    await audit(sql, "conversion_rules", ruleId, "verify", before, await rowById(sql, "conversion_rules", ruleId));
+    await audit(sql, "conversion_rules", ruleId, "verify", before, await rowById(sql, "conversion_rules", ruleId), actor);
     return { ok: true };
+  }
+
+  // Apply a reviewed conversion to ONE named recipe ingredient line. This is the
+  // only path that changes a recipe from a conversion; it is separate from saving
+  // a reusable rule, refuses stale writes, and keeps the line's import/source
+  // evidence intact while recording who applied what and from which rule.
+  if (action === "conversion.applyToRecipeItem") {
+    const recipeItemId = required(body.recipeItemId, "Recipe ingredient");
+    const finalUnit = normalizeUnit(required(body.finalUnit, "Converted unit"));
+    if (!RECIPE_ITEM_UNITS.includes(finalUnit)) {
+      throw Object.assign(new Error(`${finalUnit} cannot be used on a recipe ingredient.`), { statusCode: 400 });
+    }
+    const finalQuantity = num(body.finalQuantity);
+    const quantityError = validatePositiveNumber(finalQuantity, "Converted quantity");
+    if (quantityError) throw Object.assign(new Error(quantityError), { statusCode: 400 });
+    const rows = await sql`
+      select id, recipe_id, quantity::float as quantity, unit, coalesce(prep_state, '{}'::jsonb) as prep_state
+      from recipe_items
+      where id = ${recipeItemId}
+    `;
+    const conflict = conversionApplyConflict(rows[0], { quantity: num(body.expectedQuantity), unit: String(body.expectedUnit ?? "") });
+    if (conflict) throw Object.assign(new Error(conflict), { statusCode: rows.length ? 409 : 404 });
+    const current = rows[0];
+    const prepState = normalizeRecipeItemPrepState({
+      ...(current.prep_state ?? {}),
+      convertedFromQuantity: Number(current.quantity),
+      convertedFromUnit: current.unit,
+      conversionRuleId: body.conversionRuleId || undefined,
+      conversionAppliedBy: actorLabel(actor),
+      conversionAppliedAt: new Date().toISOString()
+    });
+    await sql`
+      update recipe_items
+      set quantity = ${finalQuantity}, unit = ${finalUnit}, prep_state = ${JSON.stringify(prepState)}::jsonb, updated_at = now()
+      where id = ${recipeItemId}
+    `;
+    await audit(sql, "recipe_items", recipeItemId, "conversion_apply",
+      { quantity: current.quantity, unit: current.unit },
+      { quantity: finalQuantity, unit: finalUnit, conversionRuleId: body.conversionRuleId ?? null }, actor);
+    return { ok: true, recipeId: current.recipe_id, quantity: finalQuantity, unit: finalUnit };
   }
 
   if (action === "conversion.delete") {

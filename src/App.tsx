@@ -33,7 +33,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import { apiBaseUrl, backendMode } from "./lib/backend";
 import { auditChangedFields, auditChangeSummary, auditDataJson, auditExportRows, auditFieldLabel, auditRecordLabel, auditSearchText, type AuditRecordNameLookup } from "./lib/audit";
 import { appUsers, auditLogs, conversionRules, ingredientBatches, ingredients, inventoryMovements, orderEvents, orderItems, orders, products, productionQcLogs, recipeItems, recipes, settings, suppliers, setKitchenSnapshot } from "./data";
-import type { AppStaffUser, AuditLog, ConversionRule, ImportDraft, ImportDraftRecipeItem, Ingredient, IngredientAllergenProfile, IngredientStorageProfile, Order, Recipe, RecipeCostProfile, RecipeFormulaMetadata, RecipeItemPrepState, StockStatus, Supplier, Unit } from "./types";
+import type { AppStaffUser, AuditLog, ConversionRule, ImportDraft, ImportDraftRecipeItem, Ingredient, IngredientAllergenProfile, IngredientStorageProfile, Order, Recipe, RecipeCostProfile, RecipeFormulaMetadata, RecipeItem, RecipeItemPrepState, StockStatus, Supplier, Unit } from "./types";
 import {
   calculateMargin,
   calculateOrderCost,
@@ -1651,10 +1651,12 @@ function Recipes({ setPage, setSelectedRecipeId, query, setQuery }: any) {
 }
 
 function RecipeDetail({ recipeId, user, setPage, setOrderDraft, notify, askConfirm, reloadData }: { recipeId: string; user?: AppUser; setPage: Navigate; setOrderDraft: (draft: OrderDraft | null) => void; notify: (message: string) => void; askConfirm: AskConfirm; reloadData: () => Promise<void> }) {
+  const [convertItemId, setConvertItemId] = useState("");
   const recipe = recipes.find((item) => item.id === recipeId);
   if (!recipe) return <EmptyState title="Recipe not found" message="Select a recipe from the database-backed recipe library." action={<Button variant="secondary" onClick={() => setPage({ name: "recipes" })}>Back to Recipes</Button>} />;
   const cost = calculateRecipeCost(recipeId, recipe.baseYieldQuantity);
   const currentRecipeItems = recipeItems.filter((item) => item.recipeId === recipeId);
+  const convertItem = currentRecipeItems.find((item) => item.id === convertItemId);
   return (
     <div className="detail-layout">
       <article className="detail-hero">
@@ -1669,13 +1671,14 @@ function RecipeDetail({ recipeId, user, setPage, setOrderDraft, notify, askConfi
         ["Cost profile", costProfileSummary(recipe.costProfile)]
       ].map(([label, value]) => <div className="row-card" key={label}><span>{label}</span><strong>{value}</strong></div>)}</div></Section>}
       <div className="split">
-        <Section title="Ingredients"><div className="compact-list">{currentRecipeItems.map((item) => <div className="row-card" key={item.id}><span><strong>{ingredients.find((ingredient) => ingredient.id === item.ingredientId)?.name}</strong><small>{prepStateSummary(item.prepState) || "No prep state recorded"}</small></span><strong>{formatQuantity(item.quantity, item.unit)}</strong></div>)}</div></Section>
+        <Section title="Ingredients"><div className="compact-list">{currentRecipeItems.map((item) => <div className="row-card" key={item.id}><span><strong>{ingredients.find((ingredient) => ingredient.id === item.ingredientId)?.name}</strong><small>{prepStateSummary(item.prepState) || "No prep state recorded"}{item.prepState?.convertedFromQuantity !== undefined ? ` | converted from ${item.prepState.convertedFromQuantity}${item.prepState.convertedFromUnit ?? ""}${item.prepState.conversionAppliedBy ? ` by ${item.prepState.conversionAppliedBy}` : ""}` : ""}</small></span><span className="row-card-actions"><strong>{formatQuantity(item.quantity, item.unit)}</strong><Button variant="secondary" onClick={() => setConvertItemId(item.id)} disabled={!canUser(user, "manageRecipes")}>Convert unit</Button></span></div>)}</div></Section>
         <Section title="Instructions"><ol className="method-list">{recipe.instructions.map((step) => <li key={step}>{step}</li>)}</ol></Section>
       </div>
       <div className="split">
         <Section title="Cost Breakdown"><div className="compact-list">{[...cost.ingredientCostBreakdown.map((item) => <div className="row-card" key={item.ingredientId}><span>{item.ingredientName}<small>{formatScaledIngredientQuantity(item)}</small></span><strong>{formatNaira(item.cost)}</strong></div>), ...cost.nonIngredientCostBreakdown.map((item) => <div className="row-card" key={item.label}><span>{item.label}</span><strong>{formatNaira(item.cost)}</strong></div>)]}</div></Section>
         <Section title="Inventory Availability"><div className="metric-grid small">{[1, 2, 3].map((batch) => <article className="metric-card" key={batch}><span>{batch} batch{batch > 1 ? "es" : ""}</span><strong>{checkStockAvailability(scaleRecipe(recipeId, recipe.baseYieldQuantity * batch)).some((item) => item.status === "shortage") ? "Shortage" : "Ready"}</strong></article>)}</div></Section>
       </div>
+      {convertItem && <ConversionReviewModal item={convertItem} onClose={() => setConvertItemId("")} notify={notify} reloadData={reloadData} />}
     </div>
   );
 }
@@ -2078,6 +2081,81 @@ function OrderDetail({ orderId, user, setPage, notify, askConfirm, reloadData }:
       <Section title="Production QC Logs"><div className="timeline">{qcLogs.length === 0 && <p>No QC logs recorded for this order yet.</p>}{qcLogs.map((log) => <article key={log.id}><ClipboardList size={18} /><div><strong>{log.passedQc ? "QC passed" : "QC issue logged"}{log.actualYieldQuantity ? ` | actual ${log.actualYieldQuantity}${log.yieldUnit ?? ""}` : ""}</strong><small>{[log.ovenTemperature, log.bakeTimeMinutes ? `${log.bakeTimeMinutes} min` : "", log.sensoryNotes].filter(Boolean).join(" | ") || "No process notes"} | {new Date(log.createdAt).toLocaleString()}</small></div></article>)}</div></Section>
       {qcOrderId && <ProductionQcModal orderId={qcOrderId} onClose={() => setQcOrderId("")} notify={notify} reloadData={reloadData} />}
       {cancelOpen && <CancelOrderModal order={order} consequences={cancelConsequences} onClose={() => setCancelOpen(false)} notify={notify} reloadData={reloadData} />}
+    </div>
+  );
+}
+
+// Applying a conversion to a recipe line is the only path that changes a recipe
+// from a conversion. It is explicitly a review: it shows the exact target line,
+// the current value, the suggested value and where it came from, and an editable
+// final value. Cancel writes nothing and says nothing. Success is only claimed
+// after reloading and confirming the line actually changed.
+function ConversionReviewModal({ item, onClose, notify, reloadData }: { item: RecipeItem; onClose: () => void; notify: Notify; reloadData: () => Promise<void> }) {
+  const { dialogRef, onDialogKeyDown } = useDialogA11y<HTMLElement>(true, onClose);
+  const ingredient = ingredients.find((candidate) => candidate.id === item.ingredientId);
+  const [toUnit, setToUnit] = useState<Unit>(ingredient?.baseUnit ?? item.unit);
+  const suggestion = convertUnit(item.quantity, item.unit, toUnit, item.ingredientId, conversionRules, {
+    ingredientState: item.prepState?.ingredientState,
+    temperatureState: item.prepState?.temperatureState
+  });
+  const [finalQuantity, setFinalQuantity] = useState<number>(Number(suggestion.convertedQuantity.toFixed(3)));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const suggested = Number(suggestion.convertedQuantity.toFixed(3));
+  return (
+    <div className="modal-backdrop" role="presentation">
+      <article ref={dialogRef} className="confirm-modal" role="dialog" aria-modal="true" aria-labelledby="conversion-review-title" tabIndex={-1} onKeyDown={onDialogKeyDown}>
+        <div className="section-head"><div><p className="eyebrow">Convert recipe ingredient</p><h2 id="conversion-review-title">{ingredient?.name ?? item.ingredientId}</h2></div></div>
+        <SummaryCard title="Review this change" items={[
+          ["Recipe line", `${ingredient?.name ?? item.ingredientId}`],
+          ["Current value", formatQuantity(item.quantity, item.unit)],
+          ["Suggested", `${suggested}${toUnit}`],
+          ["Source", suggestion.source],
+          ["Confidence", suggestion.confidenceLevel + (suggestion.needsReview ? " (unverified)" : "")]
+        ]} />
+        <div className="form-grid">
+          <Field label="Convert to unit">
+            <select value={toUnit} onChange={(event) => { const next = event.target.value as Unit; setToUnit(next); setError(""); }}>
+              {["g", "kg", "ml", "litre", "pcs", "cup", "tablespoon", "teaspoon", "pack", "roll", "egg", "yolk", "white"].map((unit) => <option key={unit} value={unit}>{unit}</option>)}
+            </select>
+          </Field>
+          <Field label="Final quantity to save" helper="Edit this if the suggestion is not right for your kitchen.">
+            <input type="number" min="0.001" step="0.001" value={finalQuantity || ""} onChange={(event) => { setFinalQuantity(Number(event.target.value)); setError(""); }} />
+          </Field>
+        </div>
+        {suggestion.needsReview && <p className="section-note">No verified rule covers {item.unit} to {toUnit} for this ingredient. Check the value before saving.</p>}
+        {error && <p className="field-error">{error}</p>}
+        <div className="button-row">
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+          <Button disabled={busy || !(finalQuantity > 0)} onClick={async () => {
+            setBusy(true);
+            setError("");
+            try {
+              await apiAction("conversion.applyToRecipeItem", {
+                recipeItemId: item.id,
+                expectedQuantity: item.quantity,
+                expectedUnit: item.unit,
+                finalQuantity,
+                finalUnit: toUnit,
+                conversionRuleId: suggestion.ruleId
+              });
+              await reloadData();
+              // Only claim success if the reloaded line really changed.
+              const saved = recipeItems.find((candidate) => candidate.id === item.id);
+              if (!saved || Math.abs(saved.quantity - finalQuantity) > 0.0001 || saved.unit !== toUnit) {
+                setError("The recipe line did not come back with the new value. Reopen and try again.");
+                setBusy(false);
+                return;
+              }
+              notify(`${ingredient?.name ?? "Ingredient"} updated to ${formatQuantity(saved.quantity, saved.unit)} on this recipe.`);
+              onClose();
+            } catch (caught) {
+              setError(caught instanceof Error ? caught.message : "Unable to apply this conversion.");
+              setBusy(false);
+            }
+          }}>Apply to this recipe line</Button>
+        </div>
+      </article>
     </div>
   );
 }
