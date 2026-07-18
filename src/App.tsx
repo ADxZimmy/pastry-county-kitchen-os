@@ -211,11 +211,13 @@ function csrfHeaders(): Record<string, string> {
 async function fetchSessionIdentity(): Promise<AppUser | undefined> {
   try {
     const response = await fetch(`${apiBaseUrl}/api/auth/session`, { credentials: "same-origin" });
+    // Always consume the body, including on a 401. An unread response body keeps
+    // the connection open, which leaks a pending request on every page load.
+    const body = await response.json().catch(() => ({}));
     if (!response.ok) {
       setCsrfToken("");
       return undefined;
     }
-    const body = await response.json().catch(() => ({}));
     setCsrfToken(body.csrfToken ?? "");
     return body.user as AppUser | undefined;
   } catch {
@@ -1021,11 +1023,12 @@ function App() {
               // Logging out has to reach the server: the session is revoked there,
               // so the cookie cannot be replayed after the browser forgets it.
               try {
-                await fetch(`${apiBaseUrl}/api/auth/logout`, {
+                const response = await fetch(`${apiBaseUrl}/api/auth/logout`, {
                   method: "POST",
                   credentials: "same-origin",
                   headers: { "Content-Type": "application/json", ...csrfHeaders() }
                 });
+                await response.json().catch(() => ({}));
               } catch {
                 notify("Signed out on this device, but the server could not be reached.");
               }
