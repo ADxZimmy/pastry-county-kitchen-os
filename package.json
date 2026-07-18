@@ -20,7 +20,8 @@
     "smoke:phase2-rerun": "node scripts/phase2-rerun-smoke.mjs",
     "smoke:milestone7": "node scripts/milestone7-smoke.mjs",
     "smoke:regression-audit": "node scripts/regression-audit-smoke.mjs",
-    "smoke:uat-core": "node scripts/uat-core-smoke.mjs"
+    "smoke:uat-core": "node scripts/uat-core-smoke.mjs",
+    "smoke:auth-cookie": "node scripts/auth-cookie-smoke.mjs"
   },
   "dependencies": {
     "@neondatabase/serverless": "^0.10.4",

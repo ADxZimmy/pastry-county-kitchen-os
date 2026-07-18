@@ -168,7 +168,6 @@ export type AppUser = {
   email: string;
   fullName: string;
   role: "Owner/Admin" | "Baker" | "Inventory Manager" | "Viewer";
-  token?: string;
 };
 
 const permissionRoles = {
@@ -193,20 +192,45 @@ function canUser(user: AppUser | undefined, permission: Permission) {
   return Boolean(user && (permissionRoles[permission] as readonly string[]).includes(user.role));
 }
 
-function currentSessionToken() {
+const sessionStorageKey = "pastry-county-session";
+
+// The session credential lives in an HttpOnly cookie the page cannot read, so
+// there is nothing here for an XSS payload to steal. The CSRF token is not a
+// credential on its own — it only proves a request came from this app — and is
+// held in memory for the lifetime of the tab, never persisted.
+let csrfToken = "";
+
+export function setCsrfToken(value: string) {
+  csrfToken = typeof value === "string" ? value : "";
+}
+
+function csrfHeaders(): Record<string, string> {
+  return csrfToken ? { "x-csrf-token": csrfToken } : {};
+}
+
+async function fetchSessionIdentity(): Promise<AppUser | undefined> {
   try {
-    const session = JSON.parse(window.localStorage.getItem(sessionStorageKey) ?? "{}") as AppSession;
-    return session.user?.token;
+    const response = await fetch(`${apiBaseUrl}/api/auth/session`, { credentials: "same-origin" });
+    if (!response.ok) {
+      setCsrfToken("");
+      return undefined;
+    }
+    const body = await response.json().catch(() => ({}));
+    setCsrfToken(body.csrfToken ?? "");
+    return body.user as AppUser | undefined;
   } catch {
+    setCsrfToken("");
     return undefined;
   }
 }
 
-const sessionStorageKey = "pastry-county-session";
-
-function writeSession(session: AppSession) {
+export function writeSession(session: AppSession) {
   if (typeof window === "undefined") return;
-  window.localStorage.setItem(sessionStorageKey, JSON.stringify(session));
+  // Only non-sensitive route and selection state is persisted; the signed-in
+  // identity comes back from the server on load.
+  const persistable = { ...session };
+  delete persistable.user;
+  window.localStorage.setItem(sessionStorageKey, JSON.stringify(persistable));
 }
 
 export function pageFromHash(hash: string): Page | undefined {
@@ -237,10 +261,16 @@ export function resolveSessionPage(hash: string, session: AppSession): Page {
   return pageForRoute(resolveSessionRoute(hash, session));
 }
 
-function readSession(): AppSession {
+export function readSession(): AppSession {
   if (typeof window === "undefined") return {};
   try {
     const session = JSON.parse(window.localStorage.getItem(sessionStorageKey) ?? "{}") as AppSession;
+    if (session.user) {
+      // Builds before Phase 011 persisted the session token here. Drop it on the
+      // way past so returning browsers stop carrying a readable credential.
+      delete session.user;
+      window.localStorage.setItem(sessionStorageKey, JSON.stringify(session));
+    }
     const route = resolveSessionRoute(window.location.hash, session);
     return { ...session, route, page: pageForRoute(route) };
   } catch {
@@ -543,16 +573,32 @@ function costProfileSummary(profile?: RecipeCostProfile) {
   return pieces.length ? pieces.join(" | ") : "Ingredient-only costing";
 }
 
+async function postAction(action: string, payload: Record<string, unknown>) {
+  const response = await fetch(`${apiBaseUrl}/api/actions`, {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/json", ...csrfHeaders() },
+    body: JSON.stringify({ action, ...payload })
+  });
+  const result = await response.json().catch(() => ({}));
+  return { response, result };
+}
+
+function isStaleCsrfError(status: number, error: unknown) {
+  return status === 403 && /security token|did not come from/i.test(String(error ?? ""));
+}
+
 async function apiAction(action: string, payload: Record<string, unknown> = {}) {
-  const token = currentSessionToken();
   emitKitchenRequest({ phase: "start" });
   try {
-    const response = await fetch(`${apiBaseUrl}/api/actions`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-      body: JSON.stringify({ action, ...payload })
-    });
-    const result = await response.json().catch(() => ({}));
+    let { response, result } = await postAction(action, payload);
+    // A stale CSRF token — the session was rotated in another tab, or this tab
+    // sat open across a re-login — is recoverable. Fetch the current one and
+    // retry once instead of making someone sign in again over a lost header.
+    if (isStaleCsrfError(response.status, result.error)) {
+      await fetchSessionIdentity();
+      ({ response, result } = await postAction(action, payload));
+    }
     if (!response.ok) throw new Error(result.error || "Kitchen action failed.");
     return result;
   } finally {
@@ -654,6 +700,7 @@ function App() {
   const [selectedOrderId, setSelectedOrderId] = useState(() => initialRouteIds.selectedOrderId || savedSession.selectedOrderId || "");
   const [orderDraft, setOrderDraft] = useState<OrderDraft | null>(null);
   const [query, setQuery] = useState("");
+  const [sessionState, setSessionState] = useState<"checking" | "ready">("checking");
   const [dataStatus, setDataStatus] = useState<"loading" | "ready" | "error">("loading");
   const [dataError, setDataError] = useState("");
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -692,30 +739,17 @@ function App() {
     dirtyRef.current = hasUnsavedChanges;
   }, [hasUnsavedChanges]);
 
-  const loadKitchenData = useCallback(async (cancelled?: () => boolean, tokenOverride?: string) => {
-      const token = tokenOverride ?? currentSessionToken();
-      if (!token) {
-        if (!cancelled?.()) {
-          setUser(undefined);
-          setRoute({ name: "login" });
-          setDataError("");
-          setDataStatus("loading");
-          setIsRefreshing(false);
-          notify("Session expired. Sign in again to continue.");
-        }
-        return;
-      }
+  const loadKitchenData = useCallback(async (cancelled?: () => boolean) => {
       const wasReady = dataStatusRef.current === "ready";
       if (wasReady) setIsRefreshing(true);
       try {
-        const response = await fetch(`${apiBaseUrl}/api/bootstrap`, {
-          headers: { Authorization: `Bearer ${token}` }
-        });
+        const response = await fetch(`${apiBaseUrl}/api/bootstrap`, { credentials: "same-origin" });
         const result = await response.json().catch(() => ({}));
         if (!response.ok) {
           if (response.status === 401) {
             if (!cancelled?.()) {
               const message = result.error || "Session expired. Sign in again to continue.";
+              setCsrfToken("");
               setUser(undefined);
               setRoute({ name: "login" });
               setDataError("");
@@ -755,6 +789,27 @@ function App() {
     };
     window.addEventListener(kitchenRequestEvent, onKitchenRequest);
     return () => window.removeEventListener(kitchenRequestEvent, onKitchenRequest);
+  }, []);
+
+  // The signed-in identity is no longer readable from storage, so the app asks
+  // the server who it is before rendering anything role-gated.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const identity = await fetchSessionIdentity();
+      if (cancelled) return;
+      if (identity) {
+        setUser(identity);
+        setRoute((current) => (current.name === "login" ? { name: "dashboard" } : current));
+      } else {
+        setUser(undefined);
+        setRoute((current) => (current.name === "welcome" ? current : { name: "login" }));
+      }
+      setSessionState("ready");
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -900,6 +955,12 @@ function App() {
     }
   }, [page, route, selectedIngredientId, selectedOrderId, selectedRecipeId, query, notify, askConfirm, loadKitchenData, dataVersion, user, navigate, goBack]);
 
+  // Until the server confirms the cookie, a protected route must not render —
+  // otherwise a signed-in refresh would flash the login screen.
+  if (sessionState === "checking" && page !== "welcome") {
+    return <LoadingScreen />;
+  }
+
   if (page === "welcome" || page === "login") {
     return (
       <>
@@ -955,7 +1016,25 @@ function App() {
             <Button variant="secondary" onClick={() => navigate("ai")}>
               <Bot size={18} /> {HELPER_NAME}
             </Button>
-            <Button variant="ghost" onClick={() => { setHasUnsavedChanges(false); writeSession({ ...readSession(), page: "login", route: { name: "login" }, user: undefined }); setUser(undefined); setRoute({ name: "login" }); notify("Logged out."); }}>Logout</Button>
+            <Button variant="ghost" onClick={async () => {
+              setHasUnsavedChanges(false);
+              // Logging out has to reach the server: the session is revoked there,
+              // so the cookie cannot be replayed after the browser forgets it.
+              try {
+                await fetch(`${apiBaseUrl}/api/auth/logout`, {
+                  method: "POST",
+                  credentials: "same-origin",
+                  headers: { "Content-Type": "application/json", ...csrfHeaders() }
+                });
+              } catch {
+                notify("Signed out on this device, but the server could not be reached.");
+              }
+              setCsrfToken("");
+              writeSession({ ...readSession(), page: "login", route: { name: "login" } });
+              setUser(undefined);
+              setRoute({ name: "login" });
+              notify("Logged out.");
+            }}>Logout</Button>
           </div>
         </header>
         <RouteWayfinding route={route} navigate={navigate} goBack={goBack} />
@@ -1107,13 +1186,18 @@ function Login({ setPage, setUser, notify }: { setPage: Navigate; setUser: (user
         try {
           const response = await fetch(`${apiBaseUrl}/api/auth/login`, {
             method: "POST",
+            credentials: "same-origin",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ email: formValue(form, "email"), password: formValue(form, "password") })
           });
           const result = await response.json().catch(() => ({}));
           if (!response.ok) throw new Error(result.error || "Login failed.");
-          const signedInUser = result as AppUser;
-          writeSession({ ...readSession(), page: "dashboard", route: { name: "dashboard" }, user: signedInUser });
+          // The credential arrived as an HttpOnly cookie; only the identity and
+          // the CSRF token come back in the body.
+          setCsrfToken(result.csrfToken ?? "");
+          const { id, email, fullName, role } = result;
+          const signedInUser: AppUser = { id, email, fullName, role };
+          writeSession({ ...readSession(), page: "dashboard", route: { name: "dashboard" } });
           setUser(signedInUser);
           notify(`Signed in as ${signedInUser.role}.`);
           setPage("dashboard");

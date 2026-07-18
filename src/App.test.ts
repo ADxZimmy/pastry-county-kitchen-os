@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { resolveSessionPage } from "./App";
+import { readSession, resolveSessionPage, writeSession } from "./App";
 import { recipes as kitchenRecipes, setKitchenSnapshot } from "./data";
 import { auditChangeSummary, auditDataJson, auditExportRows, auditRecordLabel, auditSearchText } from "./lib/audit";
 import { buildKitchenAssistantResponse, calculateMargin, calculateRecipeCost, cancellationConsequences, checkStockAvailability, computeOrderPricing, convertUnit, dashboardProductionQueue, formatNaira, formatQuantity, formatScaledIngredientQuantity, generateShoppingList, netSellingPrice, orderEventLabel, orderEventsForOrder, ordersForProductionBucket, parseRecipeText, productionPeriodBounds, recommendedRestockDate, restockSuggestions, roundScaledQuantity, scaleRecipe, stockAdjustmentValidation } from "./lib/kitchen";
@@ -305,13 +305,48 @@ describe("kitchen calculations", () => {
   });
 });
 
+describe("browser session storage holds no credential (PCO-012)", () => {
+  const storageKey = "pastry-county-session";
+  const user = { id: "owner", email: "owner@pastrycounty.ng", fullName: "Owner", role: "Owner/Admin" as const };
+
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
+  it("never persists the signed-in identity", () => {
+    writeSession({ route: { name: "orders" }, page: "orders", selectedOrderId: "ord-1", user });
+    const stored = JSON.parse(window.localStorage.getItem(storageKey) ?? "{}");
+    expect(stored.user).toBeUndefined();
+    // Route and selection state is still remembered.
+    expect(stored.page).toBe("orders");
+    expect(stored.selectedOrderId).toBe("ord-1");
+  });
+
+  it("purges a credential left behind by a pre-Phase-011 build", () => {
+    window.localStorage.setItem(
+      storageKey,
+      JSON.stringify({ page: "dashboard", route: { name: "dashboard" }, user: { ...user, token: "legacy.session.token" } })
+    );
+    const session = readSession();
+    expect(session.user).toBeUndefined();
+    // The purge is written back, not just filtered on read.
+    const stored = window.localStorage.getItem(storageKey) ?? "";
+    expect(stored).not.toContain("legacy.session.token");
+    expect(JSON.parse(stored).user).toBeUndefined();
+  });
+
+  it("keeps no token anywhere in storage after a normal write", () => {
+    writeSession({ route: { name: "dashboard" }, page: "dashboard", user });
+    expect(JSON.stringify(window.localStorage)).not.toMatch(/token/i);
+  });
+});
+
 describe("route hash resolution", () => {
   const user = {
     id: "owner",
     email: "owner@pastrycounty.ng",
     fullName: "Owner",
-    role: "Owner/Admin" as const,
-    token: "signed-session"
+    role: "Owner/Admin" as const
   };
 
   it("falls back safely for unknown hashes instead of preserving stale private pages", () => {
