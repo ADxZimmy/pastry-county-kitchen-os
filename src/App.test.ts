@@ -4,6 +4,7 @@ import { recipes as kitchenRecipes, setKitchenSnapshot } from "./data";
 import { auditChangeSummary, auditDataJson, auditExportRows, auditRecordLabel, auditSearchText } from "./lib/audit";
 import { buildKitchenAssistantResponse, calculateMargin, calculateRecipeCost, cancellationConsequences, checkStockAvailability, computeOrderPricing, convertUnit, dashboardProductionQueue, formatNaira, formatQuantity, formatScaledIngredientQuantity, generateShoppingList, netSellingPrice, orderEventLabel, orderEventsForOrder, ordersForProductionBucket, parseRecipeText, productionPeriodBounds, recommendedRestockDate, restockSuggestions, roundScaledQuantity, scaleRecipe, stockAdjustmentValidation } from "./lib/kitchen";
 import { activeSelectedIdsForRoute, parseAppRoute, routeBackLabel, routeParent, serializeAppRoute } from "./lib/routes";
+import { HELPER_CAPABILITY, HELPER_NAME } from "./lib/kitchen";
 import { defaultAllowsDecimals, practicalQuantity, roundGrams, unitIncrement, validateNonNegativeNumber, validatePositiveNumber, validateQuantityIncrement } from "../shared/policy.js";
 import type { AuditLog, ConversionRule, Ingredient, Recipe, RecipeItem } from "./types";
 
@@ -447,6 +448,20 @@ describe("shared policy validation and rounding (PCO-006/007)", () => {
     expect(practicalQuantity(2.1, "pcs", 5)).toBe(3);
     expect(practicalQuantity(187.5, "g", 5)).toBe(190);
     expect(practicalQuantity(135.44, "ml", 5)).toBe(135.4);
+  });
+});
+
+describe("honest helper labelling (PCO-003)", () => {
+  it("names the deterministic helper without implying AI", () => {
+    expect(HELPER_NAME).toBe("Kitchen Helper");
+    expect(HELPER_NAME).not.toMatch(/\bAI\b/);
+  });
+
+  it("describes what the helper actually does and does not do", () => {
+    expect(HELPER_CAPABILITY).not.toMatch(/\bAI\b/);
+    expect(HELPER_CAPABILITY).toMatch(/saved recipes/i);
+    expect(HELPER_CAPABILITY).toMatch(/does not learn/i);
+    expect(HELPER_CAPABILITY).toMatch(/change your data/i);
   });
 });
 

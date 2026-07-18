@@ -598,6 +598,13 @@ function dashboardProductionCard(order: Order, itemList: OrderItem[], productLis
   };
 }
 
+// One shared capability descriptor for the deterministic helper. The audit
+// (PCO-003) found "AI Assistant" overstated a keyword-and-rule engine, so the
+// shipped name and copy stay honest until Phase 014 actually ships a
+// model-backed service — then this is the single place to change.
+export const HELPER_NAME = "Kitchen Helper";
+export const HELPER_CAPABILITY = "Answers from your saved recipes, ingredients, costs, and conversion rules using fixed rules. It does not learn, browse the web, or change your data on its own.";
+
 export const PRODUCIBLE_ORDER_STATUSES = ["Confirmed", "Stock Reserved", "In Production"];
 
 export function isProducibleStatus(status: string): boolean {

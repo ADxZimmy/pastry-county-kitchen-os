@@ -51,6 +51,8 @@ import {
   formatQuantity,
   formatScaledIngredientQuantity,
   generateShoppingList,
+  HELPER_CAPABILITY,
+  HELPER_NAME,
   netSellingPrice,
   orderEventLabel,
   orderEventsForOrder,
@@ -120,7 +122,7 @@ const desktopNav = [
   ["production", ChefHat, "Production"],
   ["shopping", ShoppingBasket, "Shopping List"],
   ["costing", Calculator, "Costing"],
-  ["ai", Bot, "AI Assistant"],
+  ["ai", Bot, HELPER_NAME],
   ["suppliers", Truck, "Suppliers"],
   ["settings", Settings, "Settings"]
 ] as const;
@@ -138,7 +140,7 @@ const moreItems = [
   ["imports", Upload, "Import"],
   ["shopping", ShoppingBasket, "Shopping"],
   ["costing", Calculator, "Costing"],
-  ["ai", Bot, "AI Assistant"],
+  ["ai", Bot, HELPER_NAME],
   ["conversions", Wand2, "Conversions"],
   ["suppliers", Truck, "Suppliers"],
   ["settings", Settings, "Settings"]
@@ -951,7 +953,7 @@ function App() {
           <div className="button-row">
             <Badge tone="caramel">{user.role}</Badge>
             <Button variant="secondary" onClick={() => navigate("ai")}>
-              <Bot size={18} /> Ask AI
+              <Bot size={18} /> {HELPER_NAME}
             </Button>
             <Button variant="ghost" onClick={() => { setHasUnsavedChanges(false); writeSession({ ...readSession(), page: "login", route: { name: "login" }, user: undefined }); setUser(undefined); setRoute({ name: "login" }); notify("Logged out."); }}>Logout</Button>
           </div>
@@ -1844,7 +1846,7 @@ function RecipeForm({ recipeId, currentRoute, setPage, setFormDirty, notify, rel
         const ingredient = ingredients.find((candidate) => candidate.id === item?.ingredientId);
         const rule = item && ingredient ? conversionRules.find((candidate) => candidate.ingredientId === ingredient.id && candidate.fromUnit === item.unit && candidate.toUnit === ingredient.baseUnit) : undefined;
         return <div className="row-card" key={row}><span>Row {index + 1}<small>{rule ? `Saved rule available: 1 ${rule.fromUnit} = ${rule.conversionFactor}${rule.toUnit}` : "Saved conversion rules apply automatically on save when available."}</small></span><Badge tone={rule ? "success" : "neutral"}>{rule ? "Ready" : "Auto-check"}</Badge></div>;
-      })}</div><div className="button-row"><Button variant="secondary" onClick={() => notify("Verified conversion rules are applied to recipe ingredients when you save.")}><Wand2 size={18} /> Apply saved conversions on save</Button><Button variant="secondary" onClick={() => notify("Paste-to-structure helper is available from the AI Assistant page.")}><Bot size={18} /> Paste recipe and structure</Button></div></Section>
+      })}</div><p className="section-note"><Wand2 size={14} /> Verified conversion rules are applied to these ingredient lines automatically when you save this recipe.</p><div className="button-row"><Button variant="secondary" onClick={() => setPage({ name: "ai" })}><Bot size={18} /> Paste recipe in {HELPER_NAME}</Button></div></Section>
       <Section title="Instructions"><Field label="Method"><textarea name="instructions" defaultValue={recipe?.instructions.join("\n") ?? ""} placeholder="Add the recipe method step by step" /></Field></Section>
     </FormShell>
   );
@@ -2728,7 +2730,8 @@ function AiAssistant({ setPage, notify, reloadData }: { setPage: Navigate; notif
   };
   return (
     <div className="ai-layout">
-      <Section title="Ask AI">
+      <Section title={HELPER_NAME}>
+        <p className="section-note">{HELPER_CAPABILITY}</p>
         <div className="chat">
           {messages.map((message) => <article className={`message ${message.role === "user" ? "user" : "ai"}`} key={message.id}>{message.text.split("\n").map((line, index) => <p key={`${message.id}-${index}`}>{line || " "}</p>)}</article>)}
         </div>
@@ -2758,10 +2761,11 @@ function AiAssistant({ setPage, notify, reloadData }: { setPage: Navigate; notif
           <div className="form-grid">
             <Field label={`Value for 1 ${selected.fromUnit}`}><input type="number" min="0.001" step="0.001" value={factor} onChange={(event) => setFactor(Number(event.target.value))} /></Field>
           </div>
+          <p className="section-note">This is a calculation only. Nothing changes until you save it as a rule below, or open a recipe and edit the ingredient line yourself.</p>
           <div className="button-row">
-            <Button onClick={() => notify(`${ingredient?.name ?? "Conversion"} result ready: ${Number(convertedQuantity.toFixed(1))}${selected.toUnit}.`)}>Use this conversion</Button>
-            <Button variant="secondary" onClick={async () => { await apiAction("conversion.save", { rule: { id: savedRule?.id, ingredientId: selected.ingredientId, fromUnit: selected.fromUnit, toUnit: selected.toUnit, conversionFactor: factor, confidenceLevel: "High", source: "manual entry", verified: true } }); notify("Edited conversion saved to Neon."); await reloadData(); }}>Save edited value</Button>
-            <Button variant="secondary" onClick={async () => { await apiAction("conversion.save", { rule: { id: savedRule?.id, ingredientId: selected.ingredientId, fromUnit: selected.fromUnit, toUnit: selected.toUnit, conversionFactor: factor, confidenceLevel: savedRule?.confidenceLevel ?? "Medium", source: savedRule?.source ?? "AI estimate", verified: Boolean(savedRule?.verified) } }); notify("Conversion rule saved to Neon for review."); await reloadData(); }}>Save conversion rule</Button>
+            <Button onClick={async () => { await apiAction("conversion.save", { rule: { id: savedRule?.id, ingredientId: selected.ingredientId, fromUnit: selected.fromUnit, toUnit: selected.toUnit, conversionFactor: factor, confidenceLevel: "High", source: "measured in kitchen", verified: true } }); notify(`Saved as a verified rule: 1 ${selected.fromUnit} = ${factor}${selected.toUnit}.`); await reloadData(); }}>Save as verified rule</Button>
+            <Button variant="secondary" onClick={async () => { await apiAction("conversion.save", { rule: { id: savedRule?.id, ingredientId: selected.ingredientId, fromUnit: selected.fromUnit, toUnit: selected.toUnit, conversionFactor: factor, confidenceLevel: savedRule?.confidenceLevel ?? "Medium", source: savedRule?.source ?? "manual entry", verified: false } }); notify(`Saved as an unverified rule for review: 1 ${selected.fromUnit} = ${factor}${selected.toUnit}.`); await reloadData(); }}>Save as unverified rule</Button>
+            <Button variant="secondary" onClick={() => setPage({ name: "recipes" })}>Open a recipe to apply it</Button>
           </div>
         </article>
       </Section>
