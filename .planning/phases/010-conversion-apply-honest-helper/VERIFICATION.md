@@ -29,14 +29,22 @@ Action inventory and disposition (plan step 1):
 - Check: `npm.cmd run smoke:live-audit`
   Result: Passed. The first run failed because `phase2-rerun-smoke.mjs` drove the UI by the old "Ask AI" button/heading; the smoke was updated to "Kitchen Helper" and the full suite then passed. UI-copy changes are gated by the live smoke for exactly this reason.
 
-## Remaining for Phase 010 (slice 010-B)
+## Slice 010-B — reviewed conversion apply (deployed 2026-07-11, commit `0511095`)
 
-- Conversion Review modal with target record, original/suggested/editable final value, source rule, confidence, scope and provenance.
-- A role-checked recipe-item apply action that validates the current original value (stale-write conflict), preserves import/source-cost evidence, records approved-conversion provenance, and saves through the normal recipe transaction.
-- Reload-and-assert after success, plus `smoke:conversion-apply`.
+- `conversion.applyToRecipeItem` (Owner/Admin + Baker) is the only path that changes a recipe from a conversion. It validates the target unit against the `recipe_items` unit constraint and a positive quantity, then refuses a stale write via `conversionApplyConflict`: if the stored line no longer matches the before-value the review was opened against, it returns 409 rather than overwriting another edit. Provenance (converted-from quantity/unit, rule id, actor, timestamp) is merged into `prep_state` so import/source-cost evidence survives, and the change is audited with the real actor.
+- Conversion Review modal on Recipe Detail ("Convert unit" per line) shows the target line, current value, suggested value with source rule and confidence, an editable final value, and a warning when no verified rule covers the pair. Cancel writes nothing and shows no toast. After the server call it reloads and asserts the line actually changed, showing an error instead of a success toast if it did not.
+- `convertUnit` now returns the matched `ruleId`; its no-rule fallback says "No saved rule" instead of "AI estimate required".
+- Command/check: conversion-apply probe against production (temp ingredient/recipe with import evidence, self-cleaning; script removed)
+  Result: 9/9 passed. Reviewed apply changed the line 2 cup -> 240g and survived reload; a stale apply was refused 409 ("now 2cup, not 99cup") with nothing changed; import evidence (`sourceFile`, `sourceLineAmount`, `ingredientState`) preserved; provenance recorded (from 2cup, by the acting user); replaying the used review refused 409 with the line still 240g.
+- Command/check: `npm.cmd run smoke:live-audit`
+  Result: Passed; all child smokes green, temporary records archived.
+- `smoke:conversion-apply` is not yet packaged as a repeatable script; the probe above is the interim evidence and is a good basis for it during 015-A.
+
+## Phase status
+
+Phase 010 is COMPLETE for its demo-trust scope: the helper is honestly labelled, no action claims a change it did not make, and applying a conversion to a recipe is a real reviewed, provenance-preserving, stale-safe write. PCO-003 is closed for the Demo Trust Gate; a genuine model-backed assistant remains Phase 014 (and is explicitly optional, gated on a provider/retention/budget decision).
 
 ## Residual Risk
 
-- Risk: recipe application may overwrite imported source evidence.
-  Owner: Phase 010-B; preserve original/source-cost provenance in the save transaction.
-- Note: PCO-003 reaches honest/demo-safe status with 010-A (no overstated AI framing, no action that claims a change it did not make). Full closure still needs 010-B's reviewed apply, and Phase 014 for any genuine model-backed assistant.
+- Risk: a reviewed apply changes one line at a time; there is no bulk apply. Acceptable — bulk conversion without per-line review is exactly what the audit warned against.
+- Note: full PCO-003 closure in the "real AI" sense is Phase 014 only if a provider is approved; otherwise the honest Kitchen Helper is the accepted product outcome.
