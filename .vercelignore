@@ -1,0 +1,13 @@
+# Test files live beside the code they test, but must never be uploaded: Vercel
+# turns every non-underscore file under api/ into a serverless function, so
+# api/bootstrap.test.js and api/security-containment.test.js were being deployed
+# as functions. That is dead weight and needless surface area, and it counted
+# against the deployment's function limit -- which is what blocked adding
+# api/data/[resource].js.
+**/*.test.js
+**/*.test.ts
+
+# Not needed to build or run the app.
+.planning/
+scripts/
+docs/
