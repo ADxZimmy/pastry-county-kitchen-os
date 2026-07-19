@@ -32,7 +32,7 @@ Execute the revised audit-remediation program from the July 10 expanded producti
 
 ## In Progress
 
-- Nothing in flight. Phase 011 is COMPLETE; Phase 012 (performance and loading architecture) has not started.
+- Phase 012 Performance And Loading Architecture. Slice 012-A (immutable asset caching, tracked CI, enforced bundle budget, measured baseline) is deployed and production-verified. Remaining: 012-B and 012-C, with 012-B scope pending an owner decision (see Next Action).
 
 ## Deploy notes (2026-07-11)
 
@@ -83,7 +83,15 @@ A broken 015-A run orphaned 9 records in production when its cleanup threw partw
 
 Final cookie-only verification: 211/211 unit tests, all 7 browser smokes green, D1 gate 30/30 with clean cleanup, reset 16/16, cookie/CSRF/throttle 35/35.
 
-Next: Phase 012 Performance And Loading Architecture (PCO-010, 011) -- immutable hashed assets, route chunks, paginated role-filtered endpoints, a shrinking bootstrap payload, Web Vitals, and a real CI performance gate. Then 013 accessibility, then 014 real AI (optional, gated on a provider/retention/budget decision). 015-B (full UAT + fresh external audit) stays last, after 011-014.
+012-A is deployed and production-verified (`40751c7`, `220bdc1`, `becf7a2`). Hashed assets now carry `public, max-age=31536000, immutable` (previously `max-age=0, must-revalidate`, so every visit revalidated a 354 kB bundle); the HTML shell stays revalidating so deploys are picked up. A tracked CI workflow runs install, tests, build, dependency audit, whitespace check and an enforced gzipped bundle budget on every push and pull request, with no production credentials. First green run: 9/9 steps.
+
+MEASUREMENT CHANGED THE PLAN. `npm run perf:baseline` found the client bundle is already 96.3 kB gzipped -- inside the audit's own 150 kB budget, because the audit quoted the uncompressed 334 kB figure. Route splitting (012-B) therefore buys far less than assumed. The real cliff is `/api/bootstrap`: 448.9 kB of JSON in 1189 ms, roughly half of it history no page needs on first paint (auditLogs 110 kB, inventoryMovements 65 kB, ingredientBatches 49 kB) -- and several of those collections are ALREADY silently truncated by server-side LIMITs, so the payload is both too large and incomplete, with nothing telling the operator their history view is cut off.
+
+CI immediately caught two defects: `vercel.json` rejected the `"//"` comment keys I added (schema-validated, so the first deploy failed silently and kept old headers), and the committed lockfile cannot produce a clean install on Linux (platform-skewed optional deps), meaning `npm ci` was never reproducible across platforms.
+
+OWNER DECISION NEEDED on 012-B scope: extracting pages from the 3,201-line App.tsx and adding React.lazy chunks was justified by a bundle-size problem that measurement shows does not exist. Recommendation is to reduce 012-B to the parts that still pay (verify parser packages stay server-only, measure serverless cold start) and move straight to 012-C, which addresses the actual cliff.
+
+Next: 012-C Route-Scoped Data And Migrations -- `/api/dashboard/summary` plus cursor-paginated orders/audit/movements behind one shared auth and role-projection layer, per-role response-shape tests before any bootstrap field is removed, then moving request-path DDL into explicit migrations (RS-007). Then 013 accessibility, then 014 real AI (optional, gated on a provider/retention/budget decision). 015-B (full UAT + fresh external audit) stays last, after 011-014.
 
 Deployed and production-verified 2026-07-11: S0/006a, Phase 007, Phase 008, Phase 009-A, the 009-B gram-rounding increment, AND the 009-B deduction-stage wiring (`18d2c69`) — a stage-toggling probe proved stock deducts EXACTLY ONCE at the configured stage (confirmation / production_start / completion), never twice. `main` synced with origin at `18d2c69`. Remediation: 9 of 16 PCO findings fully closed; PCO-006 closed; PCO-007 mostly closed (gram rounding + deduction stage effective; negative inventory + full settings inventory remain).
 
