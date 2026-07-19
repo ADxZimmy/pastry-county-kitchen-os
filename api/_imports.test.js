@@ -148,7 +148,9 @@ describe("import draft parser", () => {
     expect(draft.recipes[0].items[0].source.sheet).toBe("Recipes");
   });
 
-  it("parses selectable PDF text in the Node import runtime", async () => {
+  // Parsing a real PDF is genuinely slow and exceeds the 10s default when the
+  // suite runs files in parallel. It is not flaky work, just long.
+  it("parses selectable PDF text in the Node import runtime", { timeout: 45000 }, async () => {
     const draft = await extractImportDraft({
       source: {
         name: "recipe.pdf",

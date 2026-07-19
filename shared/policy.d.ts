@@ -10,3 +10,6 @@ export function unitIncrement(unit: string, options?: DivisibilityOptions): numb
 export function validateQuantityIncrement(value: unknown, unit: string, label: string, options?: DivisibilityOptions): string | null;
 export function roundGrams(value: number, gramRounding: number): number;
 export function practicalQuantity(value: number, unit: string, gramRounding: number): number;
+export const MINIMUM_PASSWORD_LENGTH: number;
+export function validatePasswordStrength(password: unknown): string | null;
+export function passwordsMatch(password: unknown, confirmation: unknown): boolean;

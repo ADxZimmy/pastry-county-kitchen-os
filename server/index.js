@@ -4,7 +4,21 @@ import { neon } from "@neondatabase/serverless";
 import bcrypt from "bcryptjs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { handleAction, produceOrder } from "../api/_actions.js";
+import { handleAction, produceOrder, sendResendEmail } from "../api/_actions.js";
+import {
+  GENERIC_RESET_FAILURE,
+  GENERIC_RESET_RESPONSE,
+  RESET_UNAVAILABLE,
+  consumeResetToken,
+  issueResetToken,
+  normalizeEmail,
+  padResponseTime,
+  resetEmailBody,
+  resetDeliveryConfigured,
+  resetLinkFor,
+  revokeSessionsAfterReset
+} from "../api/_passwordReset.js";
+import { validatePasswordStrength } from "../shared/policy.js";
 import { authenticateRequest, bearerCompatEnabled, createSessionToken, enforceRequestCsrf } from "../api/_auth.js";
 import {
   clearSessionCookie,
@@ -121,6 +135,87 @@ app.post("/api/auth/logout", requireDatabase, async (req, res, next) => {
     if (presented) await revokeSession(sql, presented, "logout");
     clearSessionCookie(res);
     res.json({ ok: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/auth/reset-request", requireDatabase, async (req, res, next) => {
+  const startedAt = Date.now();
+  try {
+    setPrivateNoStore(res);
+    if (!resetDeliveryConfigured()) {
+      res.status(503).json({ error: RESET_UNAVAILABLE });
+      return;
+    }
+    const email = normalizeEmail(req.body?.email);
+    const limit = rateLimit({
+      key: rateLimitKey(req, "auth.resetRequest", email || "missing-email"),
+      limit: 3,
+      windowMs: 15 * 60 * 1000
+    });
+    if (limit.limited) {
+      sendRateLimit(res, limit);
+      return;
+    }
+    if (email) {
+      const user = first(await sql`
+        select id, email, full_name
+        from app_users
+        where lower(email) = ${email} and coalesce(active, true) = true
+        limit 1
+      `);
+      if (user) {
+        const token = await issueResetToken(sql, user, req);
+        const delivery = await sendResendEmail({
+          to: user.email,
+          subject: "Reset your Pastry County Kitchen OS password",
+          text: resetEmailBody(resetLinkFor(token, req))
+        });
+        if (delivery.status !== "sent") {
+          console.warn(`[password-reset] delivery not completed: ${delivery.status}`);
+          console.log(`[password-reset] development link: ${resetLinkFor(token, req)}`);
+        }
+      }
+    }
+    await padResponseTime(startedAt);
+    res.json(GENERIC_RESET_RESPONSE);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post("/api/auth/reset-confirm", requireDatabase, async (req, res, next) => {
+  try {
+    setPrivateNoStore(res);
+    const token = String(req.body?.token ?? "");
+    const password = String(req.body?.password ?? "");
+    const limit = rateLimit({
+      key: rateLimitKey(req, "auth.resetConfirm", token.slice(0, 12) || "missing-token"),
+      limit: 5,
+      windowMs: 15 * 60 * 1000
+    });
+    if (limit.limited) {
+      sendRateLimit(res, limit);
+      return;
+    }
+    const strengthError = validatePasswordStrength(password);
+    if (strengthError) {
+      res.status(400).json({ error: strengthError });
+      return;
+    }
+    const userId = await consumeResetToken(sql, token);
+    if (!userId) {
+      res.status(400).json({ error: GENERIC_RESET_FAILURE });
+      return;
+    }
+    await sql`
+      update app_users set password_hash = ${bcrypt.hashSync(password, 10)}, updated_at = now()
+      where id = ${userId}
+    `;
+    await revokeSessionsAfterReset(sql, userId);
+    clearSessionCookie(res);
+    res.json({ ok: true, message: "Password updated. Sign in with your new password." });
   } catch (error) {
     next(error);
   }

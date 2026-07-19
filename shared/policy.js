@@ -89,3 +89,29 @@ export function practicalQuantity(value, unit, gramRounding) {
   if (unit === "g") return roundGrams(numeric, gramRounding);
   return Number(numeric.toFixed(1));
 }
+
+// ---------------------------------------------------------------- passwords --
+export const MINIMUM_PASSWORD_LENGTH = 12;
+
+// One rule for the reset form and the server that accepts it, so the browser
+// never promises something the server will reject. Length does the real work; a
+// long passphrase is accepted on its own rather than being forced through
+// character-class gymnastics that push people towards "Password1!".
+export function validatePasswordStrength(password) {
+  const value = String(password ?? "");
+  if (!value) return "Enter a new password.";
+  if (value.length < MINIMUM_PASSWORD_LENGTH) {
+    return `Use at least ${MINIMUM_PASSWORD_LENGTH} characters.`;
+  }
+  if (value.length > 200) return "Use 200 characters or fewer.";
+  if (/^\s|\s$/.test(value)) return "Remove the space at the start or end.";
+  if (new Set(value).size < 5) return "Use a more varied password.";
+  if (value.length < 16 && !(/[a-zA-Z]/.test(value) && /[0-9]/.test(value))) {
+    return "Add a number, or use a longer passphrase of 16 characters or more.";
+  }
+  return null;
+}
+
+export function passwordsMatch(password, confirmation) {
+  return String(password ?? "") === String(confirmation ?? "");
+}

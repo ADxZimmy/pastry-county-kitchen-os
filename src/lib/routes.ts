@@ -1,6 +1,7 @@
 export type Page =
   | "welcome"
   | "login"
+  | "reset"
   | "dashboard"
   | "recipes"
   | "recipe-detail"
@@ -24,6 +25,7 @@ export type Page =
 export type AppRoute =
   | { name: "welcome" }
   | { name: "login" }
+  | { name: "reset"; token?: string }
   | { name: "dashboard" }
   | { name: "recipes"; recipeId?: string; mode?: "detail" | "new" | "edit" | "scale" }
   | { name: "inventory"; ingredientId?: string; mode?: "detail" | "new" | "edit" }
@@ -46,6 +48,7 @@ export type LegacyRouteContext = {
 export const pageIds = new Set<Page>([
   "welcome",
   "login",
+  "reset",
   "dashboard",
   "recipes",
   "recipe-detail",
@@ -87,6 +90,7 @@ export const topLevelPages = new Set<Page>([
 const pageRouteNames = new Set([
   "welcome",
   "login",
+  "reset",
   "dashboard",
   "recipes",
   "inventory",
@@ -163,6 +167,8 @@ export function parseAppRoute(hash: string, context: LegacyRouteContext = {}): A
       return { name: "welcome" };
     case "login":
       return { name: "login" };
+    case "reset":
+      return first ? { name: "reset", token: first } : { name: "reset" };
     case "dashboard":
       return { name: "dashboard" };
     case "recipes":
@@ -209,6 +215,8 @@ export function serializeRoutePath(route: AppRoute): string {
     case "dashboard":
     case "ai":
       return route.name;
+    case "reset":
+      return route.token ? `reset/${encodePathSegment(route.token)}` : "reset";
     case "recipes": {
       if (route.mode === "new") return "recipes/new";
       if (!route.recipeId) return "recipes";
@@ -261,6 +269,7 @@ export function routeFromPage(page: Page, context: LegacyRouteContext = {}): App
   switch (page) {
     case "welcome":
     case "login":
+    case "reset":
     case "dashboard":
     case "production":
     case "shopping":
@@ -298,6 +307,7 @@ export function pageForRoute(route: AppRoute): Page {
   switch (route.name) {
     case "welcome":
     case "login":
+    case "reset":
     case "dashboard":
     case "production":
     case "shopping":
@@ -377,6 +387,8 @@ export function routeTitle(route: AppRoute): string {
       return "Welcome";
     case "login":
       return "Login";
+    case "reset":
+      return route.token ? "Choose A New Password" : "Reset Password";
     case "dashboard":
       return "Kitchen Command Center";
     case "recipes":

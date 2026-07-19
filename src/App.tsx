@@ -81,7 +81,7 @@ import {
   type AppRoute,
   type Page
 } from "./lib/routes";
-import { defaultAllowsDecimals, unitIncrement } from "../shared/policy.js";
+import { MINIMUM_PASSWORD_LENGTH, defaultAllowsDecimals, passwordsMatch, unitIncrement, validatePasswordStrength } from "../shared/policy.js";
 
 type OrderDraft = {
   recipeId: string;
@@ -805,7 +805,7 @@ function App() {
         setRoute((current) => (current.name === "login" ? { name: "dashboard" } : current));
       } else {
         setUser(undefined);
-        setRoute((current) => (current.name === "welcome" ? current : { name: "login" }));
+        setRoute((current) => (current.name === "welcome" || current.name === "reset" ? current : { name: "login" }));
       }
       setSessionState("ready");
     })();
@@ -916,6 +916,8 @@ function App() {
         return <Welcome setPage={navigate} />;
       case "login":
         return <Login setPage={navigate} setUser={setUser} notify={notify} />;
+      case "reset":
+        return <ResetPassword token={route.name === "reset" ? route.token : undefined} setPage={navigate} notify={notify} />;
       case "dashboard":
         return <Dashboard {...props} />;
       case "recipes":
@@ -959,11 +961,11 @@ function App() {
 
   // Until the server confirms the cookie, a protected route must not render —
   // otherwise a signed-in refresh would flash the login screen.
-  if (sessionState === "checking" && page !== "welcome") {
+  if (sessionState === "checking" && page !== "welcome" && page !== "reset") {
     return <LoadingScreen />;
   }
 
-  if (page === "welcome" || page === "login") {
+  if (page === "welcome" || page === "login" || page === "reset") {
     return (
       <>
         {content}
@@ -1222,7 +1224,117 @@ function Login({ setPage, setUser, notify }: { setPage: Navigate; setUser: (user
         <Button type="submit" disabled={working}>
           <LogIn size={18} /> {working ? "Checking..." : "Login"}
         </Button>
-        <button type="button" className="text-link" onClick={() => notify("Password reset will be connected when team email delivery is configured.")}>Forgot password?</button>
+        <button type="button" className="text-link" onClick={() => setPage({ name: "reset" })}>Forgot password?</button>
+      </form>
+    </main>
+  );
+}
+
+// One screen, two states: ask for a link, or set a new password when arriving
+// with a token from the email.
+function ResetPassword({ token, setPage, notify }: { token?: string; setPage: Navigate; notify: Notify }) {
+  const [working, setWorking] = useState(false);
+  const [requested, setRequested] = useState("");
+  const [error, setError] = useState("");
+
+  if (!token) {
+    return (
+      <main className="auth-screen">
+        <form className="auth-card" onSubmit={async (event) => {
+          event.preventDefault();
+          setWorking(true);
+          setError("");
+          const form = event.currentTarget;
+          try {
+            const response = await fetch(`${apiBaseUrl}/api/auth/reset-request`, {
+              method: "POST",
+              credentials: "same-origin",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ email: formValue(form, "email") })
+            });
+            const result = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(result.error || "Could not send a reset link. Try again shortly.");
+            // The server answers the same way whether or not the address is
+            // registered, and so does this screen.
+            setRequested(result.message || "If that email belongs to a Kitchen OS account, a reset link is on its way.");
+          } catch (requestError) {
+            setError(requestError instanceof Error ? requestError.message : "Could not send a reset link.");
+          } finally {
+            setWorking(false);
+          }
+        }}>
+          <BrandMark />
+          <h1>Reset your password</h1>
+          {requested ? (
+            <>
+              <p role="status">{requested}</p>
+              <p className="muted">The link works once and expires in 30 minutes. Check your spam folder if it does not arrive.</p>
+              <Button type="button" variant="secondary" onClick={() => setPage({ name: "login" })}>Back to login</Button>
+            </>
+          ) : (
+            <>
+              <p>Enter the email you sign in with and we will send a reset link.</p>
+              {error && <p className="form-error" role="alert">{error}</p>}
+              <Field label="Email">
+                <input name="email" type="email" autoComplete="email" placeholder="owner@pastrycounty.ng" required />
+              </Field>
+              <Button type="submit" disabled={working}>{working ? "Sending..." : "Send reset link"}</Button>
+              <button type="button" className="text-link" onClick={() => setPage({ name: "login" })}>Back to login</button>
+            </>
+          )}
+        </form>
+      </main>
+    );
+  }
+
+  return (
+    <main className="auth-screen">
+      <form className="auth-card" onSubmit={async (event) => {
+        event.preventDefault();
+        setError("");
+        const form = event.currentTarget;
+        const password = formValue(form, "password");
+        const confirmation = formValue(form, "confirmPassword");
+        if (!passwordsMatch(password, confirmation)) {
+          setError("Those passwords do not match.");
+          return;
+        }
+        const strengthError = validatePasswordStrength(password);
+        if (strengthError) {
+          setError(strengthError);
+          return;
+        }
+        setWorking(true);
+        try {
+          const response = await fetch(`${apiBaseUrl}/api/auth/reset-confirm`, {
+            method: "POST",
+            credentials: "same-origin",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ token, password })
+          });
+          const result = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(result.error || "This reset link is no longer valid. Request a new one.");
+          notify(result.message || "Password updated. Sign in with your new password.");
+          setPage({ name: "login" });
+        } catch (confirmError) {
+          setError(confirmError instanceof Error ? confirmError.message : "This reset link is no longer valid.");
+        } finally {
+          setWorking(false);
+        }
+      }}>
+        <BrandMark />
+        <h1>Choose a new password</h1>
+        <p>Setting a new password signs out every other device.</p>
+        {error && <p className="form-error" role="alert">{error}</p>}
+        <Field label="New password">
+          <input name="password" type="password" autoComplete="new-password" minLength={MINIMUM_PASSWORD_LENGTH} required />
+        </Field>
+        <Field label="Confirm new password">
+          <input name="confirmPassword" type="password" autoComplete="new-password" minLength={MINIMUM_PASSWORD_LENGTH} required />
+        </Field>
+        <p className="muted">At least {MINIMUM_PASSWORD_LENGTH} characters. A long passphrase is a good choice.</p>
+        <Button type="submit" disabled={working}>{working ? "Saving..." : "Save new password"}</Button>
+        <button type="button" className="text-link" onClick={() => setPage({ name: "reset" })}>Request a new link</button>
       </form>
     </main>
   );
