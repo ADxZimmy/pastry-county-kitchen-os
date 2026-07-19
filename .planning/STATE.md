@@ -68,7 +68,11 @@ PHASE 011 IS IN PROGRESS (MVP Hardening Program / M1 gate).
 
 The first cutover build leaked a connection on every page load (the 401 session response body was never consumed), caught by the migrated smokes within minutes and fixed in `ca7241d`. Re-verified after the fix: full `smoke:live-audit` green, `smoke:auth-cookie` 31/31, and the D1 gate `smoke:uat-core` still 30/30 with clean cleanup.
 
-Next: 011-B2 real password reset (PCO-015) — generic responses, high-entropy hashed single-use expiring tokens, revoke-all-sessions on success, Resend delivery from an allow-listed origin, and the request/confirm UI replacing the `Forgot password?` placeholder. Then 011-B3: atomic Neon-backed login/reset throttling (RS-006) replacing the process-local Map, disable `AUTH_BEARER_COMPAT`, and re-run the family cookie-only. 015-B (full UAT + fresh external audit) stays last, after 011-014.
+011-B2 is deployed and production-verified (`3e51dca`, `f21e89c`): real password recovery replaces the placeholder toast. Tokens are 32 random bytes stored only as SHA-256 hashes, single-use, 30-minute expiry, with the validity check inside the redeeming UPDATE so concurrent redemptions cannot both win. A completed reset revokes every session and issues none. Enumeration is closed on body, status, and timing. If the mail sender is unconfigured the request is refused honestly rather than claiming a link was sent -- production was found to have Resend delivery configured. `smoke:password-reset` passes 16/16 without ever completing a reset.
+
+The first B2 deploy left a timing oracle: the 600ms floor padded only the cheap branch while the known-address path paid a Resend call (~1.4s). Caught by the smoke, raised to 2500ms, gap fell from 1894ms to 307ms.
+
+Next: 011-B3, the last slice of Phase 011 -- atomic Neon-backed login/reset throttling (RS-006) replacing the process-local Map, then disable `AUTH_BEARER_COMPAT` and re-run the whole smoke family cookie-only. 015-B (full UAT + fresh external audit) stays last, after 011-014.
 
 Deployed and production-verified 2026-07-11: S0/006a, Phase 007, Phase 008, Phase 009-A, the 009-B gram-rounding increment, AND the 009-B deduction-stage wiring (`18d2c69`) — a stage-toggling probe proved stock deducts EXACTLY ONCE at the configured stage (confirmation / production_start / completion), never twice. `main` synced with origin at `18d2c69`. Remediation: 9 of 16 PCO findings fully closed; PCO-006 closed; PCO-007 mostly closed (gram rounding + deduction stage effective; negative inventory + full settings inventory remain).
 

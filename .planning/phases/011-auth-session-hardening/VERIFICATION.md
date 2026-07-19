@@ -43,9 +43,32 @@ Six smokes signed themselves in by writing a user object into localStorage, whic
 
 Anyone still holding a pre-011-A session had no cookie and was asked to sign in once. Sessions issued after 011-A carried the cookie and continued uninterrupted.
 
+## Slice 011-B2 — real password recovery (deployed 2026-07-11, commits `3e51dca`, `f21e89c`)
+
+The `Forgot password?` placeholder toast is replaced by a working flow at `#/reset` (request) and `#/reset/<token>` (confirm).
+
+- Tokens are 32 random bytes stored only as SHA-256 hashes in `password_reset_tokens`, single-use, 30-minute expiry. Requesting a new link retires the previous outstanding ones.
+- Redemption is the UPDATE itself — `used_at is null and expires_at > now()` sits in the WHERE clause — so two simultaneous redemptions cannot both succeed.
+- Completing a reset revokes every session (the `session_revoked_at` stamp and the `app_sessions` rows) and deliberately issues no session: a reset proves control of the mailbox, not of the browser making the request.
+- Password strength is validated before the token is spent, so a weak choice does not burn a valid single-use link. The rule lives in `shared/policy.js`, so browser and server cannot disagree.
+- Reset links are built from configured origin or the deployment's own host, never from a caller-supplied header that could redirect a token elsewhere.
+- `npm.cmd test` — 202/202 (+19). `npm.cmd run build` — clean.
+- `npm.cmd run smoke:password-reset` against production: **16/16 passed** (never completes a reset, so no password changes).
+
+### Honest delivery state
+
+If the Resend sender is unconfigured — including the `resend.dev` sandbox, which cannot reach real inboxes — the request is refused with "Password reset by email is not set up yet. Ask your Kitchen OS administrator to set your password." Claiming a link was sent when none could be is precisely the class of UI dishonesty this remediation exists to remove. The check reads only server configuration, never the submitted address, so it reveals nothing about which accounts exist. Production was found to have delivery **configured** (the endpoint answers 200, not 503).
+
+### Enumeration defect found and fixed by the gate
+
+The first deploy padded responses to a 600ms floor, but a known address costs a lookup, a token insert, and a call out to Resend, while an unknown address costs one lookup. Measured live: 1420ms known vs a floor of 600ms — the padding covered only the cheap branch, leaving response time a usable oracle for whether an account exists. Raised to 2500ms in `f21e89c`; the gap fell from 1894ms to **307ms**, with both branches at ~3.1-3.4s. The smoke also warms the endpoint first, because a cold serverless start added seconds of noise unrelated to which branch ran.
+
+### Not yet verified
+
+Redeeming a genuinely emailed token end to end is NOT covered: it needs mailbox access or a preview database. Issuance, hashing, single-use redemption, expiry, and revoke-all are covered by unit tests; the live smoke covers everything reachable without consuming a real token. PCO-015 is closed for implementation, with this delivery round-trip recorded as outstanding external evidence rather than claimed.
+
 ## Remaining in Phase 011
 
-- 011-B2: password reset (generic responses, high-entropy hashed single-use expiring tokens, revoke-all on success, Resend delivery from an allow-listed origin) and the `Forgot password?` UI, replacing the placeholder toast (PCO-015).
 - 011-B3: atomic Neon-backed rate limits for login/reset replacing the process-local Map (RS-006), then disable `AUTH_BEARER_COMPAT` and re-run the whole family cookie-only.
 - Central `private, no-store` + `Vary` policy applied by a shared helper rather than per-handler (partially done: login, session, logout, bootstrap, actions, produced).
 
@@ -57,6 +80,7 @@ Anyone still holding a pre-011-A session had no cookie and was asked to sign in 
 
 - Risk: bearer compatibility remains accepted until 011-B3. It is time-boxed, flag-controlled, and cannot be exploited via CSRF because browsers never attach it automatically.
 - Risk: no preview database exists, so browser-level cutover behaviour can only be verified against production immediately after deploy. Mitigated by the browser smoke family, which caught the connection leak within minutes.
-- Risk: password recovery is still a placeholder; owner lockout needs developer intervention until 011-B2 (PCO-015 open).
-- Risk: email DNS/domain verification may block end-to-end delivery proof for 011-B2.
-  Owner: Certification Evidence Closeout; token lifecycle still requires isolated verification.
+- Risk: the reset timing floor (2.5s) swallows a normal mail-provider call, but a pathologically slow provider response could still overrun it and re-expose a small timing difference. Accepted; the alternative is not awaiting delivery, which serverless cannot do reliably without an extra dependency.
+- Risk: reset request/confirm throttling still uses the process-local limiter, so it is per-instance until RS-006 lands in 011-B3.
+- Risk: end-to-end proof that an emailed token can be redeemed remains outstanding (needs mailbox access or a preview database).
+  Owner: Certification Evidence Closeout.
