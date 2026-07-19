@@ -127,9 +127,53 @@ Designed against the skill's quality checklist (layout shift is High severity; e
 - `npm.cmd run smoke:live-audit` — all 7 browser smokes passed.
 - Browser check of the migrated page: honest count, load-more control, and filter caveat all render.
 
+## Slice 012-C (part 2, continued) — lots and movements (deployed 2026-07-19, commits `3e5466b`, `496a238`, `b00a019`)
+
+### Cumulative payload reduction
+
+| Collection | Before | After |
+|---|---|---|
+| `auditLogs` | 110.4 kB (100 of 1,458) | removed |
+| `inventoryMovements` | 65.4 kB (200 of 962) | **15.2 kB** (49 live-order reservations) |
+| `ingredientBatches` | 50.5 kB (181 rows) | **17.0 kB** (60 soonest-expiring) |
+| **`/api/bootstrap` total** | **448.9 kB** | **259.6 kB** |
+
+**189.3 kB removed — 42% of the payload.**
+
+### Neither collection could simply be dropped
+
+`ingredientBatches` feeds expiry notifications and the Next FEFO Lots report, both computed synchronously. `inventoryMovements` is read by `cancellationConsequences` and `reservationQuantityForOrder` to resolve a live order's reservations — dropping it would have made the cancel modal stop reporting that a reservation gets released, under-reporting a real consequence, which is the exact dishonesty PCO-009 fixed.
+
+So both were **narrowed to what cross-cutting logic actually reads**, not emptied:
+
+- lots → the 60 soonest-expiring, which is precisely what the expiry notification and FEFO report want;
+- movements → reservation and reservation_release rows for non-archived orders, which is precisely what the cancellation logic wants.
+
+Everything else moved to `/api/data/*`, and each consumer ended up **more** correct than before:
+
+- Ingredient pages fetch their own movements and lots, so a record's history no longer depends on whether it fell inside a global cap.
+- The waste report asks for waste movements instead of filtering a truncated copy of every movement type.
+- Dashboard "Waste Events" and "Most used ingredient" are aggregated by the database over every row. They were computed from whatever fitted in the last 200 movements, so "most used" actually meant "most used recently" and changed meaning silently as history grew. Both show a placeholder if the aggregate cannot be fetched, rather than a wrong number.
+
+### A regression the smoke caught, and why the fix was not test-fudging
+
+`smoke:regression-audit` failed with "No FEFO batch was returned". The failure was correct: it asserted FEFO behaviour by finding its test ingredient's lot in the bootstrap snapshot, and a freshly created lot with no expiry date sorts last under `expiry_date nulls last`, so it never made the 60-row cut.
+
+The assertion is still worth making, so it now reads the lot from `/api/data/batches?ingredientId=`, which is complete — and which is also the source the ingredient page itself uses. The smoke now checks the same path an operator sees, rather than one that only ever worked for ingredients that happened to fall inside a global slice. Verified first that no remaining app code reads per-ingredient lots from the snapshot; the two survivors are both expiry-filtered.
+
+### Verification
+
+- `npm.cmd test` — 234/234. Build clean.
+- `npm.cmd run smoke:route-data` — 20/20.
+- `npm.cmd run smoke:live-audit` — all 7 browser smokes passed.
+- `npm.cmd run smoke:uat-core` — D1 Demo Trust Gate still **30/30**, so none of this regressed the demo-trust behaviour.
+
 ## Remaining in Phase 012
 
-- **012-C (part 2, continued)**: the same treatment for `inventoryMovements` (65.3 kB, capped at 200 of 962) and `ingredientBatches` (50.5 kB, capped at 181), then Dashboard and Orders onto `/api/data/summary` and `/api/data/orders`. `recipeItems` is the largest remaining item at 108.7 kB but is not growth-capped; it needs a different approach (per-recipe loading) rather than pagination.
+- `recipeItems` is now the largest item at 108.7 kB and 266 rows. It is **not** growth-capped, so pagination is the wrong tool — it needs per-recipe loading, a different change from the three collections handled so far.
+- Dashboard and Orders could still move onto `/api/data/summary` and `/api/data/orders`; the endpoints exist and are verified, but the current snapshot-driven versions are correct and bounded, so this is optimisation rather than defect repair.
+- **012-C (part 3)**: move remaining `ALTER/CREATE/repair UPDATE` work off request paths into explicit idempotent migrations with a deploy preflight (RS-007).
+- Lighthouse budgets and an authenticated performance job.
 - **012-C (part 3)**: move remaining `ALTER/CREATE/repair UPDATE` work off request paths into explicit idempotent migrations with a deploy preflight (RS-007).
 - Lighthouse budgets and an authenticated performance job. A public login-page score is explicitly not evidence for the authenticated app, so this needs the controlled authenticated job to be worth anything.
 
