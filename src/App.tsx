@@ -3331,7 +3331,11 @@ function SettingsPage({ user, setPage, notify, reloadData }: { user?: AppUser; s
   };
   const sendLowStockAlert = async () => {
     const result = await apiAction("notification.lowStockEmail", { items: lowStockRows.map((item) => `${item.name}: ${item.currentStock}${item.baseUnit} left`) });
-    notify(result.status === "sent" ? `Low-stock email sent to ${result.recipient}.` : result.recipient ? `Low-stock alert logged for ${result.recipient}; configure Resend to send externally.` : "Low-stock alert logged; add an email address in Settings to send externally.");
+    const recipients: string[] = Array.isArray(result.recipients) ? result.recipients : [];
+    const who = recipients.length > 2 ? `${recipients.slice(0, 2).join(", ")} and ${recipients.length - 2} more` : recipients.join(", ");
+    // Says what actually happened. "Logged" is not "sent", and the difference
+    // matters when someone is waiting on a stock alert.
+    notify(result.status === "sent" ? `Low-stock email sent to ${who}.` : `Low-stock alert logged for ${who}, but email delivery is not configured, so nothing was sent.`);
   };
   return (
     <div className="page-grid">
@@ -3371,7 +3375,8 @@ function SettingsPage({ user, setPage, notify, reloadData }: { user?: AppUser; s
           <Field label="Allow negative inventory (backorders)" helper="When on, production can complete while short; aggregate stock may go negative and the order is flagged as a shortage. FEFO lots never go below zero."><select name="allowNegativeInventory" defaultValue={settings.allowNegativeInventory ? "Yes" : "No"}><option>No</option><option>Yes</option></select></Field>
           <Field label="Purchase safety margin %"><input name="safetyMarginPercentage" type="number" min="0" step="0.1" defaultValue={settings.safetyMarginPercentage ?? 10} /></Field>
           <Field label="Default tax %"><input name="defaultTaxPercentage" type="number" min="0" step="0.1" defaultValue={settings.defaultTaxPercentage ?? 0} /></Field>
-          <Field label="Low-stock notification email"><input name="lowStockNotificationEmail" type="email" defaultValue={settings.lowStockNotificationEmail ?? ""} placeholder="ops@example.com" /></Field>
+          <Field label="Extra low-stock recipient (optional)"><input name="lowStockNotificationEmail" type="email" defaultValue={settings.lowStockNotificationEmail ?? ""} placeholder="ops@example.com" /></Field>
+          <p className="muted">Low-stock alerts already go to every active Owner/Admin and Inventory Manager, and to whoever raises the alert. Add an address here only to copy a shared mailbox as well.</p>
           <Field label="Active role"><select value={user?.role ?? "Viewer"} disabled><option>Owner/Admin</option><option>Baker</option><option>Inventory Manager</option><option>Viewer</option></select></Field>
         </div>
       </Section>

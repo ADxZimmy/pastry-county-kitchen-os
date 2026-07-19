@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { actorLabel, allowedRolesForAction, archiveTableForEntity, canRolePerformAction, computeOrderPricing, conversionApplyConflict, isUniqueViolation, isValidOrderTransition, normalizeConversionScope, normalizeDeductionStage, normalizeIngredientAllergenProfile, normalizeIngredientStorageProfile, normalizeProductionQcLog, normalizeRecipeCostProfile, normalizeRecipeFormulaMetadata, normalizeRecipeItemPrepState, normalizeShoppingPurchaseInput, planBatchDeductions, productionCompletionPreflight, productionShortageForRequirement, safePurchasePersistenceError, sendResendEmail, sessionAccessError } from "./_actions.js";
+import { actorLabel, allowedRolesForAction, archiveTableForEntity, canRolePerformAction, computeOrderPricing, conversionApplyConflict, isUniqueViolation, isValidOrderTransition, lowStockRecipients, normalizeConversionScope, normalizeDeductionStage, normalizeIngredientAllergenProfile, normalizeIngredientStorageProfile, normalizeProductionQcLog, normalizeRecipeCostProfile, normalizeRecipeFormulaMetadata, normalizeRecipeItemPrepState, normalizeShoppingPurchaseInput, planBatchDeductions, productionCompletionPreflight, productionShortageForRequirement, safePurchasePersistenceError, sendResendEmail, sessionAccessError } from "./_actions.js";
 
 describe("FEFO batch deduction planning", () => {
   it("deducts stock removals or production use across lots in the provided FEFO order", () => {
@@ -589,5 +589,43 @@ describe("archive recovery helpers", () => {
 
   it("rejects unsupported archive entity types before restore", () => {
     expect(() => archiveTableForEntity("staff")).toThrow("Unsupported archive type.");
+  });
+});
+
+describe("low-stock alert recipients", () => {
+  const staff = [
+    { email: "owner@pastrycounty.ng", role: "Owner/Admin" },
+    { email: "stock@pastrycounty.ng", role: "Inventory Manager" }
+  ];
+
+  it("goes to everyone who can act on the alert", () => {
+    expect(lowStockRecipients({ actor: null, staff })).toEqual(["owner@pastrycounty.ng", "stock@pastrycounty.ng"]);
+  });
+
+  it("includes whoever raised the alert, first", () => {
+    const actor = { email: "stock@pastrycounty.ng", role: "Inventory Manager" };
+    expect(lowStockRecipients({ actor, staff })).toEqual(["stock@pastrycounty.ng", "owner@pastrycounty.ng"]);
+  });
+
+  it("never emails the same person twice, whatever the casing", () => {
+    const actor = { email: "Owner@PastryCounty.NG" };
+    const recipients = lowStockRecipients({ actor, staff, additional: "OWNER@pastrycounty.ng" });
+    expect(recipients).toEqual(["Owner@PastryCounty.NG", "stock@pastrycounty.ng"]);
+  });
+
+  it("adds a shared mailbox when one is configured", () => {
+    expect(lowStockRecipients({ actor: null, staff, additional: "ops@pastrycounty.ng" }))
+      .toEqual(["owner@pastrycounty.ng", "stock@pastrycounty.ng", "ops@pastrycounty.ng"]);
+  });
+
+  it("ignores blank and missing addresses", () => {
+    expect(lowStockRecipients({ actor: { email: "" }, staff: [{ email: null }, { email: "  " }], additional: "   " })).toEqual([]);
+    expect(lowStockRecipients()).toEqual([]);
+  });
+
+  // The recipient list tracks the permission model rather than duplicating it,
+  // so a role change cannot leave alerts going to someone who cannot act.
+  it("is scoped to the roles permitted to run the action", () => {
+    expect(allowedRolesForAction("notification.lowStockEmail")).toEqual(["Owner/Admin", "Inventory Manager"]);
   });
 });

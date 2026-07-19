@@ -95,6 +95,29 @@ const actionRoles = {
   "notification.lowStockEmail": ["Owner/Admin", "Inventory Manager"]
 };
 
+// Who receives a low-stock alert is derived from the app's own records, not from
+// an address typed into settings that goes stale the moment staff change: the
+// people allowed to ACT on the alert are the people who get it, plus whoever
+// raised it. The optional settings address is kept as an extra recipient for a
+// shared operations mailbox.
+export function lowStockRecipients({ actor, staff = [], additional = "" } = {}) {
+  const seen = new Set();
+  const ordered = [];
+  const add = (value) => {
+    const email = String(value ?? "").trim();
+    if (!email) return;
+    const key = email.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    ordered.push(email);
+  };
+
+  add(actor?.email);
+  for (const member of staff) add(member?.email);
+  add(additional);
+  return ordered;
+}
+
 export function allowedRolesForAction(action) {
   if (action === "schema.ensure") return ["Owner/Admin"];
   return actionRoles[action] ?? ["Owner/Admin"];
@@ -2098,18 +2121,32 @@ export async function handleAction(sql, body, actor) {
   }
 
   if (action === "notification.lowStockEmail") {
-    const rows = await sql`select low_stock_notification_email from settings order by updated_at desc limit 1`;
-    const recipient = rows[0]?.low_stock_notification_email || null;
     const items = Array.isArray(body.items) ? body.items.map(String) : [];
     const subject = `Low stock alert: ${items.length} item${items.length === 1 ? "" : "s"} need attention`;
     const message = items.join("\n") || "No low-stock items were supplied.";
-    const delivery = await sendResendEmail({ to: recipient, subject, text: message });
+    const settingsRows = await sql`select low_stock_notification_email from settings order by updated_at desc limit 1`;
+    const staffRows = await sql`
+      select email, role from app_users
+      where coalesce(active, true) = true and role = any(${allowedRolesForAction("notification.lowStockEmail")})
+    `;
+    const recipients = lowStockRecipients({
+      actor,
+      staff: staffRows,
+      additional: settingsRows[0]?.low_stock_notification_email
+    });
+
+    if (!recipients.length) {
+      throw Object.assign(new Error("No active staff can receive low-stock alerts. Add an Owner/Admin or Inventory Manager."), { statusCode: 400 });
+    }
+
+    const delivery = await sendResendEmail({ to: recipients, subject, text: message });
+    const recipientList = recipients.join(", ");
     await sql`
       insert into notification_events (id, type, recipient, subject, body, status, created_by)
-      values (${id("notify")}, 'low_stock_email', ${recipient}, ${subject}, ${message}, ${delivery.status}, ${actor?.email || "system"})
+      values (${id("notify")}, 'low_stock_email', ${recipientList}, ${subject}, ${message}, ${delivery.status}, ${actor?.email || "system"})
     `;
-    await audit(sql, "notifications", "low_stock_email", "log", null, { recipient, subject, itemCount: items.length, status: delivery.status, providerId: delivery.providerId, error: delivery.error });
-    return { ok: true, recipient, status: delivery.status, providerId: delivery.providerId, error: delivery.error };
+    await audit(sql, "notifications", "low_stock_email", "log", null, { recipients, subject, itemCount: items.length, status: delivery.status, providerId: delivery.providerId, error: delivery.error }, actor);
+    return { ok: true, recipients, recipient: recipientList, status: delivery.status, providerId: delivery.providerId, error: delivery.error };
   }
 
   throw Object.assign(new Error(`Unknown action: ${action}`), { statusCode: 400 });
