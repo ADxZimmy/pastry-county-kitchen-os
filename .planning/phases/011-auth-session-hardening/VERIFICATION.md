@@ -63,6 +63,10 @@ If the Resend sender is unconfigured — including the `resend.dev` sandbox, whi
 
 The first deploy padded responses to a 600ms floor, but a known address costs a lookup, a token insert, and a call out to Resend, while an unknown address costs one lookup. Measured live: 1420ms known vs a floor of 600ms — the padding covered only the cheap branch, leaving response time a usable oracle for whether an account exists. Raised to 2500ms in `f21e89c`; the gap fell from 1894ms to **307ms**, with both branches at ~3.1-3.4s. The smoke also warms the endpoint first, because a cold serverless start added seconds of noise unrelated to which branch ran.
 
+### Regression check
+
+`npm.cmd run smoke:live-audit` (all 7 Playwright smokes) after 011-B2: **passed**. Two earlier runs failed transiently and are recorded rather than hidden — the first hit a `networkidle` timeout on the login page while the `f21e89c` deploy was still propagating (the bundle was briefly not loading, so no session request fired and nothing rendered), and the second timed out on a click in `milestone7`, which passed on its own immediately afterwards. Neither reproduced on the clean run. The smoke family is somewhat sensitive to cold starts and deploy switchover; a failure should be re-run once before being treated as a regression.
+
 ### Not yet verified
 
 Redeeming a genuinely emailed token end to end is NOT covered: it needs mailbox access or a preview database. Issuance, hashing, single-use redemption, expiry, and revoke-all are covered by unit tests; the live smoke covers everything reachable without consuming a real token. PCO-015 is closed for implementation, with this delivery round-trip recorded as outstanding external evidence rather than claimed.
