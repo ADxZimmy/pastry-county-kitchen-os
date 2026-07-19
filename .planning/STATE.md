@@ -46,6 +46,9 @@ Execute the revised audit-remediation program from the July 10 expanded producti
 - Item: 100/100 certification claim.
   Reason: Product remediation plus external email DNS/operator sign-offs, backup/restore or rollback drills, and manual evidence remain outstanding.
 
+- Item: Dependable password recovery for operators (2026-07-19).
+  Reason: Resend ACCEPTS the mail (valid key, real sender `alerts@pastrycounty.com`, message ids and sent_at timestamps for all three reset emails), but none reached a `delivered` event: two ended at `delivery_delayed` and one at `sent`. The receiving server for `pastrycounty.ng` is deferring mail from `pastrycounty.com`. Until that resolves, a locked-out operator may never receive a reset link. Owner action: check whether those messages later delivered or expired, and review SPF/DKIM/DMARC alignment between the two domains. PCO-015 stays closed for implementation; this is an operational/DNS dependency, not a code defect.
+
 ## Next Action
 
 Resolved 2026-07-11: production's `defaultDeductionStage` was `production_start` (unwired/ineffective before 009-B); on the owner's instruction it was set to `production_completion` via `settings.save` and verified against production (before `production_start` -> save 200 -> after `production_completion`). Live orders again deduct only at completion, matching all prior behaviour.

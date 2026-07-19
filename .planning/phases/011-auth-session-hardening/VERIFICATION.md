@@ -71,6 +71,32 @@ The first deploy padded responses to a 600ms floor, but a known address costs a 
 
 Redeeming a genuinely emailed token end to end is NOT covered: it needs mailbox access or a preview database. Issuance, hashing, single-use redemption, expiry, and revoke-all are covered by unit tests; the live smoke covers everything reachable without consuming a real token. PCO-015 is closed for implementation, with this delivery round-trip recorded as outstanding external evidence rather than claimed.
 
+### Delivery evidence from the provider (2026-07-19, owner-supplied Resend export)
+
+The owner exported Resend's sent log for the three reset emails this work generated. It settles what the endpoint deliberately cannot report.
+
+| Sent (UTC) | To | Last event |
+|---|---|---|
+| 2026-07-19 13:28 | owner@pastrycounty.ng | `delivery_delayed` |
+| 2026-07-19 13:33 | owner@pastrycounty.ng | `delivery_delayed` |
+| 2026-07-19 19:23 | owner@pastrycounty.ng | `sent` |
+
+Sender: `Pastry County <alerts@pastrycounty.com>`, one API key.
+
+**Proven:** Resend accepts the mail. A valid API key, a real non-sandbox sender domain, three message ids and three `sent_at` timestamps. Configuration AND provider acceptance are both confirmed — more than the endpoint's 200-vs-503 signal could establish on its own.
+
+**Not proven, and now known to be at risk:** not one message reached a `delivered` event. Two ended at `delivery_delayed`, meaning the receiving server for `pastrycounty.ng` deferred them with a temporary failure; the third had not progressed past `sent`. None bounced.
+
+**Consequence: password recovery is NOT dependable for operators yet.** A locked-out operator may wait indefinitely for a link that is stuck in provider retry. PCO-015 remains closed for implementation, but the operational dependency is real and unresolved.
+
+Note the sending domain (`pastrycounty.com`) differs from the recipient domain (`pastrycounty.ng`). Deferrals on a fresh sending domain are usually greylisting (self-resolving) or SPF/DKIM/DMARC alignment the receiving side rejects (not self-resolving). Distinguishing them requires checking whether those two messages later reached `delivered` or expired — owner action, tracked under Certification Evidence Closeout.
+
+### Low-stock alert routing (2026-07-19)
+
+The low-stock recipient was a free-text settings address pointing at `zimuzo@live.com`, a mailbox belonging to no user in the table. On the owner's instruction it now derives from the app's own records: every active user holding a role permitted to run the action, plus whoever raised the alert, de-duplicated. The role list comes from `allowedRolesForAction`, so recipients cannot drift from the permission model. The settings field survives only as an optional extra recipient and is relabelled accordingly. Commit `c11970b`.
+
+`session-test@pastrycounty.com` — an active Inventory Manager left over from earlier testing, with real write access to stock — was disabled, which also revoked its sessions. `owner@pastrycounty.ng` is now the only active account.
+
 ## Slice 011-B3 — shared throttling and bearer retirement (deployed 2026-07-11, commits `5c149a6`, `66d3143`)
 
 ### RS-006 shared auth throttling
