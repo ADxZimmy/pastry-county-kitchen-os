@@ -166,7 +166,6 @@ export async function loadKitchenSnapshot(sql = getSql()) {
     movementRows,
     batchRows,
     qcRows,
-    auditRows,
     conversionRows,
     settingRows
   ] = await Promise.all([
@@ -276,13 +275,6 @@ export async function loadKitchenSnapshot(sql = getSql()) {
       limit 200
     `,
     sql`
-      select id, entity_type as "entityType", entity_id as "entityId", action, before_data as "beforeData",
-        after_data as "afterData", actor, created_at as "createdAt"
-      from audit_logs
-      order by created_at desc
-      limit 100
-    `,
-    sql`
       select id, ingredient_id as "ingredientId", from_unit as "fromUnit", to_unit as "toUnit",
         conversion_factor::float as "conversionFactor", conversion_type as "conversionType",
         confidence_level as "confidenceLevel", source, verified, notes,
@@ -325,7 +317,6 @@ export async function loadKitchenSnapshot(sql = getSql()) {
     inventoryMovements: movementRows,
     ingredientBatches: batchRows,
     productionQcLogs: qcRows,
-    auditLogs: auditRows,
     conversionRules: conversionRows,
     settings: first(settingRows) ?? {
       businessName: "Pastry County",

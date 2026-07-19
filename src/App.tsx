@@ -32,7 +32,7 @@ import {
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { apiBaseUrl, backendMode } from "./lib/backend";
 import { auditChangedFields, auditChangeSummary, auditDataJson, auditExportRows, auditFieldLabel, auditRecordLabel, auditSearchText, type AuditRecordNameLookup } from "./lib/audit";
-import { appUsers, auditLogs, conversionRules, ingredientBatches, ingredients, inventoryMovements, orderEvents, orderItems, orders, products, productionQcLogs, recipeItems, recipes, settings, suppliers, setKitchenSnapshot } from "./data";
+import { appUsers, conversionRules, ingredientBatches, ingredients, inventoryMovements, orderEvents, orderItems, orders, products, productionQcLogs, recipeItems, recipes, settings, suppliers, setKitchenSnapshot } from "./data";
 import type { AppStaffUser, AuditLog, ConversionRule, ImportDraft, ImportDraftRecipeItem, Ingredient, IngredientAllergenProfile, IngredientStorageProfile, Order, Recipe, RecipeCostProfile, RecipeFormulaMetadata, RecipeItem, RecipeItemPrepState, StockStatus, Supplier, Unit } from "./types";
 import {
   calculateMargin,
@@ -82,6 +82,8 @@ import {
   type Page
 } from "./lib/routes";
 import { MINIMUM_PASSWORD_LENGTH, defaultAllowsDecimals, passwordsMatch, unitIncrement, validatePasswordStrength } from "../shared/policy.js";
+import { describeShowing, fetchResourcePage, usePagedResource } from "./lib/routeData";
+import type { PagedStatus } from "./lib/routeData";
 
 type OrderDraft = {
   recipeId: string;
@@ -1541,12 +1543,28 @@ function IngredientDetail({ ingredientId, user, setPage, notify, askConfirm, rel
   const ingredient = ingredients.find((item) => item.id === ingredientId)!;
   const [stockForm, setStockForm] = useState<"purchase" | "adjustment" | null>(null);
   const [usageOpen, setUsageOpen] = useState(false);
+  // This record's own history, fetched for this ingredient rather than filtered
+  // out of a truncated copy of the whole audit trail.
+  const [auditTrail, setAuditTrail] = useState<AuditLog[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    fetchResourcePage<AuditLog>("audit", { entityType: "ingredients", entityId: ingredientId, limit: 8 })
+      .then((page) => {
+        if (!cancelled) setAuditTrail(page.items ?? []);
+      })
+      .catch(() => {
+        // A missing history panel must not take the ingredient page down with it.
+        if (!cancelled) setAuditTrail([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [ingredientId]);
   if (!ingredient) return <EmptyState title="Ingredient not found" message="Select an ingredient from inventory." action={<Button variant="secondary" onClick={() => setPage({ name: "inventory" })}>Back to Inventory</Button>} />;
   const supplier = suppliers.find((item) => item.id === ingredient.supplierId);
   const movements = inventoryMovements.filter((item) => item.ingredientId === ingredientId);
   const usageMovements = movements.filter((movement) => ["production_use", "waste", "adjustment", "reservation", "reservation_release"].includes(movement.movementType));
   const batches = ingredientBatches.filter((item) => item.ingredientId === ingredientId);
-  const auditTrail = auditLogs.filter((item) => item.entityType === "ingredients" && item.entityId === ingredientId).slice(0, 8);
   const purchaseMovements = movements.filter((movement) => movement.movementType === "purchase").sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   const trendText = purchaseMovements.length >= 2 ? `${purchaseMovements[purchaseMovements.length - 1].quantityChange > purchaseMovements[0].quantityChange ? "Higher" : "Stable"} purchase volume trend` : "Not enough purchase history";
   return (
@@ -3267,6 +3285,26 @@ function SettingsPage({ user, setPage, notify, reloadData }: { user?: AppUser; s
   const [expandedAuditId, setExpandedAuditId] = useState<string | null>(null);
   const [editingUser, setEditingUser] = useState<Partial<AppStaffUser> | null>(null);
   const canManageSettings = canUser(user, "manageSettings");
+  // The audit trail is paged from the server. It used to arrive inside the
+  // bootstrap payload capped at 100 rows, which showed a fraction of the real
+  // history as though it were all of it.
+  const auditPage = usePagedResource<AuditLog>("audit", { limit: 50, enabled: canManageSettings });
+  const [auditTotal, setAuditTotal] = useState<number | undefined>(undefined);
+  useEffect(() => {
+    if (!canManageSettings) return;
+    let cancelled = false;
+    fetchResourcePage<never>("summary")
+      .then((body: any) => {
+        if (!cancelled) setAuditTotal(body?.summary?.totals?.auditLogs);
+      })
+      .catch(() => {
+        // A missing total only costs the "of N" phrasing, so it fails quietly
+        // rather than blocking the list it annotates.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [canManageSettings]);
   const canRestoreArchive = canUser(user, "restoreArchive");
   const lowStockRows = ingredients.filter(isBelowReorder);
   const expiringRows = ingredientBatches.filter((batch) => batch.expiryDate).slice(0, 8);
@@ -3284,7 +3322,8 @@ function SettingsPage({ user, setPage, notify, reloadData }: { user?: AppUser; s
     settings: { default: "Business settings" },
     notifications: { low_stock_email: "Low-stock email" }
   };
-  const auditRows = (auditFilter === "All" ? auditLogs : auditLogs.filter((entry) => entry.entityType === auditFilter)).filter((entry) => auditSearchText(entry, auditNameLookup).toLowerCase().includes(auditSearch.toLowerCase()));
+  const loadedAudit = auditPage.items;
+  const auditRows = (auditFilter === "All" ? loadedAudit : loadedAudit.filter((entry) => entry.entityType === auditFilter)).filter((entry) => auditSearchText(entry, auditNameLookup).toLowerCase().includes(auditSearch.toLowerCase()));
   const supplierPerformance = suppliers.map((supplier) => {
     const supplied = ingredients.filter((ingredient) => ingredient.supplierId === supplier.id);
     const low = supplied.filter(isBelowReorder);
@@ -3400,7 +3439,31 @@ function SettingsPage({ user, setPage, notify, reloadData }: { user?: AppUser; s
       </Section>
       <Section title="Audit Reports" action={<div className="button-row"><Button variant="secondary" onClick={() => exportCsv("pastry-county-audit-report.csv", ["Entity", "Record", "Action", "Actor", "Date", "Changed Fields", "Before", "After"], auditExportRows(auditRows, auditNameLookup), notify)}>Export CSV</Button><Button variant="secondary" onClick={() => exportPrintableReport("pastry-county-compliance-report.html", "Pastry County Compliance Report", [["Audit rows", auditRows.length], ["Low-stock items", lowStockRows.length], ["Waste events", wasteRows.length], ["Open shortages", orders.filter((order) => order.stockStatus === "Shortage").length]], notify)}>PDF/Print</Button></div>}>
         <Toolbar query={auditSearch} setQuery={setAuditSearch} placeholder="Search audit logs" />
-        <Chips items={["All", ...Array.from(new Set(auditLogs.map((entry) => entry.entityType))).slice(0, 8)]} active={auditFilter} setActive={setAuditFilter} />
+        <Chips items={["All", ...Array.from(new Set(loadedAudit.map((entry) => entry.entityType))).slice(0, 8)]} active={auditFilter} setActive={setAuditFilter} />
+        {auditPage.status === "loading" || auditPage.status === "error" || !loadedAudit.length ? (
+          <ResourceState
+            status={auditPage.status}
+            error={auditPage.error}
+            onRetry={auditPage.retry}
+            emptyMessage="No audit activity has been recorded yet."
+          />
+        ) : (
+          <>
+            <div className="resource-meta">
+              {/* Says how much of the trail is on screen. The filter and search
+                  above only see loaded rows, so that is stated rather than
+                  letting an empty result imply the record is empty. */}
+              <span aria-live="polite">
+                {describeShowing(loadedAudit.length, auditTotal, "audit entries")}
+                {auditRows.length !== loadedAudit.length ? ` · ${auditRows.length.toLocaleString()} match your filter` : ""}
+              </span>
+              {auditPage.hasMore && (
+                <Button variant="secondary" onClick={auditPage.loadMore} disabled={auditPage.status === "loadingMore"}>
+                  {auditPage.status === "loadingMore" ? "Loading..." : "Load older entries"}
+                </Button>
+              )}
+            </div>
+            {auditPage.hasMore && <p className="empty-note">Search and filters apply to the {loadedAudit.length.toLocaleString()} entries loaded so far. Load older entries to widen the search.</p>}
         <PaginatedTable label="audit logs" headers={["Entity", "Record", "Action", "Actor", "Date", "Details"]} rows={auditRows.map((entry) => {
           const expanded = expandedAuditId === entry.id;
           return {
@@ -3418,6 +3481,8 @@ function SettingsPage({ user, setPage, notify, reloadData }: { user?: AppUser; s
             ]
           };
         })} />
+          </>
+        )}
       </Section>
       <Section title="FEFO, Waste & Supplier Reports" action={<div className="button-row"><Button variant="secondary" onClick={sendLowStockAlert}>Send Low-Stock Alert</Button><Button variant="secondary" onClick={() => exportPrintableReport("pastry-county-operations-report.html", "Pastry County Operations Report", [["Expiring lots", expiringRows.length], ["Waste events", wasteRows.length], ["Suppliers", suppliers.length], ["Stock value", formatNaira(ingredients.reduce((sum, item) => sum + item.currentStock * item.latestUnitCost, 0))]], notify)}>PDF/Print</Button></div>}>
         <div className="split">
@@ -3448,7 +3513,7 @@ function SettingsPage({ user, setPage, notify, reloadData }: { user?: AppUser; s
           ))}
         </div>
         <div className="timeline">
-          {(archiveData?.auditRows ?? auditLogs.slice(0, 8)).map((entry: any) => (
+          {(archiveData?.auditRows ?? []).map((entry: any) => (
             <article key={entry.id}>
               <ListChecks size={18} />
               <div>
@@ -3563,6 +3628,29 @@ function Metric({ label, value, hint }: { label: string; value: React.ReactNode;
   const textValue = typeof value === "string" || typeof value === "number" ? String(value) : "";
   const valueClass = textValue.length > 7 ? "metric-value metric-value-long" : "metric-value";
   return <article className="metric-card"><span>{label}</span><strong className={valueClass}>{value}</strong>{hint && <small>{hint}</small>}</article>;
+}
+
+// Loading, error and empty for a route-scoped list. The skeleton reserves the
+// height the rows will occupy, so arriving data replaces it in place instead of
+// shoving the page around; the error is announced, not just coloured red.
+function ResourceState({ status, error, onRetry, emptyMessage, rowCount = 6 }: { status: PagedStatus; error: string; onRetry: () => void; emptyMessage: string; rowCount?: number }) {
+  if (status === "loading") {
+    return (
+      <div className="skeleton-grid resource-skeleton" role="status" aria-live="polite" aria-busy="true">
+        <span className="visually-hidden">Loading…</span>
+        {Array.from({ length: rowCount }, (_, index) => <span key={index} aria-hidden="true" />)}
+      </div>
+    );
+  }
+  if (status === "error") {
+    return (
+      <div className="global-error resource-state" role="alert">
+        <p>{error || "That list could not be loaded."}</p>
+        <Button variant="secondary" onClick={onRetry}>Try again</Button>
+      </div>
+    );
+  }
+  return <p className="empty-note resource-state">{emptyMessage}</p>;
 }
 
 function EmptyState({ title, message, action }: { title: string; message: string; action?: React.ReactNode }) {

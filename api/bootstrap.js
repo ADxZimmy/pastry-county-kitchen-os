@@ -10,6 +10,9 @@ export function filterKitchenSnapshotForActor(snapshot, actor) {
   return {
     ...snapshot,
     appUsers: [],
+    // The audit trail moved to /api/data/audit and is no longer in the snapshot.
+    // The blanking stays as a safety net: if it ever returns to bootstrap, it
+    // must not reach a lower role just because this line was tidied away.
     auditLogs: [],
     settings: {
       ...snapshot.settings,

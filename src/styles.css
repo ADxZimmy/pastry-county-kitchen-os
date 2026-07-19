@@ -833,3 +833,44 @@ tbody tr.is-expanded { background: #edf7f5; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .001ms !important; transition-duration: .001ms !important; scroll-behavior: auto !important; }
 }
+
+/* Route-scoped list states (Phase 012-C).
+   The skeleton reserves the height its rows will occupy so arriving data
+   replaces it in place rather than shifting the page. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+.resource-skeleton { margin: 12px 0; min-height: 160px; }
+.resource-skeleton span { min-height: 22px; border-radius: 10px; }
+.resource-skeleton span:first-child { min-height: 22px; border-radius: 10px; }
+
+.resource-state {
+  margin: 12px 0;
+  min-height: 64px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: flex-start;
+  justify-content: center;
+}
+
+.resource-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  margin: 10px 0 4px;
+  color: #6d5a4b;
+  font-size: 13px;
+}

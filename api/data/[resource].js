@@ -42,13 +42,17 @@ async function pagedOrders(sql, { cursor, limit }) {
   return buildPage(rows, limit);
 }
 
-async function pagedAudit(sql, { cursor, limit }) {
+// entityType/entityId let a record's own page fetch just its history, instead of
+// the client filtering a truncated copy of the whole trail.
+async function pagedAudit(sql, { cursor, limit, entityType, entityId }) {
   const rows = cursor
     ? await sql`
         select id, entity_type as "entityType", entity_id as "entityId", action,
           before_data as "beforeData", after_data as "afterData", actor, created_at as "createdAt"
         from audit_logs
-        where (created_at, id) < (${cursor.at}::timestamptz, ${cursor.id})
+        where (${entityType}::text is null or entity_type = ${entityType})
+          and (${entityId}::text is null or entity_id = ${entityId})
+          and (created_at, id) < (${cursor.at}::timestamptz, ${cursor.id})
         order by created_at desc, id desc
         limit ${limit + 1}
       `
@@ -56,6 +60,8 @@ async function pagedAudit(sql, { cursor, limit }) {
         select id, entity_type as "entityType", entity_id as "entityId", action,
           before_data as "beforeData", after_data as "afterData", actor, created_at as "createdAt"
         from audit_logs
+        where (${entityType}::text is null or entity_type = ${entityType})
+          and (${entityId}::text is null or entity_id = ${entityId})
         order by created_at desc, id desc
         limit ${limit + 1}
       `;
@@ -157,7 +163,12 @@ export default async function handler(req, res) {
     const page = resource === "orders"
       ? await pagedOrders(sql, { cursor, limit })
       : resource === "audit"
-        ? await pagedAudit(sql, { cursor, limit })
+        ? await pagedAudit(sql, {
+            cursor,
+            limit,
+            entityType: req.query?.entityType || null,
+            entityId: req.query?.entityId || null
+          })
         : await pagedMovements(sql, { cursor, limit, ingredientId: req.query?.ingredientId || null });
 
     res.status(200).json({ resource, limit, ...page });
