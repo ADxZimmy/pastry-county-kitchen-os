@@ -5,7 +5,14 @@ import { headerValue, isUndefinedTableError, revokeAllUserSessions } from "./_se
 const RESET_TTL_MINUTES = 30;
 // Both branches of a reset request are padded to the same floor so response
 // time does not become an oracle for whether an account exists.
-const MINIMUM_RESPONSE_MS = 600;
+//
+// The floor has to clear the slowest branch, not just be "some delay": a known
+// address costs a lookup, a token insert, and a call out to the mail provider,
+// while an unknown address costs one lookup. Measured against production the
+// known path lands near 1.4s, so 2.5s keeps both branches on the floor with
+// headroom. A pathologically slow provider call can still overrun it — that
+// residual is recorded in the phase verification rather than papered over.
+const MINIMUM_RESPONSE_MS = 2500;
 
 export const resetTtlMinutes = RESET_TTL_MINUTES;
 

@@ -54,6 +54,10 @@ async function post(path, body) {
 async function main() {
   console.log(`Password reset smoke against ${baseURL}\n`);
 
+  // Warm the endpoint first. A cold serverless start adds seconds of noise that
+  // has nothing to do with which branch ran, and would otherwise masquerade as
+  // a timing signal in either direction.
+  await post("/api/auth/reset-request", { email: `warmup-${Date.now()}@pastrycounty.invalid` });
   const unknown = await post("/api/auth/reset-request", { email: unknownEmail });
   const known = await post("/api/auth/reset-request", { email: knownEmail });
 
@@ -73,8 +77,10 @@ async function main() {
     check("reset request accepted", known.status === 200, `${known.status}`);
     check("response is the generic one", /if that email belongs/i.test(known.raw));
     // Timing must not answer the question either.
-    check("both responses clear the timing floor", unknown.elapsed >= 550 && known.elapsed >= 550, `${unknown.elapsed}ms vs ${known.elapsed}ms`);
-    check("timing gap between known and unknown is small", Math.abs(unknown.elapsed - known.elapsed) < 1500, `${Math.abs(unknown.elapsed - known.elapsed)}ms`);
+    // The floor must swallow the mail-provider call, otherwise a known address is
+    // reliably slower than an unknown one and response time answers the question.
+    check("both responses clear the timing floor", unknown.elapsed >= 2400 && known.elapsed >= 2400, `${unknown.elapsed}ms vs ${known.elapsed}ms`);
+    check("timing gap between known and unknown is small", Math.abs(unknown.elapsed - known.elapsed) < 900, `${Math.abs(unknown.elapsed - known.elapsed)}ms`);
   }
 
   // Redemption: these tokens cannot be valid, so nothing is ever consumed.
