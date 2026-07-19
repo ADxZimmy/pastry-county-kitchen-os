@@ -161,13 +161,36 @@ async function main() {
   const writeAfterLogout = await cookieAction(cookie2, { csrf });
   check("a write on the logged-out cookie is refused", writeAfterLogout.status >= 400, `${writeAfterLogout.status}`);
 
-  // 9. The compatibility window is still open, so nobody was logged out by this deploy.
+  // 9. RS-006: login throttling is shared across serverless instances.
+  //
+  // A concurrent burst is what makes this discriminating. Serverless spreads
+  // simultaneous requests over several instances, so a per-instance limiter
+  // would let most of them through; a shared counter admits exactly the limit.
+  // The address is bogus and unique per run, so it gets its own bucket and no
+  // real account is ever locked out.
+  const throttleEmail = `throttle-probe-${Date.now()}@pastrycounty.invalid`;
+  const burst = await Promise.all(
+    Array.from({ length: 8 }, () =>
+      req("/api/auth/login", { method: "POST", body: JSON.stringify({ email: throttleEmail, password: "not-the-password" }), originHeader: origin })
+    )
+  );
+  const throttled = burst.filter((entry) => entry.status === 429).length;
+  const rejected = burst.filter((entry) => entry.status === 401).length;
+  check("concurrent login burst is throttled by a shared counter", throttled >= 2, `${rejected} refused, ${throttled} throttled of 8`);
+  check("throttling admits no more than the configured limit", rejected <= 5, `${rejected} reached the password check`);
+  check("a throttled login says when to retry", burst.some((entry) => entry.status === 429), `${throttled} throttled`);
+
+  // 10. The compatibility window is still open, so nobody was logged out by this deploy.
   const bearer = login.body.token;
   if (bearer) {
     const bearerBoot = await req("/api/bootstrap", { bearer });
     check("bearer compatibility still works (migration window open)", bearerBoot.status === 200, `${bearerBoot.status}`);
   } else {
-    check("bearer compatibility is disabled (migration complete)", true, "login returned no bearer token");
+    // The server only hands back a bearer token while the compatibility window
+    // is open, so its absence is the observable proof that the window is closed.
+    check("login issues no bearer token (migration window closed)", login.body.token === undefined);
+    const bearerOnly = await req("/api/bootstrap", { bearer: "any-bearer-value-at-all" });
+    check("a bearer-only request is refused", bearerOnly.status === 401, `${bearerOnly.status}`);
   }
 }
 

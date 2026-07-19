@@ -10,55 +10,49 @@ describe("bootstrap authentication", () => {
     });
   });
 
-  it("allows active authenticated bootstrap reads with a signed owner session", () => {
-    const token = createSessionToken({
-      id: "owner-1",
-      email: "owner@example.com",
-      role: "Owner/Admin"
-    });
-
-    expect(bootstrapAccessError(actorFromRequest({
-      headers: { authorization: `Bearer ${token}` }
-    }), { active: true })).toBeNull();
+  // Actors now arrive from a resolved cookie session, so these build one
+  // directly rather than round-tripping a bearer token that is no longer
+  // accepted. The behaviour under test is the access rules, not the credential.
+  const cookieActor = (overrides = {}) => ({
+    sub: "user-1",
+    email: "user@example.com",
+    role: "Owner/Admin",
+    iat: 1_700_000_000,
+    sessionId: "ses-1",
+    via: "cookie",
+    ...overrides
   });
 
-  it("allows active authenticated bootstrap reads with a signed viewer session", () => {
-    const token = createSessionToken({
-      id: "viewer-1",
-      email: "viewer@example.com",
-      role: "Viewer"
-    });
+  it("allows active authenticated bootstrap reads for an owner session", () => {
+    expect(bootstrapAccessError(cookieActor(), { active: true })).toBeNull();
+  });
 
-    expect(bootstrapAccessError(actorFromRequest({
-      headers: { authorization: `Bearer ${token}` }
-    }), { active: true })).toBeNull();
+  it("allows active authenticated bootstrap reads for a viewer session", () => {
+    expect(bootstrapAccessError(cookieActor({ sub: "viewer-1", role: "Viewer" }), { active: true })).toBeNull();
   });
 
   it("rejects disabled bootstrap sessions", () => {
-    const token = createSessionToken({
-      id: "viewer-disabled",
-      email: "viewer-disabled@example.com",
-      role: "Viewer"
-    });
-
-    expect(bootstrapAccessError(actorFromRequest({
-      headers: { authorization: `Bearer ${token}` }
-    }), { active: false })).toEqual({
+    expect(bootstrapAccessError(cookieActor({ role: "Viewer" }), { active: false })).toEqual({
       message: "This user session is no longer active.",
       statusCode: 401
     });
   });
 
-  it("rejects tokens issued before session revocation", () => {
-    const token = createSessionToken({
-      id: "viewer-revoked",
-      email: "viewer-revoked@example.com",
-      role: "Viewer"
-    });
-    const actor = actorFromRequest({ headers: { authorization: `Bearer ${token}` } });
+  it("rejects sessions issued before session revocation", () => {
+    const actor = cookieActor({ role: "Viewer" });
 
-    expect(bootstrapAccessError(actor, { active: true, revoked_at: Number(actor?.iat ?? 0) + 1 })).toEqual({
+    expect(bootstrapAccessError(actor, { active: true, revoked_at: Number(actor.iat) + 1 })).toEqual({
       message: "This session was revoked. Sign in again.",
+      statusCode: 401
+    });
+  });
+
+  it("ignores a bearer token now that the compatibility window is closed", () => {
+    const token = createSessionToken({ id: "legacy", email: "legacy@example.com", role: "Owner/Admin" });
+
+    expect(actorFromRequest({ headers: { authorization: `Bearer ${token}` } })).toBeNull();
+    expect(bootstrapAccessError(actorFromRequest({ headers: { authorization: `Bearer ${token}` } }))).toEqual({
+      message: "Sign in again to continue.",
       statusCode: 401
     });
   });

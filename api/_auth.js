@@ -7,10 +7,15 @@ const roles = new Set(["Owner/Admin", "Baker", "Inventory Manager", "Viewer"]);
 // Re-exported so existing importers keep a single auth entry point.
 export { isProductionRuntime, sessionSecret, sessionSecretConfigured };
 
-// Bearer tokens are the pre-Phase-011 credential. They stay accepted only while
-// the smoke harness and any signed-in operator migrate to cookies; Phase 011
-// closes with this off. Removal criteria are recorded in the phase VERIFICATION.
-const BEARER_COMPAT_DEFAULT = true;
+// Bearer tokens were the pre-Phase-011 credential. The migration window is
+// CLOSED: the browser app and every smoke authenticate by cookie, so nothing
+// legitimate presents a bearer token any more.
+//
+// The flag survives only as a rollback lever — AUTH_BEARER_COMPAT=on re-opens
+// the window in production without a deploy. It is not a supported operating
+// mode, and turning it on weakens the CSRF posture, because a bearer credential
+// bypasses the same-origin and token checks that cookies are held to.
+const BEARER_COMPAT_DEFAULT = false;
 
 export function bearerCompatEnabled() {
   const flag = String(process.env.AUTH_BEARER_COMPAT || "").trim().toLowerCase();

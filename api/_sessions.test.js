@@ -177,13 +177,21 @@ describe("bearer compatibility window", () => {
     delete process.env.AUTH_BEARER_COMPAT;
   });
 
-  it("is on by default during the Phase 011 migration", () => {
+  // Phase 011 closed the migration window. Cookies are the only credential.
+  it("is off by default now that the migration is complete", () => {
+    expect(bearerCompatEnabled()).toBe(false);
+  });
+
+  it("can be re-opened without a deploy as a rollback lever", () => {
+    process.env.AUTH_BEARER_COMPAT = "on";
     expect(bearerCompatEnabled()).toBe(true);
   });
 
-  it("can be switched off without a deploy", () => {
-    process.env.AUTH_BEARER_COMPAT = "off";
-    expect(bearerCompatEnabled()).toBe(false);
+  it("stays off for any value that is not an explicit opt-in", () => {
+    for (const value of ["off", "false", "0", "", "yes-please"]) {
+      process.env.AUTH_BEARER_COMPAT = value;
+      expect(bearerCompatEnabled()).toBe(false);
+    }
   });
 
   it("ignores bearer tokens entirely once disabled", async () => {
@@ -227,24 +235,32 @@ describe("credential resolution", () => {
     expect(resolved.via).toBe("cookie");
   });
 
-  // During the rollout a browser holds both credentials at once. Preferring the
-  // bearer token keeps the shipped frontend working; classifying those requests
-  // as cookie-authenticated would demand a CSRF header it does not send yet.
-  it("prefers a valid bearer credential while the compatibility window is open", async () => {
+  it("ignores a bearer token and uses the cookie", async () => {
     const token = createSessionToken({ id: "bearer-user", email: "a@b.c", role: "Owner/Admin" });
     const req = request({ headers: { cookie: `${sessionCookieName()}=cookie-token`, authorization: `Bearer ${token}` } });
-    const resolved = await authenticateRequest(async () => [cookieRow], req);
-    expect(resolved.sub).toBe("bearer-user");
-    expect(resolved.via).toBe("bearer");
-  });
-
-  it("uses the cookie once bearer compatibility is disabled", async () => {
-    const token = createSessionToken({ id: "bearer-user", email: "a@b.c", role: "Owner/Admin" });
-    const req = request({ headers: { cookie: `${sessionCookieName()}=cookie-token`, authorization: `Bearer ${token}` } });
-    process.env.AUTH_BEARER_COMPAT = "off";
     const resolved = await authenticateRequest(async () => [cookieRow], req);
     expect(resolved.sub).toBe("cookie-user");
     expect(resolved.via).toBe("cookie");
+  });
+
+  it("refuses a bearer-only request outright", async () => {
+    const token = createSessionToken({ id: "bearer-user", email: "a@b.c", role: "Owner/Admin" });
+    const req = request({ headers: { authorization: `Bearer ${token}` } });
+    const sql = () => {
+      throw new Error("a bearer-only request must not reach the session store");
+    };
+    expect(await authenticateRequest(sql, req)).toBeNull();
+  });
+
+  // The rollback lever restores the old precedence, which is why it is not a
+  // supported operating mode: a bearer credential skips the CSRF checks.
+  it("prefers the bearer credential again if the window is deliberately re-opened", async () => {
+    const token = createSessionToken({ id: "bearer-user", email: "a@b.c", role: "Owner/Admin" });
+    const req = request({ headers: { cookie: `${sessionCookieName()}=cookie-token`, authorization: `Bearer ${token}` } });
+    process.env.AUTH_BEARER_COMPAT = "on";
+    const resolved = await authenticateRequest(async () => [cookieRow], req);
+    expect(resolved.sub).toBe("bearer-user");
+    expect(resolved.via).toBe("bearer");
   });
 
   it("falls through to the cookie when the bearer token is not valid", async () => {
