@@ -25,8 +25,18 @@ jobs:
           node-version: 22
           cache: npm
 
-      - name: Install from the lockfile
-        run: npm ci
+      - name: Install dependencies
+        # `npm ci` cannot run here: the committed lockfile was generated on
+        # Windows and resolves @emnapi/* 1.10.0 nested under a rolldown WASM
+        # binding, while Linux resolves 1.11.2 hoisted, so npm refuses it as
+        # out of sync. The lockfile is platform-skewed, which means npm ci was
+        # never actually reproducible across platforms.
+        #
+        # `npm install` also matches how Vercel builds this project
+        # (installCommand in vercel.json), so CI now exercises the same
+        # resolution production gets. Restoring npm ci needs a lockfile
+        # regenerated on Linux.
+        run: npm install --no-audit --no-fund
 
       - name: Unit and policy tests
         run: npm test
