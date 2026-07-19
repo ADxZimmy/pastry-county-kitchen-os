@@ -42,12 +42,27 @@ if (lazyChunks.length) {
   console.log(`\n  ${lazyChunks.length} lazily loaded chunk(s), not counted against first paint:`);
   for (const file of lazyChunks) console.log(`    ${file.padEnd(34)} ${gzipKb(file).toFixed(1)} kB`);
 } else {
-  console.log("\n  no lazily loaded chunks yet (route splitting lands in 012-B)");
+  // Phase 012 measured the entry chunk at 96 kB gzipped, already inside budget,
+  // so route splitting was dropped as not worth refactoring App.tsx for. The
+  // budget above is what keeps that decision honest.
+  console.log("\n  single entry chunk (route splitting deliberately not pursued; see phase 012 verification)");
 }
+
+// The document parsers are heavy and server-only: they are dynamically imported
+// inside api/_imports.js and must never reach a browser. That isolation already
+// held when Phase 012 measured it; this guard is what keeps it holding, because
+// one stray static import would quietly add megabytes to first paint.
+const SERVER_ONLY_PACKAGES = ["mammoth", "pdf-parse", "read-excel-file", "@napi-rs/canvas"];
+const clientJs = allChunks.map((file) => readFileSync(path.join(distDir, file), "utf8")).join("\n");
+const leaked = SERVER_ONLY_PACKAGES.filter((pkg) => clientJs.includes(pkg));
+
+console.log("\n  server-only packages absent from the client bundle:");
+for (const pkg of SERVER_ONLY_PACKAGES) console.log(`    ${leaked.includes(pkg) ? "LEAKED" : "ok    "} ${pkg}`);
 
 const failures = [];
 if (jsTotal > ENTRY_BUDGET_KB) failures.push(`entry JavaScript ${jsTotal.toFixed(1)} kB exceeds the ${ENTRY_BUDGET_KB} kB budget`);
 if (cssTotal > CSS_BUDGET_KB) failures.push(`entry CSS ${cssTotal.toFixed(1)} kB exceeds the ${CSS_BUDGET_KB} kB budget`);
+if (leaked.length) failures.push(`server-only package(s) reached the client bundle: ${leaked.join(", ")}`);
 
 console.log(`\n  entry JS total   ${jsTotal.toFixed(1)} kB / ${ENTRY_BUDGET_KB} kB`);
 console.log(`  entry CSS total  ${cssTotal.toFixed(1)} kB / ${CSS_BUDGET_KB} kB`);

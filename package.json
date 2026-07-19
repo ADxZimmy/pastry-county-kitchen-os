@@ -23,6 +23,7 @@
     "smoke:uat-core": "node scripts/uat-core-smoke.mjs",
     "smoke:auth-cookie": "node scripts/auth-cookie-smoke.mjs",
     "smoke:password-reset": "node scripts/password-reset-smoke.mjs",
+    "smoke:route-data": "node scripts/route-data-smoke.mjs",
     "perf:baseline": "node scripts/perf-baseline.mjs",
     "perf:budget": "node scripts/check-bundle-budget.mjs"
   },
