@@ -52,11 +52,48 @@ Two findings contradict assumptions in the plan and should steer the remaining s
 - `npm.cmd run smoke:live-audit` after the caching change: all 7 browser smokes passed.
 - `npm.cmd test`: 217/217.
 
+## Slice 012-B — reduced on evidence (2026-07-19)
+
+The planned work was extracting pages from the 3,201-line `App.tsx` and adding `React.lazy` route chunks. Measurement showed the entry bundle is already **96.3 kB gzipped**, inside the audit's own ≤150 kB budget — the audit's 334 kB figure was uncompressed. On the owner's decision the refactor was dropped as a large, regression-prone change to the biggest file in the codebase, justified by a problem that does not exist. The enforced budget in CI is what keeps that decision honest: if the entry chunk ever grows past 150 kB, a pull request fails.
+
+What was kept and verified — the parser isolation the plan asked to *preserve* rather than create:
+
+- `mammoth`, `pdf-parse`, `read-excel-file` and `@napi-rs/canvas` are dynamically imported inside `api/_imports.js`, are statically imported nowhere in `src/`, `api/` or `server/`, and appear **zero times** in the built client bundle.
+- `scripts/check-bundle-budget.mjs` now fails the build if any of them ever reach the client, so one stray static import cannot quietly add megabytes to first paint.
+
+Not done: serverless function size and cold-start figures need Vercel dashboard access for the production project, which is under a different account than the one available here (see Phase 011 notes).
+
+## Slice 012-C (part 1) — route-scoped reads (deployed 2026-07-19, commits `60b63c3`, `3535101`)
+
+`GET /api/data/{summary,orders,audit,movements}`: dashboard counts computed in the database instead of by shipping every row to the browser and calling `.length` on it, plus keyset-paginated reads for the three high-growth collections.
+
+- **Keyset, not OFFSET.** A cursor names the last row seen as `(created_at, id)` and every query orders by that same pair, so a row inserted or archived mid-pagination cannot shift the window and skip or duplicate a row.
+- Page size is clamped (default 50, max 200), so a caller cannot ask for the whole table.
+- A malformed cursor restarts from the beginning rather than erroring — it is a position hint, not a credential.
+- One dynamic route serves all four resources, keeping the deployment clear of the function limit; the resource is validated against an allow-list and never interpolated into SQL.
+- `api/_projection.js` is the single place deciding who may read what, and a test asserts it agrees with what `filterKitchenSnapshotForActor` withholds for every non-owner role, so the two paths cannot drift.
+
+### Live verification: `npm run smoke:route-data` — **20/20 passed**
+
+Highlights: unauthenticated read refused (401); summary is `private, no-store` + `Vary: Cookie`; a second page repeated **0 rows** and stayed strictly ordered across the boundary; `limit=100000` clamped to 200; malformed cursor returned 200; a temporary **Viewer got 403 on the audit trail** with no rows leaked, while still reading operational data — and bootstrap independently still withheld audit and staff rows from that same Viewer. The temporary Viewer is disabled in `finally`.
+
+### The truncation finding, now quantified
+
+The summary endpoint counts the real totals: **1458 audit rows and 962 inventory movements**. `/api/bootstrap` returns 100 and 200 of them. Operators have been seeing roughly **7% of the audit trail and 21% of stock movements**, with nothing in the UI indicating the view is cut off. This is a correctness defect that the performance work uncovered, and it is the strongest argument for finishing the migration off bootstrap.
+
+Nothing has been removed from bootstrap yet: these endpoints are additive until every consumer moves and the per-role evidence is in, per the phase rollback plan.
+
+### A deploy failure worth recording
+
+Adding the endpoint took the deployment to 13 serverless functions, one over the limit, so the Vercel build failed and production kept serving the previous bundle. Every existing route still worked and only the new one 404d, which reads exactly like a routing bug rather than a failed deploy — `/api/orders/[orderId]/produced` returning 405 was what proved dynamic routes were fine and the deploy was not.
+
+Root cause: `api/bootstrap.test.js` and `api/security-containment.test.js` are not underscore-prefixed, so Vercel had been deploying them as two live serverless functions all along. `.vercelignore` now excludes test files (plus `.planning`, `scripts`, `docs`) from the upload. The endpoint deployed 15 seconds after that fix.
+
 ## Remaining in Phase 012
 
-- **012-B Client route chunks** — scope should be reconsidered given the bundle is already within budget. See the recommendation recorded in STATE.
-- **012-C Route-scoped data and migrations** — now the highest-value work in the phase: `/api/dashboard/summary`, cursor-paginated orders/audit/movements behind one shared auth and role-projection layer, per-role response-shape tests, bootstrap shrink, and moving request-path DDL into explicit migrations (RS-007).
-- Lighthouse budgets and an authenticated performance job are not yet added. A public login-page score is explicitly not evidence for the authenticated app, so this needs the controlled authenticated job to be worth anything.
+- **012-C (part 2)**: migrate Dashboard, Orders, Audit Reports and ingredient history to the route-scoped endpoints with loading/empty/error/retry states and targeted invalidation, then remove the migrated collections from bootstrap and record the payload reduction. This is where the 448.9 kB actually falls.
+- **012-C (part 3)**: move remaining `ALTER/CREATE/repair UPDATE` work off request paths into explicit idempotent migrations with a deploy preflight (RS-007).
+- Lighthouse budgets and an authenticated performance job. A public login-page score is explicitly not evidence for the authenticated app, so this needs the controlled authenticated job to be worth anything.
 
 ## Residual Risk
 

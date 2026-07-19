@@ -32,7 +32,7 @@ Execute the revised audit-remediation program from the July 10 expanded producti
 
 ## In Progress
 
-- Phase 012 Performance And Loading Architecture. Slice 012-A (immutable asset caching, tracked CI, enforced bundle budget, measured baseline) is deployed and production-verified. Remaining: 012-B and 012-C, with 012-B scope pending an owner decision (see Next Action).
+- Phase 012 Performance And Loading Architecture. 012-A (caching, CI, baseline) and 012-C part 1 (route-scoped paginated reads) are deployed and production-verified; 012-B was reduced on evidence. Remaining: migrate the UI onto the new endpoints and shrink bootstrap, then move request-path DDL into explicit migrations.
 
 ## Deploy notes (2026-07-11)
 
@@ -89,9 +89,15 @@ MEASUREMENT CHANGED THE PLAN. `npm run perf:baseline` found the client bundle is
 
 CI immediately caught two defects: `vercel.json` rejected the `"//"` comment keys I added (schema-validated, so the first deploy failed silently and kept old headers), and the committed lockfile cannot produce a clean install on Linux (platform-skewed optional deps), meaning `npm ci` was never reproducible across platforms.
 
-OWNER DECISION NEEDED on 012-B scope: extracting pages from the 3,201-line App.tsx and adding React.lazy chunks was justified by a bundle-size problem that measurement shows does not exist. Recommendation is to reduce 012-B to the parts that still pay (verify parser packages stay server-only, measure serverless cold start) and move straight to 012-C, which addresses the actual cliff.
+OWNER DECIDED: skip the App.tsx refactor. 012-B was reduced to what the evidence still justifies -- the server-only document parsers were verified absent from the client bundle (mammoth, pdf-parse, read-excel-file, @napi-rs/canvas: zero occurrences) and that isolation is now a CI-enforced guard rather than an assumption.
 
-Next: 012-C Route-Scoped Data And Migrations -- `/api/dashboard/summary` plus cursor-paginated orders/audit/movements behind one shared auth and role-projection layer, per-role response-shape tests before any bootstrap field is removed, then moving request-path DDL into explicit migrations (RS-007). Then 013 accessibility, then 014 real AI (optional, gated on a provider/retention/budget decision). 015-B (full UAT + fresh external audit) stays last, after 011-014.
+012-C PART 1 IS DEPLOYED AND VERIFIED (`60b63c3`, `3535101`): `GET /api/data/{summary,orders,audit,movements}` with keyset pagination (cursor on `(created_at, id)`, so rows inserted mid-pagination cannot skip or duplicate), clamped page sizes, and one shared projection layer that a test holds in agreement with what bootstrap withholds. `smoke:route-data` passes 20/20 live, including a temporary Viewer getting 403 on the audit trail with no rows leaked while still reading operational data.
+
+THAT WORK QUANTIFIED A CORRECTNESS DEFECT: the summary endpoint counts 1458 audit rows and 962 inventory movements, while bootstrap returns 100 and 200. Operators have been seeing roughly 7% of the audit trail and 21% of stock movements, with nothing indicating the view is truncated. The performance work uncovered a data-honesty problem, and it is the strongest reason to finish the migration off bootstrap.
+
+A deploy failure is recorded in the phase verification: adding the endpoint took the deployment to 13 serverless functions, one over the limit, so the build failed while every existing route kept working -- which reads like a routing bug rather than a failed deploy. Root cause was two non-underscore test files in api/ that Vercel had been deploying as live functions all along; `.vercelignore` now excludes them.
+
+Next: 012-C part 2 -- migrate Dashboard, Orders, Audit Reports and ingredient history onto the new endpoints with loading/empty/error/retry states and targeted invalidation, then remove those collections from bootstrap and record the payload reduction (this is where the 448.9 kB actually falls). Then part 3: move remaining request-path ALTER/CREATE/repair work into explicit idempotent migrations with a deploy preflight (RS-007). Then 013 accessibility, then 014 real AI (optional, gated on a provider/retention/budget decision). 015-B (full UAT + fresh external audit) stays last, after 011-014.
 
 Deployed and production-verified 2026-07-11: S0/006a, Phase 007, Phase 008, Phase 009-A, the 009-B gram-rounding increment, AND the 009-B deduction-stage wiring (`18d2c69`) — a stage-toggling probe proved stock deducts EXACTLY ONCE at the configured stage (confirmation / production_start / completion), never twice. `main` synced with origin at `18d2c69`. Remediation: 9 of 16 PCO findings fully closed; PCO-006 closed; PCO-007 mostly closed (gram rounding + deduction stage effective; negative inventory + full settings inventory remain).
 
