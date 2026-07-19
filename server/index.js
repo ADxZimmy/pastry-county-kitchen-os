@@ -75,8 +75,6 @@ app.post("/api/auth/login", requireDatabase, async (req, res, next) => {
       sendRateLimit(res, loginLimit);
       return;
     }
-    await sql`alter table app_users add column if not exists active boolean not null default true`;
-    await sql`alter table app_users add column if not exists session_revoked_at timestamptz`;
     const user = first(await sql`
       select id, email, full_name, role, password_hash
       from app_users

@@ -113,7 +113,6 @@ export async function requireActiveSession(sql, actor) {
   const missingActorError = sessionAccessError(actor, { active: true });
   if (missingActorError) throw Object.assign(new Error(missingActorError.message), { statusCode: missingActorError.statusCode });
 
-  await ensureSessionColumns(sql);
   const rows = await sql`
     select id, email, full_name as "fullName", role, active,
       extract(epoch from session_revoked_at)::bigint as revoked_at

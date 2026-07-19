@@ -7,6 +7,7 @@
     "dev": "vite --host 0.0.0.0",
     "dev:server": "node --watch server/index.js",
     "db:setup": "node server/setup-db.js",
+    "db:migrate": "node scripts/migrate.mjs",
     "start": "node server/index.js",
     "build": "tsc && vite build",
     "preview": "vite preview --host 0.0.0.0",

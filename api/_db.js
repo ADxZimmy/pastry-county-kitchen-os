@@ -40,7 +40,11 @@ export function sendError(res, error) {
 
 export const first = (rows) => rows[0];
 
-export async function loadKitchenSnapshot(sql = getSql()) {
+// Every statement below used to run on each bootstrap -- roughly forty ALTERs
+// and CREATEs plus a repair UPDATE, on a read path. They are idempotent, so it
+// worked, but it made a read do schema work and write to the database. They now
+// run only from scripts/migrate.mjs.
+export async function ensureSnapshotSchema(sql) {
   await sql`alter table orders add column if not exists archived boolean not null default false`;
   await sql`alter table orders add column if not exists delivery_fee numeric(14,2)`;
   await sql`alter table orders add column if not exists discount_amount numeric(14,2)`;
@@ -153,6 +157,9 @@ export async function loadKitchenSnapshot(sql = getSql()) {
       created_at timestamptz not null default now()
     )
   `;
+}
+
+export async function loadKitchenSnapshot(sql = getSql()) {
   const [
     supplierRows,
     userRows,

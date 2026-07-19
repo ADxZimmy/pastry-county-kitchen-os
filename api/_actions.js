@@ -165,7 +165,6 @@ async function requirePermission(sql, action, actor) {
   if (!canRolePerformAction(actor.role, action)) {
     throw Object.assign(new Error(`${actor.role} cannot perform ${action}.`), { statusCode: 403 });
   }
-  await ensureSessionColumns(sql);
   const rows = await sql`
     select active, extract(epoch from session_revoked_at)::bigint as revoked_at
     from app_users
@@ -674,7 +673,7 @@ async function reserveOrder(sql, orderId, actor = null) {
   };
 }
 
-async function ensureOperationalTables(sql) {
+export async function ensureOperationalTables(sql) {
   await sql`alter table orders add column if not exists archived boolean not null default false`;
   await sql`alter table orders add column if not exists delivery_fee numeric(14,2)`;
   await sql`alter table orders add column if not exists discount_amount numeric(14,2)`;
@@ -1423,7 +1422,6 @@ async function maybeDeductAtStage(sql, orderId, actor, stage, currentStage) {
 
 export async function produceOrder(sql, orderId, actor, qcInput = {}) {
   await requirePermission(sql, "order.produce", actor);
-  await ensureOperationalTables(sql);
   const orderRows = await sql`select status from orders where id = ${orderId}`;
   if (!orderRows.length) throw Object.assign(new Error("Order not found."), { statusCode: 404 });
   const status = orderRows[0].status;
@@ -1462,7 +1460,6 @@ export async function produceOrder(sql, orderId, actor, qcInput = {}) {
 export async function handleAction(sql, body, actor) {
   const action = required(body.action, "Action");
   await requirePermission(sql, action, actor);
-  await ensureOperationalTables(sql);
 
   if (action === "schema.ensure") {
     return { ok: true };

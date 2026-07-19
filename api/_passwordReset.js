@@ -66,7 +66,6 @@ export async function ensurePasswordResetTable(sql) {
 }
 
 export async function issueResetToken(sql, user, req = {}) {
-  await ensurePasswordResetTable(sql);
   const token = crypto.randomBytes(32).toString("base64url");
   const forwarded = headerValue(req, "x-forwarded-for").split(",")[0].trim();
   // Only the newest link may work: retire this user's outstanding tokens first.

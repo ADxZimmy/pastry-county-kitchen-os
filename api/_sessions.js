@@ -115,7 +115,6 @@ export async function ensureSessionTables(sql) {
 }
 
 export async function issueSession(sql, user, req = {}, { ttlSeconds = SESSION_TTL_SECONDS } = {}) {
-  await ensureSessionTables(sql);
   const token = randomToken();
   const csrfToken = randomToken();
   const id = `ses-${Date.now()}-${crypto.randomBytes(4).toString("hex")}`;
