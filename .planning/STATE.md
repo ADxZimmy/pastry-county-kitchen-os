@@ -32,7 +32,7 @@ Execute the revised audit-remediation program from the July 10 expanded producti
 
 ## In Progress
 
-- Phase 011 Auth And Session Hardening. Slices 011-A (server-side sessions, `__Host-` cookie, CSRF) and 011-B1 (cookie-only browser sessions) are deployed and production-verified. Remaining: 011-B2 password reset (PCO-015), 011-B3 Neon-backed throttling (RS-006) plus disabling bearer compatibility.
+- Nothing in flight. Phase 011 is COMPLETE; Phase 012 (performance and loading architecture) has not started.
 
 ## Deploy notes (2026-07-11)
 
@@ -72,7 +72,15 @@ The first cutover build leaked a connection on every page load (the 401 session 
 
 The first B2 deploy left a timing oracle: the 600ms floor padded only the cheap branch while the known-address path paid a Resend call (~1.4s). Caught by the smoke, raised to 2500ms, gap fell from 1894ms to 307ms.
 
-Next: 011-B3, the last slice of Phase 011 -- atomic Neon-backed login/reset throttling (RS-006) replacing the process-local Map, then disable `AUTH_BEARER_COMPAT` and re-run the whole smoke family cookie-only. 015-B (full UAT + fresh external audit) stays last, after 011-014.
+011-B3 is deployed and production-verified (`5c149a6`, `66d3143`), and PHASE 011 IS COMPLETE. Auth throttling moved to a counter shared by every serverless instance (RS-006): a concurrent burst of 8 login attempts admitted exactly 5 and threw 429 at 3, which a per-instance limiter could not do. Bearer credentials are retired -- cookies are the only credential the API accepts, login issues no token, and a bearer-only request is refused 401. `AUTH_BEARER_COMPAT=on` remains only as an unsupported rollback lever.
+
+The smoke family moved off bearer BEFORE the server changed, which was the point: with throttling genuinely shared, seven children each signing in would have tripped the limit on the suite's own traffic and broken the gate at the moment it was needed. The runner now signs in once and passes the session to its children.
+
+A broken 015-A run orphaned 9 records in production when its cleanup threw partway; they were archived and verified gone, and cleanup now attempts each archive independently.
+
+Final cookie-only verification: 211/211 unit tests, all 7 browser smokes green, D1 gate 30/30 with clean cleanup, reset 16/16, cookie/CSRF/throttle 35/35.
+
+Next: Phase 012 Performance And Loading Architecture (PCO-010, 011) -- immutable hashed assets, route chunks, paginated role-filtered endpoints, a shrinking bootstrap payload, Web Vitals, and a real CI performance gate. Then 013 accessibility, then 014 real AI (optional, gated on a provider/retention/budget decision). 015-B (full UAT + fresh external audit) stays last, after 011-014.
 
 Deployed and production-verified 2026-07-11: S0/006a, Phase 007, Phase 008, Phase 009-A, the 009-B gram-rounding increment, AND the 009-B deduction-stage wiring (`18d2c69`) — a stage-toggling probe proved stock deducts EXACTLY ONCE at the configured stage (confirmation / production_start / completion), never twice. `main` synced with origin at `18d2c69`. Remediation: 9 of 16 PCO findings fully closed; PCO-006 closed; PCO-007 mostly closed (gram rounding + deduction stage effective; negative inventory + full settings inventory remain).
 

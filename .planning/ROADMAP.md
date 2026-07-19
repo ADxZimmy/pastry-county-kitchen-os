@@ -18,9 +18,15 @@ Revised 2026-07-11 after reconciling the July 10 expanded external audit (54/100
 
 ## Now
 
+- Phase: 012 Performance And Loading Architecture
+  Outcome: Immutable hashed assets, route chunks, paginated role-filtered endpoints, shrinking bootstrap, Web Vitals, and a real CI performance gate. (PCO-010, 011)
+  Status: Ready to begin.
+
+## Completed (MVP Hardening Program)
+
 - Phase: 011 Auth And Session Hardening
   Outcome: Opaque server-side sessions in HttpOnly cookies, CSRF protection, private/no-store responses, distributed auth throttling, and hashed single-use password-reset tokens. (PCO-012, 015)
-  Status: IN PROGRESS. 011-A (server sessions, `__Host-` cookie, CSRF, logout/rotation) and 011-B1 (cookie-only browser sessions, smoke family migrated) are deployed and production-verified 2026-07-11 — PCO-012 is closed. Remaining: 011-B2 password reset (PCO-015) and 011-B3 Neon-backed throttling (RS-006) plus retiring bearer compatibility.
+  Status: COMPLETE. Deployed and production-verified 2026-07-11 across 011-A (`e4fa6c3`), 011-B1 (`e86b654`, `ca7241d`), 011-B2 (`3e51dca`, `f21e89c`) and 011-B3 (`5c149a6`, `66d3143`). PCO-012, PCO-015 and RS-006 are closed; bearer credentials are retired.
 
 ## Completed Gates
 

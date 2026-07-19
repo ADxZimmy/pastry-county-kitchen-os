@@ -71,18 +71,54 @@ The first deploy padded responses to a 600ms floor, but a known address costs a 
 
 Redeeming a genuinely emailed token end to end is NOT covered: it needs mailbox access or a preview database. Issuance, hashing, single-use redemption, expiry, and revoke-all are covered by unit tests; the live smoke covers everything reachable without consuming a real token. PCO-015 is closed for implementation, with this delivery round-trip recorded as outstanding external evidence rather than claimed.
 
-## Remaining in Phase 011
+## Slice 011-B3 — shared throttling and bearer retirement (deployed 2026-07-11, commits `5c149a6`, `66d3143`)
 
-- 011-B3: atomic Neon-backed rate limits for login/reset replacing the process-local Map (RS-006), then disable `AUTH_BEARER_COMPAT` and re-run the whole family cookie-only.
+### RS-006 shared auth throttling
+
+Login and password-reset throttling moved from a per-instance Map to a counter every serverless instance shares. One upsert creates the window, increments it, or starts a fresh one if the old window expired, so two instances racing on the same key cannot both read "1 attempt". Bucket keys are stored as keyed hashes, never the address and email in the clear; expired rows are swept opportunistically.
+
+The in-memory limiter remains as a cheap first layer that short-circuits a repeat offender before the database is consulted. If the shared store is unreachable, the in-memory verdict stands and the fault is logged — a database blip degrades throttling rather than removing it or locking everyone out.
+
+`/api/actions` deliberately keeps the per-instance limiter: it is coarse abuse control on an already-authenticated path, and a database round trip per action would tax the whole app. The credential checks are the boundary there.
+
+- Live evidence: a **concurrent burst of 8 login attempts admitted exactly 5 and threw 429 at 3**, with a counting-down `Retry-After`. The concurrency is what makes this discriminating — serverless spreads simultaneous requests across instances, so a per-instance limiter would have let most of them through. This check is now permanent in `smoke:auth-cookie`.
+
+### Bearer retirement
+
+Cookies are the only credential the API accepts. Login no longer issues a bearer token. This is not tidiness: a bearer credential bypasses the same-origin and CSRF-token checks cookie requests are held to, so leaving it accepted would have left a permanent way around the protection this phase exists to add.
+
+`AUTH_BEARER_COMPAT=on` survives as a rollback lever that re-opens the window without a deploy. It is documented as an unsupported mode, and a test pins that re-opening restores the old precedence, so the weakening is explicit rather than discovered later.
+
+- `npm.cmd run smoke:auth-cookie`: **35/35** — including "login issues no bearer token" and "a bearer-only request is refused" (401).
+
+### Smoke family migration (the ordering that mattered)
+
+The harness had to move before the server. Once throttling is genuinely shared, seven children each signing in would trip the login limit on the suite's own legitimate traffic — the gate would have broken itself the moment the server changed, exactly as in 011-B1. The runner now signs in once and passes the session down through the environment; children reuse it and sign in only when run standalone. Phase 2 still drives the real login form, because that is what it exists to verify.
+
+Every smoke authenticates by cookie plus CSRF token. This was verified against production **before** any server change, then again after.
+
+### Cleanup defect found and fixed
+
+A broken 015-A run (a stale `token` reference in the cleanup path) threw partway through cleanup and orphaned **9 records in production**. They were archived and verified gone. The cleanup now attempts each archive independently, so one failure cannot abandon the rest — the manifest safety contract depended on a code path that had no tolerance for its own failure.
+
+### Final cookie-only verification
+
+- `npm.cmd test` — **211/211**.
+- `npm.cmd run smoke:live-audit` — all 7 Playwright smokes passed on one shared login.
+- `npm.cmd run smoke:uat-core` — D1 gate **30/30**, clean cleanup (`archiveFailures: []`, `activeResidue: []`).
+- `npm.cmd run smoke:password-reset` — **16/16**.
+- `npm.cmd run smoke:auth-cookie` — **35/35**.
+
+## Phase status
+
+Phase 011 is COMPLETE. PCO-012 and PCO-015 are closed, and RS-006 is closed. Sessions are opaque, hashed, server-side, and cookie-only; mutations are CSRF-protected; password recovery is real; auth throttling is shared across instances.
 - Central `private, no-store` + `Vary` policy applied by a shared helper rather than per-handler (partially done: login, session, logout, bootstrap, actions, produced).
 
-## Removal criteria for bearer compatibility
+## Removal criteria for bearer compatibility — all met
 
-`AUTH_BEARER_COMPAT` may be switched off once: (1) the browser app is cookie-only — DONE at 011-B1; (2) every smoke authenticates by cookie for API calls as well as UI — browser seeding is done, the API calls still use bearer; (3) a full cookie-only run of the smoke family passes. It can be turned off in production without a deploy, and the code default flips in 011-B3.
+(1) The browser app is cookie-only — done at 011-B1. (2) Every smoke authenticates by cookie for API calls as well as UI — done at 011-B3. (3) A full cookie-only run of the smoke family passes — done, twice. The code default is now off.
 
 ## Residual Risk
-
-- Risk: bearer compatibility remains accepted until 011-B3. It is time-boxed, flag-controlled, and cannot be exploited via CSRF because browsers never attach it automatically.
 - Risk: no preview database exists, so browser-level cutover behaviour can only be verified against production immediately after deploy. Mitigated by the browser smoke family, which caught the connection leak within minutes.
 - Risk: the reset timing floor (2.5s) swallows a normal mail-provider call, but a pathologically slow provider response could still overrun it and re-expose a small timing difference. Accepted; the alternative is not awaiting delivery, which serverless cannot do reliably without an extra dependency.
 - Risk: reset request/confirm throttling still uses the process-local limiter, so it is per-instance until RS-006 lands in 011-B3.
