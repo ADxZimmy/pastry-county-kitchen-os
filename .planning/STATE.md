@@ -32,7 +32,7 @@ Execute the revised audit-remediation program from the July 10 expanded producti
 
 ## In Progress
 
-- Nothing in flight. The Demo Trust Program closed with the 015-A gate; Phase 011 has not started.
+- Phase 011 Auth And Session Hardening. Slices 011-A (server-side sessions, `__Host-` cookie, CSRF) and 011-B1 (cookie-only browser sessions) are deployed and production-verified. Remaining: 011-B2 password reset (PCO-015), 011-B3 Neon-backed throttling (RS-006) plus disabling bearer compatibility.
 
 ## Deploy notes (2026-07-11)
 
@@ -60,7 +60,15 @@ PHASE 010 IS COMPLETE for its demo-trust scope, so ALL Demo Trust Program phases
 
 THE D1 DEMO TRUST GATE PASSED 2026-07-11. `scripts/uat-core-smoke.mjs` (`npm.cmd run smoke:uat-core`) ran 30/30 green against production under run id `AUDIT-UAT-1784387883299-53b5tx`: it verified its run id was unique before writing anything, built the audit's Prompt 10 fixtures, and asserted every Demo Trust finding end to end — including proving the 16->12 scaling table by REAL server-side deductions (flour 225, sugar 375, cocoa 90, chocolate 187.5, eggs 3, oil 135) rather than trusting the client calculation. Cleanup ran in `finally` with `archiveFailures: []` and `activeResidue: []`. Full evidence in `.planning/phases/015-authenticated-uat-audit-rerun/VERIFICATION.md`.
 
-Next: Phase 011 Authentication And Session Hardening, which starts the MVP Hardening Program (M1 gate) — httpOnly cookie sessions, CSRF, real password reset, server-side revocation, shared throttling. 015-B (full UAT + fresh external audit) stays last, after 011-014.
+PHASE 011 IS IN PROGRESS (MVP Hardening Program / M1 gate).
+
+011-A is deployed and production-verified (`e4fa6c3`): opaque server-side sessions hashed into a new `app_sessions` table and carried in a `__Host-pcko_session` HttpOnly/Secure/SameSite=Lax cookie; Origin/Referer plus a session-bound CSRF token on cookie-authenticated writes; `GET /api/auth/session` and `POST /api/auth/logout`; rotation on login and server-side revocation. Shipped deliberately invisible — byte-identical bundle, bearer preferred during the window — so `smoke:auth-cookie` could prove it in production (31/31) before anything depended on it.
+
+011-B1 is deployed and production-verified (`e86b654`, `ca7241d`): the browser holds no readable credential. localStorage keeps route/selection state only, the identity comes from the session endpoint, writes carry `x-csrf-token` from memory, a stale token self-heals with one retry, and logout revokes server-side. `readSession` actively purges the token any pre-011 build left in a returning browser. The whole browser smoke family was migrated to cookie seeding; `phase2-rerun` now proves PCO-012 directly (no credential in storage, cookie present, HttpOnly, invisible to `document.cookie`).
+
+The first cutover build leaked a connection on every page load (the 401 session response body was never consumed), caught by the migrated smokes within minutes and fixed in `ca7241d`. Re-verified after the fix: full `smoke:live-audit` green, `smoke:auth-cookie` 31/31, and the D1 gate `smoke:uat-core` still 30/30 with clean cleanup.
+
+Next: 011-B2 real password reset (PCO-015) — generic responses, high-entropy hashed single-use expiring tokens, revoke-all-sessions on success, Resend delivery from an allow-listed origin, and the request/confirm UI replacing the `Forgot password?` placeholder. Then 011-B3: atomic Neon-backed login/reset throttling (RS-006) replacing the process-local Map, disable `AUTH_BEARER_COMPAT`, and re-run the family cookie-only. 015-B (full UAT + fresh external audit) stays last, after 011-014.
 
 Deployed and production-verified 2026-07-11: S0/006a, Phase 007, Phase 008, Phase 009-A, the 009-B gram-rounding increment, AND the 009-B deduction-stage wiring (`18d2c69`) — a stage-toggling probe proved stock deducts EXACTLY ONCE at the configured stage (confirmation / production_start / completion), never twice. `main` synced with origin at `18d2c69`. Remediation: 9 of 16 PCO findings fully closed; PCO-006 closed; PCO-007 mostly closed (gram rounding + deduction stage effective; negative inventory + full settings inventory remain).
 

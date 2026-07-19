@@ -20,7 +20,7 @@ Revised 2026-07-11 after reconciling the July 10 expanded external audit (54/100
 
 - Phase: 011 Auth And Session Hardening
   Outcome: Opaque server-side sessions in HttpOnly cookies, CSRF protection, private/no-store responses, distributed auth throttling, and hashed single-use password-reset tokens. (PCO-012, 015)
-  Status: Ready to begin. Starts the MVP Hardening Program now that the D1 Demo Trust Gate is green.
+  Status: IN PROGRESS. 011-A (server sessions, `__Host-` cookie, CSRF, logout/rotation) and 011-B1 (cookie-only browser sessions, smoke family migrated) are deployed and production-verified 2026-07-11 — PCO-012 is closed. Remaining: 011-B2 password reset (PCO-015) and 011-B3 Neon-backed throttling (RS-006) plus retiring bearer compatibility.
 
 ## Completed Gates
 
