@@ -29,7 +29,6 @@
       ]
     },
     {
-      "//": "Vite stamps a content hash into every asset filename, so a changed file is a changed URL and this can never serve stale code. Listed after the catch-all so this Cache-Control wins.",
       "source": "/assets/(.*)",
       "headers": [
         {
@@ -39,7 +38,6 @@
       ]
     },
     {
-      "//": "The HTML shell is the opposite case: it names the current asset hashes, so it must be revalidated on every visit or a deploy would never be picked up.",
       "source": "/",
       "headers": [
         {
