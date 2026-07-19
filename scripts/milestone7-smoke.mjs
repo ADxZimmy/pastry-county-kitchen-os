@@ -1,5 +1,5 @@
 import { config } from "dotenv";
-import { seedBrowserSession, sessionCookieFrom } from "./_smoke-session.mjs";
+import { resolveSmokeSession, seedBrowserSession, sessionCookieFrom } from "./_smoke-session.mjs";
 
 config({ path: ".env.local" });
 config();
@@ -27,14 +27,10 @@ async function loadPlaywright() {
 }
 
 async function login() {
-  const response = await fetch(new URL("/api/auth/login", baseURL), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, password })
-  });
-  const result = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(result.error || `Login failed with ${response.status}.`);
-  return { ...result, sessionCookie: sessionCookieFrom(response, baseURL) };
+  // Uses the session the runner injected when part of the suite; signs in
+  // only when this smoke is run on its own. Shared login throttling (RS-006)
+  // makes one login per child an own-goal.
+  return await resolveSmokeSession(baseURL, email, password, { label: "Milestone 7 smoke" });
 }
 
 async function clickVisible(locator, label) {

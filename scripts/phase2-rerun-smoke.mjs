@@ -1,5 +1,5 @@
 import { config } from "dotenv";
-import { sessionCookieName } from "./_smoke-session.mjs";
+import { authHeaders, loginForSmoke, resolveSmokeSession, sessionCookieName } from "./_smoke-session.mjs";
 
 config({ path: ".env.local" });
 config();
@@ -50,18 +50,14 @@ async function requestJson(path, options = {}, expectedOk = true) {
 }
 
 async function loginAs(loginEmail, loginPassword) {
-  const { body } = await requestJson("/api/auth/login", {
-    method: "POST",
-    body: JSON.stringify({ email: loginEmail, password: loginPassword })
-  });
-  return body;
+  return await loginForSmoke(baseURL, loginEmail, loginPassword, { label: "Phase 2 smoke" });
 }
 
-function actionClient(token) {
+function actionClient(session) {
   return async function action(action, payload = {}) {
     const { body } = await requestJson("/api/actions", {
       method: "POST",
-      headers: { Authorization: `Bearer ${token}` },
+      headers: authHeaders(baseURL, session),
       body: JSON.stringify({ action, ...payload })
     });
     return body;
@@ -72,7 +68,7 @@ async function assertAuthAndRevocation(owner) {
   const noToken = await requestJson("/api/bootstrap", {}, false);
   assert(noToken.response.status === 401, `Unauthenticated bootstrap expected 401, received ${noToken.response.status}.`);
 
-  const action = actionClient(owner.token);
+  const action = actionClient(owner);
   const viewerEmail = `audit-rerun-viewer-${runId}@pastrycounty.com`;
   const viewerPassword = `Phase2-${runId}-Aa1!`;
   let viewerId = "";
@@ -89,7 +85,7 @@ async function assertAuthAndRevocation(owner) {
     viewerId = created.id;
     const viewer = await loginAs(viewerEmail, viewerPassword);
     const viewerBootstrap = await requestJson("/api/bootstrap", {
-      headers: { Authorization: `Bearer ${viewer.token}` }
+      headers: authHeaders(baseURL, viewer)
     });
     assert(Array.isArray(viewerBootstrap.body.appUsers) && viewerBootstrap.body.appUsers.length === 0, "Viewer bootstrap exposed staff users.");
     assert(Array.isArray(viewerBootstrap.body.auditLogs) && viewerBootstrap.body.auditLogs.length === 0, "Viewer bootstrap exposed audit logs.");
@@ -97,7 +93,7 @@ async function assertAuthAndRevocation(owner) {
 
     await action("user.revokeSessions", { userId: viewerId });
     const revoked = await requestJson("/api/bootstrap", {
-      headers: { Authorization: `Bearer ${viewer.token}` }
+      headers: authHeaders(baseURL, viewer)
     }, false);
     assert(revoked.response.status === 401, `Revoked viewer bootstrap expected 401, received ${revoked.response.status}.`);
   } finally {
@@ -180,7 +176,10 @@ async function assertFreshLoginAndMobile() {
 
 async function main() {
   assertPrerequisites();
-  const owner = await loginAs(email, password);
+  // Reuses the runner's session for the API work. The UI login below is a
+  // separate, deliberate sign-in, because driving the real login form is part of
+  // what this smoke verifies.
+  const owner = await resolveSmokeSession(baseURL, email, password, { label: "Phase 2 smoke" });
   assert(owner.role === "Owner/Admin", `Phase 2 rerun smoke requires an Owner/Admin live test account; received ${owner.role}.`);
   await assertAuthAndRevocation(owner);
   await assertFreshLoginAndMobile();

@@ -1,5 +1,5 @@
 import { config } from "dotenv";
-import { seedBrowserSession, sessionCookieFrom } from "./_smoke-session.mjs";
+import { authHeaders, resolveSmokeSession, seedBrowserSession, sessionCookieFrom } from "./_smoke-session.mjs";
 
 config({ path: ".env.local" });
 config();
@@ -53,27 +53,26 @@ async function requestJson(path, options = {}, expectedOk = true) {
 }
 
 async function login() {
-  const { response, body } = await requestJson("/api/auth/login", {
-    method: "POST",
-    body: JSON.stringify({ email, password })
-  });
-  return { ...body, sessionCookie: sessionCookieFrom(response, baseURL) };
+  // Uses the session the runner injected when part of the suite; signs in
+  // only when this smoke is run on its own. Shared login throttling (RS-006)
+  // makes one login per child an own-goal.
+  return await resolveSmokeSession(baseURL, email, password, { label: "Phase 4 smoke" });
 }
 
-function actionClient(token) {
+function actionClient(session) {
   return async function action(action, payload = {}) {
     const { body } = await requestJson("/api/actions", {
       method: "POST",
-      headers: { Authorization: `Bearer ${token}` },
+      headers: authHeaders(baseURL, session),
       body: JSON.stringify({ action, ...payload })
     });
     return body;
   };
 }
 
-async function bootstrap(token) {
+async function bootstrap(session) {
   const { body } = await requestJson("/api/bootstrap", {
-    headers: { Authorization: `Bearer ${token}` }
+    headers: authHeaders(baseURL, session)
   });
   return body;
 }
@@ -376,11 +375,11 @@ async function main() {
   assertPrerequisites();
   const owner = await login();
   assert(owner.role === "Owner/Admin", `Phase 4 pastry smoke requires an Owner/Admin live test account; received ${owner.role}.`);
-  const action = actionClient(owner.token);
+  const action = actionClient(owner);
   const ids = { conversionRuleIds: [] };
   try {
-    await cleanupPreviousSmokeData(action, owner.token);
-    await createAndVerifyApi(action, owner.token, ids);
+    await cleanupPreviousSmokeData(action, owner);
+    await createAndVerifyApi(action, owner, ids);
     await verifyUi(owner);
   } finally {
     await cleanup(action, ids);

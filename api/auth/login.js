@@ -2,7 +2,7 @@ import bcrypt from "bcryptjs";
 import { bearerCompatEnabled, createSessionToken } from "../_auth.js";
 import { issueSession, readSessionCookie, revokeSession, setSessionCookie } from "../_sessions.js";
 import { first, getSql, sendError, setPrivateNoStore } from "../_db.js";
-import { rateLimit, rateLimitKey, sendRateLimit } from "../_rateLimit.js";
+import { enforceAuthRateLimit, sendRateLimit } from "../_rateLimit.js";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
@@ -15,8 +15,9 @@ export default async function handler(req, res) {
     setPrivateNoStore(res);
     const sql = getSql();
     const { email, password } = req.body;
-    const loginLimit = rateLimit({
-      key: rateLimitKey(req, "auth.login", email || "missing-email"),
+    const loginLimit = await enforceAuthRateLimit(sql, req, {
+      scope: "auth.login",
+      identity: email || "missing-email",
       limit: 5,
       windowMs: 60 * 1000
     });

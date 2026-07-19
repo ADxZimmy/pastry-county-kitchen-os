@@ -1,5 +1,5 @@
 import { config } from "dotenv";
-import { seedBrowserSession, sessionCookieFrom } from "./_smoke-session.mjs";
+import { authHeaders, resolveSmokeSession, seedBrowserSession, sessionCookieFrom } from "./_smoke-session.mjs";
 
 config({ path: ".env.local" });
 config();
@@ -49,28 +49,15 @@ async function requestJson(path, options = {}, expectedOk = true) {
 }
 
 async function login() {
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    const { response, body } = await requestJson("/api/auth/login", {
-      method: "POST",
-      body: JSON.stringify({ email, password })
-    }, false);
-    if (response.ok) {
-      return { ...body, sessionCookie: sessionCookieFrom(response, baseURL) };
-    }
-    if (response.status === 429 && attempt < 2) {
-      const retryAfter = Number(response.headers.get("Retry-After") || "60");
-      console.log(`Navigation smoke login was rate-limited; waiting ${retryAfter}s before retrying.`);
-      await new Promise((resolve) => setTimeout(resolve, (retryAfter + 1) * 1000));
-      continue;
-    }
-    throw new Error(body.error || `Login failed with ${response.status}.`);
-  }
-  throw new Error("Login failed after rate-limit retries.");
+  // Uses the session the runner injected when part of the suite; signs in
+  // only when this smoke is run on its own. Shared login throttling (RS-006)
+  // makes one login per child an own-goal.
+  return await resolveSmokeSession(baseURL, email, password, { label: "Navigation smoke" });
 }
 
-async function bootstrap(token) {
+async function bootstrap(session) {
   const { body } = await requestJson("/api/bootstrap", {
-    headers: { Authorization: `Bearer ${token}` }
+    headers: authHeaders(baseURL, session)
   });
   return body;
 }
@@ -197,7 +184,7 @@ async function main() {
   assertPrerequisites();
   const owner = await login();
   assert(owner.role === "Owner/Admin", `Navigation routing smoke requires an Owner/Admin live test account; received ${owner.role}.`);
-  const snapshot = await bootstrap(owner.token);
+  const snapshot = await bootstrap(owner);
   const records = pickRecords(snapshot);
   const { chromium } = await loadPlaywright();
   const browser = await chromium.launch();

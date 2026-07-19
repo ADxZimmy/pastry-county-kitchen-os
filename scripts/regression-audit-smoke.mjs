@@ -1,5 +1,5 @@
 import { config } from "dotenv";
-import { seedBrowserSession, sessionCookieFrom } from "./_smoke-session.mjs";
+import { authHeaders, resolveSmokeSession, seedBrowserSession, sessionCookieFrom } from "./_smoke-session.mjs";
 
 config({ path: ".env.local" });
 config();
@@ -60,29 +60,25 @@ async function requestJson(path, options = {}) {
 }
 
 async function login() {
-  const response = await fetch(new URL("/api/auth/login", baseURL), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ email, password })
-  });
-  const body = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(body.error || `Login failed with ${response.status}.`);
-  return { ...body, sessionCookie: sessionCookieFrom(response, baseURL) };
+  // Uses the session the runner injected when part of the suite; signs in
+  // only when this smoke is run on its own. Shared login throttling (RS-006)
+  // makes one login per child an own-goal.
+  return await resolveSmokeSession(baseURL, email, password, { label: "Regression smoke" });
 }
 
-function actionClient(token) {
+function actionClient(session) {
   return async function action(action, payload = {}) {
     return requestJson("/api/actions", {
       method: "POST",
-      headers: { Authorization: `Bearer ${token}` },
+      headers: authHeaders(baseURL, session),
       body: JSON.stringify({ action, ...payload })
     });
   };
 }
 
-async function bootstrap(token) {
+async function bootstrap(session) {
   return requestJson("/api/bootstrap", {
-    headers: { Authorization: `Bearer ${token}` }
+    headers: authHeaders(baseURL, session)
   });
 }
 
@@ -179,7 +175,7 @@ async function main() {
   assertPrerequisites();
   const user = await login();
   assert(user.role === "Owner/Admin", `REGRESSION_AUDIT_SMOKE requires an Owner/Admin test account so temporary ingredients can be archived; received ${user.role}.`);
-  const action = actionClient(user.token);
+  const action = actionClient(user);
   const createdIngredientIds = [];
   const flourId = `ing-${runId}-flour`;
   const sugarId = `ing-${runId}-sugar`;
@@ -237,7 +233,7 @@ async function main() {
       createdIngredientIds.push(result.id);
     }
 
-    let snapshot = await bootstrap(user.token);
+    let snapshot = await bootstrap(user);
     let flour = ingredientById(snapshot, flourId);
     const sugar = ingredientById(snapshot, sugarId);
     const packaging = ingredientById(snapshot, packagingId);
@@ -257,7 +253,7 @@ async function main() {
       note: "Regression audit smoke FEFO removal"
     });
 
-    snapshot = await bootstrap(user.token);
+    snapshot = await bootstrap(user);
     flour = ingredientById(snapshot, flourId);
     flourBatch = batchByIngredient(snapshot, flourId);
     assertNear(flour.currentStock, 4800, "Flour stock after FEFO removal");

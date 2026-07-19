@@ -1,6 +1,6 @@
 import { first, getSql, sendError, setPrivateNoStore } from "../_db.js";
 import { sendResendEmail } from "../_actions.js";
-import { rateLimit, rateLimitKey, sendRateLimit } from "../_rateLimit.js";
+import { enforceAuthRateLimit, sendRateLimit } from "../_rateLimit.js";
 import {
   GENERIC_RESET_RESPONSE,
   RESET_UNAVAILABLE,
@@ -31,8 +31,9 @@ export default async function handler(req, res) {
     const sql = getSql();
     const email = normalizeEmail(req.body?.email);
 
-    const limit = rateLimit({
-      key: rateLimitKey(req, "auth.resetRequest", email || "missing-email"),
+    const limit = await enforceAuthRateLimit(sql, req, {
+      scope: "auth.resetRequest",
+      identity: email || "missing-email",
       limit: 3,
       windowMs: 15 * 60 * 1000
     });

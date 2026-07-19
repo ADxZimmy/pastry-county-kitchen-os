@@ -30,7 +30,7 @@ import {
 } from "../api/_sessions.js";
 import { loadAuthenticatedKitchenSnapshot } from "../api/bootstrap.js";
 import { sendError, setPrivateNoStore } from "../api/_db.js";
-import { rateLimit, rateLimitKey, sendRateLimit } from "../api/_rateLimit.js";
+import { enforceAuthRateLimit, rateLimit, rateLimitKey, sendRateLimit } from "../api/_rateLimit.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, "..");
@@ -65,8 +65,9 @@ app.post("/api/auth/login", requireDatabase, async (req, res, next) => {
   try {
     setPrivateNoStore(res);
     const { email, password } = req.body;
-    const loginLimit = rateLimit({
-      key: rateLimitKey(req, "auth.login", email || "missing-email"),
+    const loginLimit = await enforceAuthRateLimit(sql, req, {
+      scope: "auth.login",
+      identity: email || "missing-email",
       limit: 5,
       windowMs: 60 * 1000
     });
@@ -149,8 +150,9 @@ app.post("/api/auth/reset-request", requireDatabase, async (req, res, next) => {
       return;
     }
     const email = normalizeEmail(req.body?.email);
-    const limit = rateLimit({
-      key: rateLimitKey(req, "auth.resetRequest", email || "missing-email"),
+    const limit = await enforceAuthRateLimit(sql, req, {
+      scope: "auth.resetRequest",
+      identity: email || "missing-email",
       limit: 3,
       windowMs: 15 * 60 * 1000
     });
@@ -190,8 +192,9 @@ app.post("/api/auth/reset-confirm", requireDatabase, async (req, res, next) => {
     setPrivateNoStore(res);
     const token = String(req.body?.token ?? "");
     const password = String(req.body?.password ?? "");
-    const limit = rateLimit({
-      key: rateLimitKey(req, "auth.resetConfirm", token.slice(0, 12) || "missing-token"),
+    const limit = await enforceAuthRateLimit(sql, req, {
+      scope: "auth.resetConfirm",
+      identity: token.slice(0, 12) || "missing-token",
       limit: 5,
       windowMs: 15 * 60 * 1000
     });

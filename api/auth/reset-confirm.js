@@ -1,6 +1,6 @@
 import bcrypt from "bcryptjs";
 import { getSql, sendError, setPrivateNoStore } from "../_db.js";
-import { rateLimit, rateLimitKey, sendRateLimit } from "../_rateLimit.js";
+import { enforceAuthRateLimit, sendRateLimit } from "../_rateLimit.js";
 import { clearSessionCookie } from "../_sessions.js";
 import { validatePasswordStrength } from "../../shared/policy.js";
 import { GENERIC_RESET_FAILURE, consumeResetToken, revokeSessionsAfterReset } from "../_passwordReset.js";
@@ -18,8 +18,9 @@ export default async function handler(req, res) {
     const token = String(req.body?.token ?? "");
     const password = String(req.body?.password ?? "");
 
-    const limit = rateLimit({
-      key: rateLimitKey(req, "auth.resetConfirm", token.slice(0, 12) || "missing-token"),
+    const limit = await enforceAuthRateLimit(sql, req, {
+      scope: "auth.resetConfirm",
+      identity: token.slice(0, 12) || "missing-token",
       limit: 5,
       windowMs: 15 * 60 * 1000
     });

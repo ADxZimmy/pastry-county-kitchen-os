@@ -12,6 +12,7 @@
 //   * It never mutates a pre-existing business record, and it restores any
 //     setting it changes.
 import { config } from "dotenv";
+import { authHeaders, resolveSmokeSession } from "./_smoke-session.mjs";
 
 config({ path: ".env.local" });
 config();
@@ -28,7 +29,7 @@ if (!email || !password) {
 
 const manifest = { ingredients: [], recipes: [], orders: [] };
 const results = [];
-let token = "";
+let session = null;
 
 function check(name, ok, detail) {
   results.push({ name, ok: Boolean(ok), detail: detail ?? "" });
@@ -42,7 +43,7 @@ function near(actual, expected, tolerance = 0.01) {
 async function req(path, options = {}) {
   const response = await fetch(new URL(path, baseURL), {
     ...options,
-    headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(options.headers ?? {}) }
+    headers: { "Content-Type": "application/json", ...(session ? authHeaders(baseURL, session) : {}), ...(options.headers ?? {}) }
   });
   const text = await response.text();
   let body = {};
@@ -77,9 +78,10 @@ const RECIPE_LINES = [
 const EXPECTED_12 = { flour: 225, sugar: 375, cocoa: 90, chocolate: 187.5, eggs: 3, oil: 135 };
 
 async function main() {
-  const login = await req("/api/auth/login", { method: "POST", body: JSON.stringify({ email, password }) });
-  if (login.status !== 200 || !login.body.token) throw new Error(`Login failed (${login.status}).`);
-  token = login.body.token;
+  // Cookie session, not a bearer token: this gate must exercise the same
+  // credential an operator's browser carries.
+  session = await resolveSmokeSession(baseURL, email, password, { label: "uat-core gate" });
+  if (!session?.sessionCookie) throw new Error("Login did not return a session cookie.");
 
   // --- Guard: refuse to run if this run id somehow already exists in the data.
   const before = await snapshot();
@@ -229,18 +231,21 @@ async function main() {
 
 async function cleanup() {
   const failures = [];
-  for (const orderId of manifest.orders) {
-    const result = await action("order.delete", { orderId });
-    if (result.status !== 200) failures.push(`order ${orderId} (${result.status})`);
-  }
-  for (const recipeId of manifest.recipes) {
-    const result = await action("recipe.delete", { recipeId });
-    if (result.status !== 200) failures.push(`recipe ${recipeId} (${result.status})`);
-  }
-  for (const ingredientId of manifest.ingredients) {
-    const result = await action("ingredient.delete", { ingredientId });
-    if (result.status !== 200) failures.push(`ingredient ${ingredientId} (${result.status})`);
-  }
+  // Every archive is attempted independently. A throw partway through used to
+  // abandon the remaining records in production, which is exactly the outcome
+  // this manifest exists to prevent.
+  const archive = async (label, actionName, payload) => {
+    try {
+      const result = await action(actionName, payload);
+      if (result.status !== 200) failures.push(`${label} (${result.status})`);
+    } catch (error) {
+      failures.push(`${label} (threw: ${error instanceof Error ? error.message : String(error)})`);
+    }
+  };
+
+  for (const orderId of manifest.orders) await archive(`order ${orderId}`, "order.delete", { orderId });
+  for (const recipeId of manifest.recipes) await archive(`recipe ${recipeId}`, "recipe.delete", { recipeId });
+  for (const ingredientId of manifest.ingredients) await archive(`ingredient ${ingredientId}`, "ingredient.delete", { ingredientId });
 
   // Residue check: nothing this run created may still be active.
   const final = await snapshot();
@@ -264,7 +269,7 @@ try {
   check("uat run completed without an unexpected error", false, error instanceof Error ? error.message : String(error));
 } finally {
   try {
-    if (token) await cleanup();
+    if (session) await cleanup();
   } catch (error) {
     check("cleanup completed", false, error instanceof Error ? error.message : String(error));
   }
