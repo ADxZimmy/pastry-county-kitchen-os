@@ -33,7 +33,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import { apiBaseUrl, backendMode } from "./lib/backend";
 import { auditChangedFields, auditChangeSummary, auditDataJson, auditExportRows, auditFieldLabel, auditRecordLabel, auditSearchText, type AuditRecordNameLookup } from "./lib/audit";
 import { appUsers, conversionRules, ingredientBatches, ingredients, inventoryMovements, orderEvents, orderItems, orders, products, productionQcLogs, recipeItems, recipes, settings, suppliers, setKitchenSnapshot } from "./data";
-import type { AppStaffUser, AuditLog, ConversionRule, ImportDraft, ImportDraftRecipeItem, Ingredient, IngredientAllergenProfile, IngredientBatch, IngredientStorageProfile, Order, Recipe, RecipeCostProfile, RecipeFormulaMetadata, RecipeItem, RecipeItemPrepState, StockStatus, Supplier, Unit } from "./types";
+import type { AppStaffUser, AuditLog, ConversionRule, ImportDraft, ImportDraftRecipeItem, Ingredient, IngredientAllergenProfile, IngredientBatch, IngredientStorageProfile, InventoryMovement, Order, Recipe, RecipeCostProfile, RecipeFormulaMetadata, RecipeItem, RecipeItemPrepState, StockStatus, Supplier, Unit } from "./types";
 import {
   calculateMargin,
   calculateOrderCost,
@@ -1400,18 +1400,31 @@ function Dashboard({ setPage, setSelectedIngredientId, setSelectedOrderId }: any
     else if (item.orderId) setPage({ name: "orders", orderId: item.orderId, mode: "detail" });
     else setPage(item.page);
   };
+  const [movementSummary, setMovementSummary] = useState<{ wasteEvents: number; topUsedIngredientId: string | null } | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    fetchResourcePage<never>("summary")
+      .then((body: any) => {
+        if (!cancelled) setMovementSummary(body?.summary?.movements ?? null);
+      })
+      .catch(() => {
+        // The rest of the dashboard is snapshot-driven and still renders; these
+        // two metrics show a placeholder rather than a wrong number.
+        if (!cancelled) setMovementSummary(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // Fetched when the dashboard mounts, which is each time it is navigated to.
+  }, []);
   const activeOrders = orders.filter((order) => !["Delivered", "Cancelled"].includes(order.status));
   const producedOrders = orders.filter((order) => ["Produced", "Delivered"].includes(order.status));
   const activeOrderCost = activeOrders.reduce((sum, order) => sum + calculateOrderCost(order.id), 0);
   const stockValue = ingredients.reduce((sum, item) => sum + (item.currentStock * item.latestUnitCost), 0);
-  const wasteMovements = inventoryMovements.filter((movement) => movement.movementType === "waste");
-  const mostUsed = inventoryMovements
-    .filter((movement) => movement.movementType === "production_use")
-    .reduce<Record<string, number>>((acc, movement) => {
-      acc[movement.ingredientId] = (acc[movement.ingredientId] ?? 0) + Math.abs(movement.quantityChange);
-      return acc;
-    }, {});
-  const topIngredientId = Object.entries(mostUsed).sort((a, b) => b[1] - a[1])[0]?.[0];
+  // Aggregated by the database over every movement. These used to be computed
+  // from whatever fitted in the snapshot's last 200 rows, so "most used" meant
+  // "most used recently" and drifted as history grew.
+  const topIngredientId = movementSummary?.topUsedIngredientId ?? undefined;
   const productionQueue = dashboardProductionQueue(today);
   const lowStock = ingredients.filter(isBelowReorder).slice(0, 3);
   const restockList = restockSuggestions(new Date().toISOString().slice(0, 10));
@@ -1491,7 +1504,7 @@ function Dashboard({ setPage, setSelectedIngredientId, setSelectedOrderId }: any
             <Metric label="Produced Orders" value={producedOrders.length} />
             <Metric label="Active Order Cost" value={formatNaira(activeOrderCost)} />
             <Metric label="Stock Value" value={formatNaira(stockValue)} />
-            <Metric label="Waste Events" value={wasteMovements.length} />
+            <Metric label="Waste Events" value={movementSummary ? movementSummary.wasteEvents : "..."} />
           </div>
           <div className="compact-list">
             <div className="row-card"><span>Most used ingredient</span><strong>{ingredients.find((item) => item.id === topIngredientId)?.name ?? "No production use yet"}</strong></div>
@@ -1547,6 +1560,7 @@ function IngredientDetail({ ingredientId, user, setPage, notify, askConfirm, rel
   // out of a truncated copy of the whole audit trail.
   const [auditTrail, setAuditTrail] = useState<AuditLog[]>([]);
   const [batches, setBatches] = useState<IngredientBatch[]>([]);
+  const [movements, setMovements] = useState<InventoryMovement[]>([]);
   useEffect(() => {
     let cancelled = false;
     fetchResourcePage<AuditLog>("audit", { entityType: "ingredients", entityId: ingredientId, limit: 8 })
@@ -1556,6 +1570,21 @@ function IngredientDetail({ ingredientId, user, setPage, notify, askConfirm, rel
       .catch(() => {
         // A missing history panel must not take the ingredient page down with it.
         if (!cancelled) setAuditTrail([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [ingredientId]);
+  useEffect(() => {
+    let cancelled = false;
+    // This ingredient's own stock history, complete rather than whatever
+    // survived the snapshot's global cap.
+    fetchResourcePage<InventoryMovement>("movements", { ingredientId, limit: 200 })
+      .then((page) => {
+        if (!cancelled) setMovements(page.items ?? []);
+      })
+      .catch(() => {
+        if (!cancelled) setMovements([]);
       });
     return () => {
       cancelled = true;
@@ -1576,7 +1605,6 @@ function IngredientDetail({ ingredientId, user, setPage, notify, askConfirm, rel
   }, [ingredientId]);
   if (!ingredient) return <EmptyState title="Ingredient not found" message="Select an ingredient from inventory." action={<Button variant="secondary" onClick={() => setPage({ name: "inventory" })}>Back to Inventory</Button>} />;
   const supplier = suppliers.find((item) => item.id === ingredient.supplierId);
-  const movements = inventoryMovements.filter((item) => item.ingredientId === ingredientId);
   const usageMovements = movements.filter((movement) => ["production_use", "waste", "adjustment", "reservation", "reservation_release"].includes(movement.movementType));
   const purchaseMovements = movements.filter((movement) => movement.movementType === "purchase").sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   const trendText = purchaseMovements.length >= 2 ? `${purchaseMovements[purchaseMovements.length - 1].quantityChange > purchaseMovements[0].quantityChange ? "Higher" : "Stable"} purchase volume trend` : "Not enough purchase history";
@@ -3319,9 +3347,22 @@ function SettingsPage({ user, setPage, notify, reloadData }: { user?: AppUser; s
     };
   }, [canManageSettings]);
   const canRestoreArchive = canUser(user, "restoreArchive");
+  const [wasteRows, setWasteRows] = useState<InventoryMovement[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    fetchResourcePage<InventoryMovement>("movements", { movementType: "waste", limit: 8 })
+      .then((page) => {
+        if (!cancelled) setWasteRows(page.items ?? []);
+      })
+      .catch(() => {
+        if (!cancelled) setWasteRows([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   const lowStockRows = ingredients.filter(isBelowReorder);
   const expiringRows = ingredientBatches.filter((batch) => batch.expiryDate).slice(0, 8);
-  const wasteRows = inventoryMovements.filter((item) => item.movementType === "waste" || item.note?.toLowerCase().includes("spoil") || item.note?.toLowerCase().includes("waste")).slice(0, 8);
   const auditNameLookup: AuditRecordNameLookup = {
     ingredients: Object.fromEntries(ingredients.map((item) => [item.id, item.name])),
     recipes: Object.fromEntries(recipes.map((item) => [item.id, item.name])),

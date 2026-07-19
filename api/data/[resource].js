@@ -87,7 +87,7 @@ async function pagedAudit(sql, { cursor, limit, entityType, entityId }) {
   return buildPage(rows, limit);
 }
 
-async function pagedMovements(sql, { cursor, limit, ingredientId }) {
+async function pagedMovements(sql, { cursor, limit, ingredientId, movementType }) {
   const rows = cursor
     ? await sql`
         select id, ingredient_id as "ingredientId", movement_type as "movementType",
@@ -96,6 +96,7 @@ async function pagedMovements(sql, { cursor, limit, ingredientId }) {
           note, created_by as "createdBy", created_at as "createdAt"
         from inventory_movements
         where (${ingredientId}::text is null or ingredient_id = ${ingredientId})
+          and (${movementType}::text is null or movement_type = ${movementType})
           and (created_at, id) < (${cursor.at}::timestamptz, ${cursor.id})
         order by created_at desc, id desc
         limit ${limit + 1}
@@ -107,6 +108,7 @@ async function pagedMovements(sql, { cursor, limit, ingredientId }) {
           note, created_by as "createdBy", created_at as "createdAt"
         from inventory_movements
         where (${ingredientId}::text is null or ingredient_id = ${ingredientId})
+          and (${movementType}::text is null or movement_type = ${movementType})
         order by created_at desc, id desc
         limit ${limit + 1}
       `;
@@ -116,7 +118,7 @@ async function pagedMovements(sql, { cursor, limit, ingredientId }) {
 // Counts computed in the database rather than by shipping every row to the
 // browser and calling .length on it, which is what bootstrap effectively does.
 async function dashboardSummary(sql) {
-  const [orderCounts, stockCounts, movementCount, auditCount] = await Promise.all([
+  const [orderCounts, stockCounts, movementCount, auditCount, movementStats, topUsed] = await Promise.all([
     sql`
       select count(*)::int as total,
         count(*) filter (where status = 'Draft')::int as draft,
@@ -135,12 +137,29 @@ async function dashboardSummary(sql) {
       from ingredients where active = true
     `,
     sql`select count(*)::int as total from inventory_movements`,
-    sql`select count(*)::int as total from audit_logs`
+    sql`select count(*)::int as total from audit_logs`,
+    // Aggregated over the whole table. The dashboard used to compute these from
+    // whatever fitted in the last 200 movements, so "most used ingredient" meant
+    // "most used inside a truncated window" and quietly changed as history grew.
+    sql`select count(*) filter (where movement_type = 'waste')::int as "wasteEvents" from inventory_movements`,
+    sql`
+      select ingredient_id as "ingredientId", sum(abs(quantity_change))::float as "quantityUsed"
+      from inventory_movements
+      where movement_type = 'production_use'
+      group by ingredient_id
+      order by sum(abs(quantity_change)) desc
+      limit 1
+    `
   ]);
 
   return {
     orders: orderCounts[0] ?? {},
     inventory: stockCounts[0] ?? {},
+    movements: {
+      wasteEvents: movementStats[0]?.wasteEvents ?? 0,
+      topUsedIngredientId: topUsed[0]?.ingredientId ?? null,
+      topUsedQuantity: topUsed[0]?.quantityUsed ?? 0
+    },
     totals: {
       inventoryMovements: movementCount[0]?.total ?? 0,
       auditLogs: auditCount[0]?.total ?? 0
@@ -190,7 +209,12 @@ export default async function handler(req, res) {
           })
         : resource === "batches"
           ? await fefoBatches(sql, { limit, ingredientId: req.query?.ingredientId || null })
-          : await pagedMovements(sql, { cursor, limit, ingredientId: req.query?.ingredientId || null });
+          : await pagedMovements(sql, {
+              cursor,
+              limit,
+              ingredientId: req.query?.ingredientId || null,
+              movementType: req.query?.movementType || null
+            });
 
     res.status(200).json({ resource, limit, ...page });
   } catch (error) {

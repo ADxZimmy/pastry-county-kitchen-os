@@ -242,14 +242,21 @@ export async function loadKitchenSnapshot(sql = getSql()) {
       order by order_events.created_at
       limit 1000
     `,
+    // Narrowed to what cross-cutting logic needs: cancellationConsequences and
+    // reservationQuantityForOrder resolve a live order's reservations from this
+    // array, so those rows must stay. Stock history is not read from here any
+    // more -- ingredient pages, waste reports and dashboard aggregates all go to
+    // /api/data/movements, which is complete rather than capped.
     sql`
       select id, ingredient_id as "ingredientId", movement_type as "movementType",
         quantity_change::float as "quantityChange", unit, related_order_id as "relatedOrderId",
         related_order_item_id as "relatedOrderItemId", related_purchase_id as "relatedPurchaseId",
         note, created_by as "createdBy", created_at as "createdAt"
       from inventory_movements
+      where movement_type in ('reservation', 'reservation_release')
+        and related_order_id in (select id from orders where coalesce(archived, false) = false)
       order by created_at desc
-      limit 200
+      limit 500
     `,
     // FEFO-ordered and deliberately bounded: the snapshot only needs the lots a
     // kitchen is about to worry about, which is what the expiry notifications and
