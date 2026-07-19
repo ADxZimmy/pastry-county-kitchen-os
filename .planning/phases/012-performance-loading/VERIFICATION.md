@@ -168,14 +168,61 @@ The assertion is still worth making, so it now reads the lot from `/api/data/bat
 - `npm.cmd run smoke:live-audit` — all 7 browser smokes passed.
 - `npm.cmd run smoke:uat-core` — D1 Demo Trust Gate still **30/30**, so none of this regressed the demo-trust behaviour.
 
+## Slice 012-C (part 3) — schema changes off request paths (deployed 2026-07-19, commit `3c6f9be`)
+
+### What was running on ordinary requests
+
+Roughly **a hundred `ALTER`/`CREATE` statements**: about 40 on every bootstrap, more on every action, two on every login — plus a repair `UPDATE` on `ingredients` inside the snapshot loader, so a **read wrote to the database**.
+
+It was idempotent, so it worked. But reads did schema work, and any authenticated request could change the schema — the thing Phase 006a began closing when it stopped anonymous callers reaching DDL.
+
+### What replaced it
+
+`scripts/migrate.mjs` is now the only place schema changes happen. The steps are the same idempotent functions, **moved rather than rewritten**, so this is a relocation and not a redefinition of the schema:
+
+| Step | Source |
+|---|---|
+| `001-core-snapshot-schema` | extracted from `loadKitchenSnapshot` into `ensureSnapshotSchema` |
+| `002-operational-tables` | `ensureOperationalTables` |
+| `003-session-columns` | `ensureSessionColumns` |
+| `004-app-sessions` | `ensureSessionTables` |
+| `005-password-reset-tokens` | `ensurePasswordResetTable` |
+| `006-auth-rate-limits` | `ensureRateLimitTable` |
+
+Applied steps are recorded in `schema_migrations`. `npm run db:migrate -- --check` reports status and changes nothing — that is the deploy preflight.
+
+### Measured effect
+
+| | Before Phase 012 | After |
+|---|---|---|
+| `/api/bootstrap` payload | 448.9 kB | **261.4 kB** |
+| `/api/bootstrap` warm time | ~1175–1476 ms | **643–774 ms** |
+
+Roughly **45% faster and 42% smaller**, from removing work that was never needed on a read.
+
+### Why this was safe to deploy in this order
+
+Every statement removed had already run in production — it executed on every request for the whole programme. The newest tables (`app_sessions`, `password_reset_tokens`, `auth_rate_limits`) were confirmed present by passing smokes immediately before deploying. Removing the statements therefore could not leave the schema behind.
+
+Not done: `npm run db:migrate` has not been run against production, because `DATABASE_URL` for the production database is not available in this environment. It is a no-op there — every step is already applied — but the `schema_migrations` bookkeeping table does not exist yet, so the first owner-run will record all six steps at once. Nothing gates on that table, so this is bookkeeping, not a functional gap.
+
+One deliberate exception: the shared rate limiter still creates its table on a missing-relation error. That is a recovery path rather than an ordinary request, and failing closed there would take out login throttling.
+
+### Verification
+
+- `npm.cmd test` — 234/234. Build clean.
+- `npm.cmd run smoke:live-audit` — all 7 browser smokes passed.
+- `npm.cmd run smoke:route-data` — 20/20.
+- `npm.cmd run smoke:auth-cookie` — 35/35.
+- `npm.cmd run smoke:password-reset` — passed.
+- `npm.cmd run smoke:uat-core` — D1 Demo Trust Gate still **30/30**.
+
 ## Remaining in Phase 012
 
 - `recipeItems` is now the largest item at 108.7 kB and 266 rows. It is **not** growth-capped, so pagination is the wrong tool — it needs per-recipe loading, a different change from the three collections handled so far.
 - Dashboard and Orders could still move onto `/api/data/summary` and `/api/data/orders`; the endpoints exist and are verified, but the current snapshot-driven versions are correct and bounded, so this is optimisation rather than defect repair.
-- **012-C (part 3)**: move remaining `ALTER/CREATE/repair UPDATE` work off request paths into explicit idempotent migrations with a deploy preflight (RS-007).
-- Lighthouse budgets and an authenticated performance job.
-- **012-C (part 3)**: move remaining `ALTER/CREATE/repair UPDATE` work off request paths into explicit idempotent migrations with a deploy preflight (RS-007).
 - Lighthouse budgets and an authenticated performance job. A public login-page score is explicitly not evidence for the authenticated app, so this needs the controlled authenticated job to be worth anything.
+- Owner action: run `npm run db:migrate` once against production to record the schema baseline.
 
 ## Residual Risk
 
