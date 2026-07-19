@@ -56,11 +56,7 @@ Revised 2026-07-11 after reconciling the July 10 expanded external audit (54/100
   Outcome: Conversion actions truthfully distinguish saving a rule from changing a recipe; recipe changes use review, confirmation, provenance, audited persistence, and reload verification; deterministic assistant is labelled Kitchen Helper. (PCO-003 demo closure)
   Status: Deployed and production-verified 2026-07-11 (`926861a`, `e4d3f1e`, `0511095`). Model-backed assistance remains Phase 014 and optional.
 
-## MVP Hardening Program
-
-- Phase: 011 Auth And Session Hardening
-  Outcome: Opaque server-side sessions in HttpOnly cookies, CSRF protection, private/no-store responses, distributed auth throttling, and hashed single-use password-reset tokens. (PCO-012, 015)
-  Status: Planned after the Demo Trust Gate; immediate route/secret/error containment is pulled forward into Phase 006a.
+## MVP Hardening Program (remaining)
 
 - Phase: 012 Performance And Loading Architecture
   Outcome: Immutable hashed assets, route chunks, paginated role-filtered endpoints, shrinking bootstrap, Web Vitals, and a real CI performance gate. (PCO-010, 011)
