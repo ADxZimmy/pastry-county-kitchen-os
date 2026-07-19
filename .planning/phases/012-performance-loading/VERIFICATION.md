@@ -89,9 +89,47 @@ Adding the endpoint took the deployment to 13 serverless functions, one over the
 
 Root cause: `api/bootstrap.test.js` and `api/security-containment.test.js` are not underscore-prefixed, so Vercel had been deploying them as two live serverless functions all along. `.vercelignore` now excludes test files (plus `.planning`, `scripts`, `docs`) from the upload. The endpoint deployed 15 seconds after that fix.
 
+## Slice 012-C (part 2) — audit trail migrated off bootstrap (deployed 2026-07-19, commit `b7cd122`)
+
+The audit trail was the largest single item in the bootstrap payload and the worst-truncated: 110 kB, capped at 100 rows against a real total of 1,458. It now loads from `/api/data/audit`.
+
+### Measured payload reduction
+
+| | Before | After |
+|---|---|---|
+| `/api/bootstrap` transferred | 448.9 kB | **342.1 kB** |
+| `auditLogs` in the payload | 100 rows / 110.4 kB | **removed** |
+
+A 106.8 kB reduction, 23.8% of the payload, from one collection.
+
+### Honesty, which was the bigger defect
+
+The page now states how much of the trail is on screen. Verified in a real browser: **"Showing 50 of 1,485 audit entries"**, a "Load older entries" control, and an explicit caveat that search and filters only see loaded rows — so an empty filter result cannot imply the record itself is empty. Previously the UI presented 100 rows as the whole history with nothing indicating otherwise.
+
+Ingredient pages fetch their own history through `entityType`/`entityId` rather than filtering a truncated copy of everything, so a record's history no longer depends on whether it happened to fall inside the last 100 global events.
+
+### States this data never had
+
+Designed against the skill's quality checklist (layout shift is High severity; errors must be announced, not colour-only):
+
+- **Loading**: a skeleton that reserves the height the rows will occupy, so arriving data replaces it in place instead of shoving the page around. `role="status"`, `aria-busy`, with a visually-hidden "Loading…" for assistive tech.
+- **Error**: `role="alert"` with a "Try again" control, rather than red text with no way forward.
+- **Empty**: says what it means instead of leaving blank space.
+- Reduced motion was already handled globally, so the skeleton pulse respects it.
+- Requests carry a token, so a superseded response cannot overwrite newer data once a list can be reloaded and paged.
+
+`filterKitchenSnapshotForActor` still blanks `auditLogs` even though the field is gone from the snapshot: if it ever returns to bootstrap it must not reach a lower role just because the line was tidied away.
+
+### Verification
+
+- `npm.cmd test` — 234/234. Build clean.
+- `npm.cmd run smoke:route-data` — 20/20 against production.
+- `npm.cmd run smoke:live-audit` — all 7 browser smokes passed.
+- Browser check of the migrated page: honest count, load-more control, and filter caveat all render.
+
 ## Remaining in Phase 012
 
-- **012-C (part 2)**: migrate Dashboard, Orders, Audit Reports and ingredient history to the route-scoped endpoints with loading/empty/error/retry states and targeted invalidation, then remove the migrated collections from bootstrap and record the payload reduction. This is where the 448.9 kB actually falls.
+- **012-C (part 2, continued)**: the same treatment for `inventoryMovements` (65.3 kB, capped at 200 of 962) and `ingredientBatches` (50.5 kB, capped at 181), then Dashboard and Orders onto `/api/data/summary` and `/api/data/orders`. `recipeItems` is the largest remaining item at 108.7 kB but is not growth-capped; it needs a different approach (per-recipe loading) rather than pagination.
 - **012-C (part 3)**: move remaining `ALTER/CREATE/repair UPDATE` work off request paths into explicit idempotent migrations with a deploy preflight (RS-007).
 - Lighthouse budgets and an authenticated performance job. A public login-page score is explicitly not evidence for the authenticated app, so this needs the controlled authenticated job to be worth anything.
 
