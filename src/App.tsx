@@ -33,7 +33,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import { apiBaseUrl, backendMode } from "./lib/backend";
 import { auditChangedFields, auditChangeSummary, auditDataJson, auditExportRows, auditFieldLabel, auditRecordLabel, auditSearchText, type AuditRecordNameLookup } from "./lib/audit";
 import { appUsers, conversionRules, ingredientBatches, ingredients, inventoryMovements, orderEvents, orderItems, orders, products, productionQcLogs, recipeItems, recipes, settings, suppliers, setKitchenSnapshot } from "./data";
-import type { AppStaffUser, AuditLog, ConversionRule, ImportDraft, ImportDraftRecipeItem, Ingredient, IngredientAllergenProfile, IngredientStorageProfile, Order, Recipe, RecipeCostProfile, RecipeFormulaMetadata, RecipeItem, RecipeItemPrepState, StockStatus, Supplier, Unit } from "./types";
+import type { AppStaffUser, AuditLog, ConversionRule, ImportDraft, ImportDraftRecipeItem, Ingredient, IngredientAllergenProfile, IngredientBatch, IngredientStorageProfile, Order, Recipe, RecipeCostProfile, RecipeFormulaMetadata, RecipeItem, RecipeItemPrepState, StockStatus, Supplier, Unit } from "./types";
 import {
   calculateMargin,
   calculateOrderCost,
@@ -1546,6 +1546,7 @@ function IngredientDetail({ ingredientId, user, setPage, notify, askConfirm, rel
   // This record's own history, fetched for this ingredient rather than filtered
   // out of a truncated copy of the whole audit trail.
   const [auditTrail, setAuditTrail] = useState<AuditLog[]>([]);
+  const [batches, setBatches] = useState<IngredientBatch[]>([]);
   useEffect(() => {
     let cancelled = false;
     fetchResourcePage<AuditLog>("audit", { entityType: "ingredients", entityId: ingredientId, limit: 8 })
@@ -1560,11 +1561,23 @@ function IngredientDetail({ ingredientId, user, setPage, notify, askConfirm, rel
       cancelled = true;
     };
   }, [ingredientId]);
+  useEffect(() => {
+    let cancelled = false;
+    fetchResourcePage<IngredientBatch>("batches", { ingredientId, limit: 100 })
+      .then((page) => {
+        if (!cancelled) setBatches(page.items ?? []);
+      })
+      .catch(() => {
+        if (!cancelled) setBatches([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [ingredientId]);
   if (!ingredient) return <EmptyState title="Ingredient not found" message="Select an ingredient from inventory." action={<Button variant="secondary" onClick={() => setPage({ name: "inventory" })}>Back to Inventory</Button>} />;
   const supplier = suppliers.find((item) => item.id === ingredient.supplierId);
   const movements = inventoryMovements.filter((item) => item.ingredientId === ingredientId);
   const usageMovements = movements.filter((movement) => ["production_use", "waste", "adjustment", "reservation", "reservation_release"].includes(movement.movementType));
-  const batches = ingredientBatches.filter((item) => item.ingredientId === ingredientId);
   const purchaseMovements = movements.filter((movement) => movement.movementType === "purchase").sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   const trendText = purchaseMovements.length >= 2 ? `${purchaseMovements[purchaseMovements.length - 1].quantityChange > purchaseMovements[0].quantityChange ? "Higher" : "Stable"} purchase volume trend` : "Not enough purchase history";
   return (

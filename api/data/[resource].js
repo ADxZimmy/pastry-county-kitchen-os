@@ -6,7 +6,26 @@ import { buildPage, clampLimit, decodeCursor, requireCollectionAccess } from "..
 // Route-scoped reads. One dynamic route rather than four files so the project
 // stays well clear of the serverless function limit; the resource is validated
 // against an allow-list, never interpolated into SQL.
-const RESOURCES = new Set(["summary", "orders", "audit", "movements"]);
+const RESOURCES = new Set(["summary", "orders", "audit", "movements", "batches"]);
+
+// Lots are read FEFO — soonest expiry first — because that is the order a
+// kitchen actually consumes them in. That ordering is the product behaviour, so
+// this is a bounded top-N read rather than a browsable cursor: callers either
+// want one ingredient's lots or the next lots to worry about.
+async function fefoBatches(sql, { limit, ingredientId }) {
+  const rows = await sql`
+    select id, ingredient_id as "ingredientId", purchase_id as "purchaseId",
+      quantity_received::float as "quantityReceived", quantity_remaining::float as "quantityRemaining",
+      unit, expiry_date::text as "expiryDate", received_date::text as "receivedDate", notes,
+      created_at as "createdAt"
+    from ingredient_batches
+    where quantity_remaining > 0
+      and (${ingredientId}::text is null or ingredient_id = ${ingredientId})
+    order by expiry_date nulls last, received_date, id
+    limit ${limit + 1}
+  `;
+  return buildPage(rows, limit);
+}
 
 // Keyset pagination. The cursor names the last row seen as (created_at, id) and
 // every query orders by that same pair, so a row inserted mid-pagination cannot
@@ -169,7 +188,9 @@ export default async function handler(req, res) {
             entityType: req.query?.entityType || null,
             entityId: req.query?.entityId || null
           })
-        : await pagedMovements(sql, { cursor, limit, ingredientId: req.query?.ingredientId || null });
+        : resource === "batches"
+          ? await fefoBatches(sql, { limit, ingredientId: req.query?.ingredientId || null })
+          : await pagedMovements(sql, { cursor, limit, ingredientId: req.query?.ingredientId || null });
 
     res.status(200).json({ resource, limit, ...page });
   } catch (error) {

@@ -251,13 +251,18 @@ export async function loadKitchenSnapshot(sql = getSql()) {
       order by created_at desc
       limit 200
     `,
+    // FEFO-ordered and deliberately bounded: the snapshot only needs the lots a
+    // kitchen is about to worry about, which is what the expiry notifications and
+    // the Next FEFO Lots report read. A specific ingredient's full lot list comes
+    // from /api/data/batches?ingredientId=, so narrowing this cannot hide lots on
+    // the page that needs them.
     sql`
       select id, ingredient_id as "ingredientId", purchase_id as "purchaseId", quantity_received::float as "quantityReceived",
         quantity_remaining::float as "quantityRemaining", unit, expiry_date::text as "expiryDate", received_date::text as "receivedDate", notes
       from ingredient_batches
       where quantity_remaining > 0
       order by expiry_date nulls last, received_date
-      limit 300
+      limit 60
     `,
     sql`
       select id, order_id as "orderId", recipe_id as "recipeId", batch_key as "batchKey",
