@@ -88,8 +88,16 @@ function ingredientById(snapshot, id) {
   return ingredient;
 }
 
-function batchByIngredient(snapshot, ingredientId) {
-  const batch = snapshot.ingredientBatches.find((item) => item.ingredientId === ingredientId);
+// Phase 012 narrowed the bootstrap lot list to the soonest-expiring lots, so a
+// specific ingredient's lots come from /api/data/batches, which is complete.
+// Reading them from the snapshot would only ever have worked for ingredients
+// that happened to fall inside the global slice.
+async function batchByIngredient(session, ingredientId) {
+  const response = await fetch(new URL(`/api/data/batches?ingredientId=${encodeURIComponent(ingredientId)}&limit=50`, baseURL), {
+    headers: authHeaders(baseURL, session)
+  });
+  const body = await response.json().catch(() => ({}));
+  const batch = (body.items ?? [])[0];
   assert(batch, `No FEFO batch was returned for ${ingredientId}.`);
   return batch;
 }
@@ -237,7 +245,7 @@ async function main() {
     let flour = ingredientById(snapshot, flourId);
     const sugar = ingredientById(snapshot, sugarId);
     const packaging = ingredientById(snapshot, packagingId);
-    let flourBatch = batchByIngredient(snapshot, flourId);
+    let flourBatch = await batchByIngredient(user, flourId);
 
     assertNear(flour.latestUnitCost, 0.5, "Flour unit cost");
     assertNear(sugar.latestUnitCost, 0.64, "Sugar unit cost");
@@ -255,7 +263,7 @@ async function main() {
 
     snapshot = await bootstrap(user);
     flour = ingredientById(snapshot, flourId);
-    flourBatch = batchByIngredient(snapshot, flourId);
+    flourBatch = await batchByIngredient(user, flourId);
     assertNear(flour.currentStock, 4800, "Flour stock after FEFO removal");
     assertNear(flourBatch.quantityRemaining, 4800, "Flour FEFO lot after removal");
 
