@@ -32,7 +32,7 @@ Execute the revised audit-remediation program from the July 10 expanded producti
 
 ## In Progress
 
-- Phase 012 Performance And Loading Architecture. 012-A (caching, CI, baseline) and 012-C part 1 (route-scoped paginated reads) are deployed and production-verified; 012-B was reduced on evidence. Remaining: migrate the UI onto the new endpoints and shrink bootstrap, then move request-path DDL into explicit migrations.
+- Phase 013 Accessibility And UX Uplift. Slice 013-A (WCAG AA contrast, nav legibility, CI contrast gate, axe smoke) is deployed and production-verified. Phase 012 is complete for its defect scope. Remaining in 013: UX improvements (nav reshuffle, deep links, list-state preservation, card hierarchy, builder ergonomics) and the owner-run manual screen-reader/keyboard pass.
 
 ## Deploy notes (2026-07-11)
 
@@ -119,6 +119,14 @@ Deployed and production-verified 2026-07-11: S0/006a, Phase 007, Phase 008, Phas
 - Local gates green: 131/131 tests, build clean. DB-level behavior (migration, idempotency, filters, cancellation) pending the production smoke.
 
 Phase 007 shipped 2026-07-11: pushed the four 007 commits + merge `add3079`, then hotfix `a75c688` after the first build 500'd `/api/bootstrap` (ambiguous `created_at` in the new order_events join). `smoke:live-audit` is green; bootstrap returns 200 with orderEvents + pricing fields.
+
+PHASE 013 STARTED. Slice 013-A is deployed and production-verified (`a6189a6`, `d94fdfb`). PCO-013 confirmed by measurement rather than assumption: the caramel link colour was 3.92:1 on the page background and 4.03:1 on surfaces against a 4.5:1 AA requirement, and bottom-nav labels were 10.5px. Caramel is now #af5714 (4.68:1 / 4.81:1 -- the nearer 4.54:1 candidate was rejected for sitting on the line) and nav labels are 11.5px/700. Verified live in the deployed stylesheet.
+
+Two permanent gates: `npm run a11y:contrast` computes ratios from the real :root tokens and runs in CI, and `npm run smoke:a11y` drives the app with axe-core. Live result 25/25 -- axe clean on Login, Dashboard, Inventory, Orders, Production and Recipes; every control accessibly named; focus indicators present; skip link present; no horizontal overflow and legible nav labels at 360/390/414px.
+
+Caught one of my own checks passing for the wrong reason: the pointer-only row test looked for tr[onclick], which React never emits, so it could not have detected the pattern the audit flagged. Rewritten to look for rows styled cursor:pointer containing nothing focusable. Still zero, but now evidence.
+
+NOT claimed: the manual keyboard-only walkthrough and NVDA/VoiceOver pass are owner work; automated axe catches roughly half of real defects.
 
 ## Verification Snapshot
 
