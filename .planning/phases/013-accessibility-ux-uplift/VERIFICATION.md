@@ -75,13 +75,38 @@ Cards that lead somewhere are real `<button>`s — keyboard-operable, with an `a
 - `npm.cmd run smoke:live-audit` — all 7 browser smokes passed.
 - `npm.cmd test` — 234/234. Contrast gate green.
 
+## Slice 013-C — list filter survives a detail round trip (deployed 2026-07-19, commit `3af9c3b`)
+
+### The defect (plan step 6)
+
+Opening a record from a filtered list and coming back landed on an **unfiltered** list, so an operator working through low-stock items lost their place on every single record. `routeParent` rebuilt the parent list from scratch and dropped the filter with it.
+
+### The fix
+
+The filter lives in the URL and travels with the record:
+
+- choosing a filter **replaces** the current history entry rather than stacking a new one, so Back does not walk through every filter the operator tried;
+- opening a record carries the filter forward on the detail route;
+- `routeParent` returns the filtered list, so both the in-app back control and the browser return to the list the operator was actually looking at.
+
+Putting it in the URL also makes a filtered view shareable, which is why it lives there rather than in component state.
+
+An explicit `returnTo` still wins over the filter for orders, so arriving at an order from Production still returns to Production.
+
+### Verification
+
+- Five routing tests cover the round trip, including that an explicit `returnTo` beats the filter (the case a filter-preserving change is most likely to break) and that an unfiltered list produces a clean URL rather than a stray empty parameter.
+- `npm.cmd test` — **239/239**.
+- `npm.cmd run smoke:a11y` — 25/25. `npm.cmd run smoke:navigation-routing` — passed. `npm.cmd run smoke:live-audit` — all 7 browser smokes passed.
+
 ## Remaining in Phase 013
 
-Plan steps 6–8, all UX polish rather than defects, none failing a check:
+Plan steps 7–8, cosmetic polish with no failing check behind them:
 
-- List-state preservation (search/filter/page/scroll/expanded) across detail round-trips. The route now carries a filter for Inventory and Orders, which is the groundwork for this.
-- Mobile production card scan hierarchy.
+- Mobile production card scan hierarchy (due time, quantity, shortage, status, action).
 - Builder form ergonomics: collapsible ingredient rows, duplicate action, sticky Add ingredient, item count.
+
+Search and scroll position are still not preserved across round trips; only the filter is. Search is app-level state so it already survives navigation, and scroll restoration was not attempted.
 
 Step 10 (manual keyboard-only walkthrough and an NVDA/VoiceOver pass, recorded with assistive-technology versions) is **owner work** — automated checks cannot substitute for it, and no screen-reader claim is made here.
 

@@ -32,7 +32,7 @@ Execute the revised audit-remediation program from the July 10 expanded producti
 
 ## In Progress
 
-- Phase 013 Accessibility And UX Uplift. Slice 013-A (WCAG AA contrast, nav legibility, CI contrast gate, axe smoke) is deployed and production-verified. Phase 012 is complete for its defect scope. Remaining in 013: UX improvements (nav reshuffle, deep links, list-state preservation, card hierarchy, builder ergonomics) and the owner-run manual screen-reader/keyboard pass.
+- Phase 013 Accessibility And UX Uplift. Slices 013-A (contrast + gates), 013-B (mobile nav + dashboard deep links) and 013-C (list filter preservation) are deployed and production-verified. Remaining: cosmetic polish only (production card hierarchy, builder form ergonomics) plus the owner-run manual screen-reader/keyboard pass.
 
 ## Deploy notes (2026-07-11)
 
