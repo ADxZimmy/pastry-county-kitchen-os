@@ -32,7 +32,7 @@ Execute the revised audit-remediation program from the July 10 expanded producti
 
 ## In Progress
 
-- Phase 014 Real AI Orchestration. Slice 014-A (owner decision record + assistant contracts) is committed; it contacts no provider and changes no behaviour. Phase 013 is complete for its defect scope, with cosmetic polish and the owner-run manual screen-reader pass outstanding. 014-B/C need a provider key before they can be proven.
+- Nothing in flight. The 015-B full UAT gate PASSED 9/9 against production and the audit handoff is rewritten. What remains is owner action: request a fresh independent audit. Optional engineering left: 014-B/C (needs a provider key), Phase 013 cosmetic polish, and the manual screen-reader pass.
 
 ## Deploy notes (2026-07-11)
 
@@ -151,6 +151,16 @@ The step list now lives in `api/_migrations.js` so the CLI runner and the admin 
 Verified after applying: `stockHoldStage` persists a round trip and reads back through bootstrap as `order_confirmation`, with `defaultDeductionStage` still `production_completion` -- hold at order confirmation, deduct at production completion, which is the configuration the owner asked for. D1 gate 30/30, all 7 browser smokes green.
 
 SMOKE FLAKINESS WORTH KNOWING: `smoke:milestone7` failed three times in a row at three DIFFERENT buttons with 30s click timeouts, then passed cleanly. Before accepting it as flaky I checked the two plausible real causes and ruled both out by measurement: Inventory renders 78 rows in production, and the enlarged bottom-nav labels from 013-A obscure ZERO controls (nav 72px against 104px clearance). Driving the exact failing sequence by hand works. Treat a single milestone7 click timeout as environmental and re-run; treat a repeated failure at the SAME step as real.
+
+015-B FULL UAT GATE PASSED 2026-07-19 (`8a19e66`, `2c6b55f`). `npm run smoke:uat-full` runs 9 gates and reports one verdict: unit/policy/permission suites (316 tests), contrast, bundle budget, Demo Trust UAT, cookie/CSRF/throttling, password reset, route-scoped reads, rendered accessibility, and the full browser regression family. ALL NINE PASSED against production.
+
+The gate composes the suites that already prove each area rather than re-implementing their assertions, because a second copy drifts from the first -- the failure mode this programme hit twice (a smoke asserting a stale contract, and a check written so it could never match what it tested). It stops at the first failure rather than piling production side effects onto a broken state.
+
+New permanent suite: `api/permission-matrix.test.js`, 42 checks. The action list is derived from the source at test time, not copied, so a new action cannot be added without a role decision. A Viewer can reach NO mutating action; no absent, empty, spoofed, mis-cased or whitespace-padded role satisfies any check.
+
+`docs/audit-handoff.md` rewritten around the 54/100 baseline: finding -> phase -> commit -> evidence for all 16 PCO and 7 RS findings, reproduction commands, the defects the gates themselves caught, and eight limitations deliberately NOT claimed. No replacement score is claimed; the June 96/100 is marked superseded.
+
+REMAINING IS OWNER ACTION: request the fresh independent audit. Everything an auditor needs is prepared and reproducible with `npm run smoke:uat-full`.
 
 ## Verification Snapshot
 

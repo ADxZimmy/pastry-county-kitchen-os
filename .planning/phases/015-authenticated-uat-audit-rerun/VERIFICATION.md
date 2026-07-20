@@ -77,11 +77,15 @@ Cross-checking declared against handled actions found one action (`schema.ensure
 
 Requesting a fresh independent audit is **owner action** — I cannot commission one. Everything an auditor needs is prepared and reproducible.
 
-## Remaining (stage 015-B, after Phases 011-014)## Remaining (stage 015-B, after Phases 011-014)
+## Not covered by this gate
 
-- Extend to `scripts/uat-full-smoke.mjs`: cookie/CSRF/login/logout/reset/revocation, role-filtered paginated APIs, caching/chunk/performance evidence, keyboard/axe evidence, provider/fallback assistant outcome, archives/reports.
-- Permanent suites: calculation/policy fixtures, concurrent completion, full role x action matrix, safe-error/no-store/cookie/CSRF projection tests.
-- Rewrite `docs/audit-handoff.md` and `docs/audit-milestone.md` with the 54/100 baseline and a finding -> phase -> commit -> evidence matrix, then request a fresh independent audit and report its actual result.
+Stated so the pass is not read as more than it is:
+
+- **Concurrent completion and fault injection against a preview database** (plan step 8). Production probes were idempotent and reversible only; no dedicated preview database exists. The concurrency guarantee rests on the `production_runs` unique constraint and its unit tests, verified live only as repeat-produce idempotency.
+- **Manual keyboard-only and screen-reader verification** — owner work; automated axe catches roughly half of real defects.
+- **End-to-end redemption of an emailed reset link** — needs mailbox access or a preview database, and delivery itself is currently unproven (two of three reset emails ended `delivery_delayed`).
+- **A model-backed assistant outcome** — no provider is configured, so the deterministic fallback is the only path exercised.
+- **`docs/audit-milestone.md`** was not rewritten; `audit-handoff.md` is the single current handoff and supersedes it.
 
 ## Residual Risk
 
