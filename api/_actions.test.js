@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { actorLabel, allowedRolesForAction, archiveTableForEntity, canRolePerformAction, computeOrderPricing, conversionApplyConflict, isUniqueViolation, isValidOrderTransition, lowStockRecipients, normalizeConversionScope, normalizeDeductionStage, normalizeIngredientAllergenProfile, normalizeIngredientStorageProfile, normalizeProductionQcLog, normalizeRecipeCostProfile, normalizeRecipeFormulaMetadata, normalizeRecipeItemPrepState, normalizeShoppingPurchaseInput, planBatchDeductions, productionCompletionPreflight, productionShortageForRequirement, safePurchasePersistenceError, sendResendEmail, sessionAccessError } from "./_actions.js";
+import { actorLabel, allowedRolesForAction, archiveTableForEntity, canRolePerformAction, computeOrderPricing, conversionApplyConflict, isUniqueViolation, isValidOrderTransition, lowStockRecipients, normalizeConversionScope, normalizeStockHoldStage, shouldHoldStockForStatus, normalizeDeductionStage, normalizeIngredientAllergenProfile, normalizeIngredientStorageProfile, normalizeProductionQcLog, normalizeRecipeCostProfile, normalizeRecipeFormulaMetadata, normalizeRecipeItemPrepState, normalizeShoppingPurchaseInput, planBatchDeductions, productionCompletionPreflight, productionShortageForRequirement, safePurchasePersistenceError, sendResendEmail, sessionAccessError } from "./_actions.js";
 
 describe("FEFO batch deduction planning", () => {
   it("deducts stock removals or production use across lots in the provided FEFO order", () => {
@@ -627,5 +627,41 @@ describe("low-stock alert recipients", () => {
   // so a role change cannot leave alerts going to someone who cannot act.
   it("is scoped to the roles permitted to run the action", () => {
     expect(allowedRolesForAction("notification.lowStockEmail")).toEqual(["Owner/Admin", "Inventory Manager"]);
+  });
+});
+
+describe("when stock is held (as distinct from deducted)", () => {
+  it("holds from order confirmation by default", () => {
+    expect(normalizeStockHoldStage(undefined)).toBe("order_confirmation");
+    expect(normalizeStockHoldStage("nonsense")).toBe("order_confirmation");
+  });
+
+  it("can be moved back to production start, or switched off", () => {
+    expect(normalizeStockHoldStage("production_start")).toBe("production_start");
+    expect(normalizeStockHoldStage("none")).toBe("none");
+  });
+
+  // A commitment holds stock. A draft is not a commitment.
+  it("holds for a committed order but not a draft", () => {
+    for (const status of ["Confirmed", "Stock Reserved", "In Production"]) {
+      expect(shouldHoldStockForStatus(status, "order_confirmation")).toBe(true);
+    }
+    expect(shouldHoldStockForStatus("Draft", "order_confirmation")).toBe(false);
+  });
+
+  // Produced and Delivered have already consumed their hold; Cancelled released
+  // it. Re-holding any of them would double-count stock that is gone.
+  it("never re-holds an order that has finished or been cancelled", () => {
+    for (const status of ["Produced", "Delivered", "Cancelled"]) {
+      expect(shouldHoldStockForStatus(status, "order_confirmation")).toBe(false);
+    }
+  });
+
+  it("holds nothing at confirmation when the stage is production_start or none", () => {
+    for (const stage of ["production_start", "none"]) {
+      for (const status of ["Confirmed", "Stock Reserved", "In Production"]) {
+        expect(shouldHoldStockForStatus(status, stage)).toBe(false);
+      }
+    }
   });
 });

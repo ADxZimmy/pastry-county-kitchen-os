@@ -432,6 +432,7 @@ export interface Settings {
   businessName: string;
   currency: "NGN" | "USD" | "GBP" | "EUR";
   defaultDeductionStage: "confirmation" | "production_start" | "production_completion";
+  stockHoldStage?: "order_confirmation" | "production_start" | "none";
   allowNegativeInventory: boolean;
   requireAiConversionConfirmation: boolean;
   gramRoundingPreference: 1 | 5 | 10;

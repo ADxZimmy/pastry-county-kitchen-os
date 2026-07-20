@@ -3469,6 +3469,7 @@ function SettingsPage({ user, setPage, notify, reloadData }: { user?: AppUser; s
             gramRoundingPreference: formNumber(form, "gramRoundingPreference", 5),
             eggRoundingPreference: formValue(form, "eggRoundingPreference"),
             defaultDeductionStage: formValue(form, "defaultDeductionStage"),
+            stockHoldStage: formValue(form, "stockHoldStage"),
             allowNegativeInventory: formValue(form, "allowNegativeInventory"),
             safetyMarginPercentage: formNumber(form, "safetyMarginPercentage", 10),
             defaultTaxPercentage: formNumber(form, "defaultTaxPercentage", 0),
@@ -3485,6 +3486,8 @@ function SettingsPage({ user, setPage, notify, reloadData }: { user?: AppUser; s
           <Field label="Round grams"><select name="gramRoundingPreference" defaultValue={settings.gramRoundingPreference}><option>1</option><option>5</option><option>10</option></select></Field>
           <Field label="Round eggs"><select name="eggRoundingPreference" defaultValue={settings.eggRoundingPreference}><option value="nearest_whole_egg">Nearest whole egg</option><option value="allow_gram_conversion">Allow gram conversion</option></select></Field>
           <Field label="Deduct inventory when"><select name="defaultDeductionStage" defaultValue={settings.defaultDeductionStage}><option value="confirmation">Order is confirmed</option><option value="production_start">Production starts</option><option value="production_completion">Production is completed</option></select></Field>
+          <Field label="Hold ingredients when"><select name="stockHoldStage" defaultValue={settings.stockHoldStage ?? "order_confirmation"}><option value="order_confirmation">Order is confirmed</option><option value="production_start">Production starts</option><option value="none">Never hold</option></select></Field>
+          <p className="muted">Holding is not deducting. Held ingredients stay on the shelf and still leave stock once, at the deduction point above &mdash; but they stop counting as available to other orders, so a second order shows the shortage while you can still buy for it, instead of after something has been baked.</p>
           <Field label="Allow negative inventory (backorders)" helper="When on, production can complete while short; aggregate stock may go negative and the order is flagged as a shortage. FEFO lots never go below zero."><select name="allowNegativeInventory" defaultValue={settings.allowNegativeInventory ? "Yes" : "No"}><option>No</option><option>Yes</option></select></Field>
           <Field label="Purchase safety margin %"><input name="safetyMarginPercentage" type="number" min="0" step="0.1" defaultValue={settings.safetyMarginPercentage ?? 10} /></Field>
           <Field label="Default tax %"><input name="defaultTaxPercentage" type="number" min="0" step="0.1" defaultValue={settings.defaultTaxPercentage ?? 0} /></Field>

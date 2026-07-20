@@ -1321,6 +1321,38 @@ async function productionQcLogForOrder(sql, orderId, qcInput, actor) {
 
 const DEDUCTION_STAGES = ["confirmation", "production_start", "production_completion"];
 
+// When stock is HELD is a separate question from when it is DEDUCTED.
+//
+// Deducting only at production completion means a shortage caused by a second
+// order is discovered after the first has already been baked. Holding stock when
+// an order is confirmed makes the clash visible while it can still be acted on:
+// the ingredients stop counting as available to anything else, without leaving
+// the building.
+//
+// Holding is not deducting. Held stock is still physically present and still
+// deducts exactly once, at the configured deduction stage, which also releases
+// the hold in the same statement.
+const STOCK_HOLD_STAGES = ["order_confirmation", "production_start", "none"];
+
+export function normalizeStockHoldStage(value) {
+  return STOCK_HOLD_STAGES.includes(value) ? value : "order_confirmation";
+}
+
+async function stockHoldStage(sql) {
+  const rows = await sql`select stock_hold_stage from settings order by updated_at desc limit 1`;
+  return normalizeStockHoldStage(rows[0]?.stock_hold_stage);
+}
+
+// Statuses that should be holding ingredients. A Draft is not a commitment, so
+// it holds nothing; anything already produced or cancelled has either consumed
+// or released its hold.
+const HOLDING_STATUSES = ["Confirmed", "Stock Reserved", "In Production"];
+
+export function shouldHoldStockForStatus(status, holdStage) {
+  if (normalizeStockHoldStage(holdStage) !== "order_confirmation") return false;
+  return HOLDING_STATUSES.includes(String(status));
+}
+
 export function normalizeDeductionStage(value) {
   return DEDUCTION_STAGES.includes(value) ? value : "production_completion";
 }
@@ -1805,7 +1837,15 @@ export async function handleAction(sql, body, actor) {
     ]);
     const stockStatus = await stockStatusForRequirements(sql, await requirementsForOrder(sql, orderId));
     await sql`update orders set stock_status = ${stockStatus}, updated_at = now() where id = ${orderId}`;
-    const reservation = body.reserve ? await reserveOrder(sql, orderId, actor) : null;
+    // Hold ingredients as soon as the order is a commitment, so the next order
+    // taken sees stock that is genuinely still available. A shortage here is
+    // reported, never blocking: a kitchen must be able to accept an order it
+    // still needs to buy for, and refusing the sale would be a worse failure
+    // than the late discovery this replaces.
+    const savedStatus = data.status || "Confirmed";
+    const holdStage = await stockHoldStage(sql);
+    const shouldHold = body.reserve || shouldHoldStockForStatus(savedStatus, holdStage);
+    const reservation = shouldHold ? await reserveOrder(sql, orderId, actor) : null;
     if (body.reserve) await maybeDeductAtStage(sql, orderId, actor, "confirmation", await orderDeductionStage(sql));
     await audit(sql, "orders", orderId, data.id ? "update" : "create", before, await rowById(sql, "orders", orderId), actor);
     return { ok: true, id: orderId, stockStatus, reservation };
@@ -1853,6 +1893,13 @@ export async function handleAction(sql, body, actor) {
     }
     const cancellationReason = status === "Cancelled" ? required(body.reason, "Cancellation reason") : null;
     const productionStatus = body.productionStatus || (status === "In Production" ? "In Progress" : status === "Delivered" || status === "Produced" ? "Completed" : undefined);
+    // Confirming an order holds its ingredients. Production start still blocks on
+    // a shortage; confirmation does not, because by then the ingredients are
+    // committed and baking without them is the mistake worth preventing.
+    let confirmationHold = null;
+    if (status !== "In Production" && shouldHoldStockForStatus(status, await stockHoldStage(sql))) {
+      confirmationHold = await reserveOrder(sql, orderId, actor);
+    }
     if (status === "In Production") {
       const reservation = await reserveOrder(sql, orderId, actor);
       if (reservation.shortage && !(await allowNegativeInventory(sql))) {
@@ -1889,7 +1936,10 @@ export async function handleAction(sql, body, actor) {
     if (status === "In Production") await maybeDeductAtStage(sql, orderId, actor, "production_start", await orderDeductionStage(sql));
     if (status === "Cancelled") await releaseReservation(sql, orderId, actor);
     await audit(sql, "orders", orderId, "status_change", before, await rowById(sql, "orders", orderId), actor);
-    return { ok: true };
+    // The hold result is returned so the caller can tell the operator what was
+    // held and what is short, rather than the shortage staying silent until
+    // someone tries to bake.
+    return { ok: true, ...(confirmationHold ? { hold: confirmationHold } : {}) };
   }
 
   if (action === "production.batchStatus") {
@@ -2068,13 +2118,13 @@ export async function handleAction(sql, body, actor) {
     const data = body.settings ?? {};
     const before = await rowById(sql, "settings", "default");
     await sql`
-      insert into settings (id, business_name, currency, default_deduction_stage, allow_negative_inventory, require_ai_conversion_confirmation, gram_rounding_preference, egg_rounding_preference, safety_margin_percentage, default_tax_percentage, low_stock_notification_email)
-      values ('default', ${data.businessName || "Pastry County"}, ${data.currency || "NGN"}, ${normalizeDeductionStage(data.defaultDeductionStage)}, ${bool(data.allowNegativeInventory)}, ${true}, ${num(data.gramRoundingPreference, 5)}, ${data.eggRoundingPreference || "nearest_whole_egg"}, ${nonNegative(num(data.safetyMarginPercentage, 10), "Safety margin")}, ${nonNegative(num(data.defaultTaxPercentage, 0), "Tax percentage")}, ${data.lowStockNotificationEmail || null})
+      insert into settings (id, business_name, currency, default_deduction_stage, allow_negative_inventory, require_ai_conversion_confirmation, gram_rounding_preference, egg_rounding_preference, safety_margin_percentage, default_tax_percentage, low_stock_notification_email, stock_hold_stage)
+      values ('default', ${data.businessName || "Pastry County"}, ${data.currency || "NGN"}, ${normalizeDeductionStage(data.defaultDeductionStage)}, ${bool(data.allowNegativeInventory)}, ${true}, ${num(data.gramRoundingPreference, 5)}, ${data.eggRoundingPreference || "nearest_whole_egg"}, ${nonNegative(num(data.safetyMarginPercentage, 10), "Safety margin")}, ${nonNegative(num(data.defaultTaxPercentage, 0), "Tax percentage")}, ${data.lowStockNotificationEmail || null}, ${normalizeStockHoldStage(data.stockHoldStage)})
       on conflict (id) do update set business_name = excluded.business_name, currency = excluded.currency, default_deduction_stage = excluded.default_deduction_stage,
         allow_negative_inventory = excluded.allow_negative_inventory, require_ai_conversion_confirmation = excluded.require_ai_conversion_confirmation,
         gram_rounding_preference = excluded.gram_rounding_preference, egg_rounding_preference = excluded.egg_rounding_preference,
         safety_margin_percentage = excluded.safety_margin_percentage, default_tax_percentage = excluded.default_tax_percentage,
-        low_stock_notification_email = excluded.low_stock_notification_email, updated_at = now()
+        low_stock_notification_email = excluded.low_stock_notification_email, stock_hold_stage = excluded.stock_hold_stage, updated_at = now()
     `;
     await audit(sql, "settings", "default", "update", before, await rowById(sql, "settings", "default"));
     return { ok: true };

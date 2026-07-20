@@ -79,6 +79,7 @@ export async function ensureSnapshotSchema(sql) {
   await sql`alter table settings add column if not exists safety_margin_percentage numeric(6,3) not null default 10`;
   await sql`alter table settings add column if not exists default_tax_percentage numeric(6,3) not null default 0`;
   await sql`alter table settings add column if not exists low_stock_notification_email text`;
+  await sql`alter table settings add column if not exists stock_hold_stage text not null default 'order_confirmation'`;
   await sql`alter table app_users add column if not exists active boolean not null default true`;
   await sql`alter table app_users add column if not exists session_revoked_at timestamptz`;
   await sql`
@@ -305,6 +306,7 @@ export async function loadKitchenSnapshot(sql = getSql()) {
     `,
     sql`
       select business_name as "businessName", currency, default_deduction_stage as "defaultDeductionStage",
+        stock_hold_stage as "stockHoldStage",
         allow_negative_inventory as "allowNegativeInventory",
         require_ai_conversion_confirmation as "requireAiConversionConfirmation",
         gram_rounding_preference as "gramRoundingPreference",
@@ -341,6 +343,7 @@ export async function loadKitchenSnapshot(sql = getSql()) {
       businessName: "Pastry County",
       currency: "NGN",
       defaultDeductionStage: "production_completion",
+      stockHoldStage: "order_confirmation",
       allowNegativeInventory: false,
       requireAiConversionConfirmation: true,
       gramRoundingPreference: 5,
