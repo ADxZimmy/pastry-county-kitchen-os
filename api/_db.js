@@ -306,6 +306,7 @@ export async function loadKitchenSnapshot(sql = getSql()) {
     `,
     sql`
       select business_name as "businessName", currency, default_deduction_stage as "defaultDeductionStage",
+        stock_hold_stage as "stockHoldStage",
 
         allow_negative_inventory as "allowNegativeInventory",
         require_ai_conversion_confirmation as "requireAiConversionConfirmation",
@@ -343,6 +344,7 @@ export async function loadKitchenSnapshot(sql = getSql()) {
       businessName: "Pastry County",
       currency: "NGN",
       defaultDeductionStage: "production_completion",
+      stockHoldStage: "order_confirmation",
       allowNegativeInventory: false,
       requireAiConversionConfirmation: true,
       gramRoundingPreference: 5,
