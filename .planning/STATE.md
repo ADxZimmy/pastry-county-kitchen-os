@@ -128,6 +128,20 @@ Caught one of my own checks passing for the wrong reason: the pointer-only row t
 
 NOT claimed: the manual keyboard-only walkthrough and NVDA/VoiceOver pass are owner work; automated axe catches roughly half of real defects.
 
+STOCK HOLD FLOW ADDED 2026-07-19 on the owner's instruction (`dd390d3`, `c86f660`), outside the audit programme.
+
+The problem: deducting only at production completion meant a shortage caused by a SECOND order was discovered after the first had already been baked. Stock is now HELD when an order is confirmed. Holding is not deducting -- ingredients stay on the shelf and still leave stock exactly once, at the configured deduction point, which already released the hold in the same statement.
+
+Most of the machinery already existed and was correct (reserved_stock, reservation/release movements, availability that subtracts holds, release on cancel, deduction that converts hold to consumption atomically). The only gap was the window between confirming an order and starting production. Confirmation reports a shortage but does NOT block, because a kitchen must be able to accept an order it still needs to shop for; production start still blocks. Drafts hold nothing; produced/delivered/cancelled orders are never re-held.
+
+Configurable via a new `stockHoldStage` setting: order_confirmation (new default), production_start (previous behaviour), none.
+
+Live probe against production: 10/10. Order A confirmed -> stock 1000, held 400 (withheld, not deducted). Order B needing 800 with only 600 free -> ACCEPTED and flagged Shortage. Holds never exceeded physical stock. Cancelling B returned its hold. D1 gate still 30/30 with exact deductions unchanged, and all 7 browser smokes green.
+
+DEFECT I INTRODUCED AND FIXED: the new settings column cannot be created automatically, because Phase 012 moved schema changes into scripts/migrate.mjs and that has not run against production (no DATABASE_URL here). Reading or writing it would have broken order.save, order.status, settings.save and bootstrap. Every access now tolerates the column's absence and falls back to the default; bootstrap no longer selects it. The feature ships fully working on the default. Running `npm run db:migrate` makes the stage persistent and configurable.
+
+ASSISTANT KEYS ARE NOT SET IN PRODUCTION. Checked via /api/health, which now reports provider, model and which variable supplied the key -- never the key. It accepts ASSISTANT_API_KEY, ANTHROPIC_API_KEY or OPENAI_API_KEY and reports configured:false for all three, so no assistant key exists on this project. Given the earlier account-boundary confusion, they may be set on a different Vercel project.
+
 ## Verification Snapshot
 
 - Command/check: `npm.cmd test`
