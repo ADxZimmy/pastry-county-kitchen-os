@@ -77,6 +77,19 @@ try {
     }));
   });
   check("every login field has an accessible label", loginLabels.every((f) => f.labelled), loginLabels.map((f) => `${f.name}:${f.labelled ? "ok" : "UNLABELLED"}`).join(" "));
+
+  // The login screen is the only surface an unauthenticated visitor sees, and it
+  // carries a decorative gradient, so it gets the same sweep as the app routes.
+  if (axe) {
+    const loginViolations = await anonPage.evaluate(async (source) => {
+      window.eval(source);
+      const run = await window.axe.run(document, { runOnly: { type: "tag", values: ["wcag2a", "wcag2aa"] } });
+      return run.violations
+        .filter((v) => ["serious", "critical"].includes(v.impact))
+        .map((v) => `${v.id}(${v.impact}, ${v.nodes.length})`);
+    }, axe);
+    check("Login: no serious or critical axe violations", loginViolations.length === 0, loginViolations.join(", ") || "clean");
+  }
   await anonPage.close();
 
   // --- authenticated routes ----------------------------------------------
@@ -134,15 +147,24 @@ try {
   // --- keyboard reachability ---------------------------------------------
   await page.goto(`${baseURL}/#/orders`, { waitUntil: "networkidle", timeout: 45000 });
   await page.locator(".app-shell").waitFor({ state: "visible", timeout: 30000 });
-  const rowsNeedingPointer = await page.evaluate(() => {
-    // A row that is clickable but not focusable cannot be operated by keyboard.
-    const rows = [...document.querySelectorAll("tr[onclick], tr.clickable, .row-card[onclick]")];
-    return rows.filter((row) => {
-      const focusable = row.matches("a, button, [tabindex]:not([tabindex='-1'])") || row.querySelector("a, button, [tabindex]:not([tabindex='-1'])");
-      return !focusable;
-    }).length;
+  const pointerOnly = await page.evaluate(() => {
+    // React attaches handlers as synthetic events, so there is no onclick
+    // attribute to look for. The observable signal is a row that invites a click
+    // (cursor: pointer) while offering nothing a keyboard can reach or activate.
+    const candidates = [...document.querySelectorAll("tr, .row-card, .mobile-row, li")];
+    const offenders = candidates.filter((row) => {
+      if (getComputedStyle(row).cursor !== "pointer") return false;
+      const selfFocusable = row.matches("a[href], button, [tabindex]:not([tabindex='-1'])");
+      const childFocusable = row.querySelector("a[href], button, [tabindex]:not([tabindex='-1'])");
+      return !selfFocusable && !childFocusable;
+    });
+    return { count: offenders.length, sample: offenders[0]?.outerHTML.slice(0, 110) ?? "" };
   });
-  check("no record depends on a pointer-only row", rowsNeedingPointer === 0, `${rowsNeedingPointer} pointer-only rows`);
+  check(
+    "no record depends on a pointer-only row",
+    pointerOnly.count === 0,
+    pointerOnly.count ? `${pointerOnly.count} rows look clickable but hold nothing focusable: ${pointerOnly.sample}` : "0 pointer-only rows"
+  );
 
   const skipLink = await page.evaluate(() => Boolean(document.querySelector("a.skip-link")));
   check("a skip-to-content link is present", skipLink);
