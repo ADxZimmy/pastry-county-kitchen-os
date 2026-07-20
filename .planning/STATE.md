@@ -32,7 +32,7 @@ Execute the revised audit-remediation program from the July 10 expanded producti
 
 ## In Progress
 
-- Phase 013 Accessibility And UX Uplift. Slices 013-A (contrast + gates), 013-B (mobile nav + dashboard deep links) and 013-C (list filter preservation) are deployed and production-verified. Remaining: cosmetic polish only (production card hierarchy, builder form ergonomics) plus the owner-run manual screen-reader/keyboard pass.
+- Phase 014 Real AI Orchestration. Slice 014-A (owner decision record + assistant contracts) is committed; it contacts no provider and changes no behaviour. Phase 013 is complete for its defect scope, with cosmetic polish and the owner-run manual screen-reader pass outstanding. 014-B/C need a provider key before they can be proven.
 
 ## Deploy notes (2026-07-11)
 
