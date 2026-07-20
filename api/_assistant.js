@@ -15,11 +15,34 @@ const PROVIDERS = {
   openai: { defaultModel: "gpt-4o-mini", defaultBaseUrl: "https://api.openai.com" }
 };
 
+// Resolves provider and key, accepting the conventional vendor variable names as
+// well as the neutral ones. Someone who has already set ANTHROPIC_API_KEY should
+// not have to duplicate it under a second name to switch the assistant on.
+export function resolveProviderCredentials(env = process.env) {
+  const explicitName = String(env.ASSISTANT_PROVIDER || "").trim().toLowerCase();
+  const explicitKey = String(env.ASSISTANT_API_KEY || "").trim();
+  if (explicitName && explicitKey) return { name: explicitName, key: explicitKey, source: "ASSISTANT_API_KEY" };
+
+  // Fall back to whichever vendor key is present, inferring the provider from it.
+  const anthropicKey = String(env.ANTHROPIC_API_KEY || "").trim();
+  if (anthropicKey && (!explicitName || explicitName === "anthropic")) {
+    return { name: "anthropic", key: anthropicKey, source: "ANTHROPIC_API_KEY" };
+  }
+  const openaiKey = String(env.OPENAI_API_KEY || "").trim();
+  if (openaiKey && (!explicitName || explicitName === "openai")) {
+    return { name: "openai", key: openaiKey, source: "OPENAI_API_KEY" };
+  }
+
+  // A provider named without a key, or a key without a recognisable provider, is
+  // not enough. Guessing here would mean calling a vendor the owner did not pick.
+  return { name: explicitName || null, key: "", source: null };
+}
+
 export function assistantProviderConfig(env = process.env) {
-  const name = String(env.ASSISTANT_PROVIDER || "").trim().toLowerCase();
-  const known = PROVIDERS[name];
-  if (!known || !String(env.ASSISTANT_API_KEY || "").trim()) {
-    return { configured: false, provider: null, model: null, baseUrl: null };
+  const { name, key, source } = resolveProviderCredentials(env);
+  const known = name ? PROVIDERS[name] : null;
+  if (!known || !key) {
+    return { configured: false, provider: null, model: null, baseUrl: null, keySource: null };
   }
   return {
     configured: true,
@@ -27,7 +50,10 @@ export function assistantProviderConfig(env = process.env) {
     model: String(env.ASSISTANT_MODEL || "").trim() || known.defaultModel,
     // An explicit base URL lets any OpenAI-compatible endpoint be used without
     // another adapter.
-    baseUrl: String(env.ASSISTANT_BASE_URL || "").trim() || known.defaultBaseUrl
+    baseUrl: String(env.ASSISTANT_BASE_URL || "").trim() || known.defaultBaseUrl,
+    // Which variable supplied the key, so a misconfiguration is diagnosable
+    // without printing the key itself.
+    keySource: source
   };
 }
 
@@ -36,8 +62,8 @@ export function assistantProviderConfig(env = process.env) {
 export function assistantConfigSummary(env = process.env) {
   const config = assistantProviderConfig(env);
   return config.configured
-    ? { configured: true, provider: config.provider, model: config.model }
-    : { configured: false, provider: null, model: null };
+    ? { configured: true, provider: config.provider, model: config.model, keySource: config.keySource }
+    : { configured: false, provider: null, model: null, keySource: null };
 }
 
 // --------------------------------------------------------------- budget ----

@@ -131,7 +131,28 @@ describe("provider configuration", () => {
   it("never exposes the key in a summary", () => {
     const summary = assistantConfigSummary({ ASSISTANT_PROVIDER: "anthropic", ASSISTANT_API_KEY: "sk-super-secret", ASSISTANT_MODEL: "claude-sonnet-5" });
     expect(JSON.stringify(summary)).not.toContain("sk-super-secret");
-    expect(summary).toEqual({ configured: true, provider: "anthropic", model: "claude-sonnet-5" });
+    expect(summary).toEqual({ configured: true, provider: "anthropic", model: "claude-sonnet-5", keySource: "ASSISTANT_API_KEY" });
+  });
+
+  // Someone who already set a vendor key should not have to duplicate it under
+  // a second name just to switch the assistant on.
+  it("accepts a conventional vendor key and infers the provider", () => {
+    const anthropic = assistantProviderConfig({ ANTHROPIC_API_KEY: "sk-ant" });
+    expect(anthropic).toMatchObject({ configured: true, provider: "anthropic", keySource: "ANTHROPIC_API_KEY" });
+    const openai = assistantProviderConfig({ OPENAI_API_KEY: "sk-oai" });
+    expect(openai).toMatchObject({ configured: true, provider: "openai", keySource: "OPENAI_API_KEY" });
+  });
+
+  it("honours an explicit provider choice over a stray key from another vendor", () => {
+    const config = assistantProviderConfig({ ASSISTANT_PROVIDER: "anthropic", OPENAI_API_KEY: "sk-oai" });
+    // An OpenAI key must not satisfy a deployment that asked for Anthropic.
+    expect(config.configured).toBe(false);
+  });
+
+  it("reports which variable supplied the key, never the key", () => {
+    const summary = assistantConfigSummary({ ANTHROPIC_API_KEY: "sk-ant-secret" });
+    expect(JSON.stringify(summary)).not.toContain("sk-ant-secret");
+    expect(summary.keySource).toBe("ANTHROPIC_API_KEY");
   });
 });
 
