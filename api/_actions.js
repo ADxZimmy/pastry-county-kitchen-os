@@ -1509,7 +1509,14 @@ export async function handleAction(sql, body, actor) {
   await requirePermission(sql, action, actor);
 
   if (action === "schema.ensure") {
-    return { ok: true };
+    // Owner/Admin only, authenticated and audited. This is how migrations reach
+    // production: the server already holds the database credential, so it does
+    // not have to be copied anywhere to apply a schema change.
+    const { runMigrations, migrationStatus } = await import("./_migrations.js");
+    if (body.check) return { ok: true, ...(await migrationStatus(sql)) };
+    const result = await runMigrations(sql);
+    await audit(sql, "schema", "migrations", "migrate", null, result, actor);
+    return { ok: true, ...result };
   }
 
   if (action === "import.extract") {
