@@ -186,12 +186,12 @@ export function parseAppRoute(hash: string, context: LegacyRouteContext = {}): A
       if (!first) return { name: "inventory", ...(params.get("filter") ? { filter: params.get("filter") as string } : {}) };
       if (first === "new") return { name: "inventory", mode: "new" };
       if (second === "edit") return { name: "inventory", ingredientId: first, mode: "edit" };
-      return { name: "inventory", ingredientId: first, mode: "detail" };
+      return { name: "inventory", ingredientId: first, mode: "detail", ...(params.get("filter") ? { filter: params.get("filter") as string } : {}) };
     case "orders":
       if (!first) return { name: "orders", ...(params.get("filter") ? { filter: params.get("filter") as string } : {}) };
       if (first === "new") return { name: "orders", mode: "new", returnTo: parseReturnTo(params) };
       if (second === "edit") return { name: "orders", orderId: first, mode: "edit", returnTo: parseReturnTo(params) };
-      return { name: "orders", orderId: first, mode: "detail", returnTo: parseReturnTo(params) };
+      return { name: "orders", orderId: first, mode: "detail", returnTo: parseReturnTo(params), ...(params.get("filter") ? { filter: params.get("filter") as string } : {}) };
     case "production":
       return { name: "production", orderId: first, batchId: second };
     case "shopping":
@@ -235,7 +235,7 @@ export function serializeRoutePath(route: AppRoute): string {
       if (!route.ingredientId) return appendRouteQuery("inventory", route);
       const id = encodePathSegment(route.ingredientId);
       if (route.mode === "edit") return `inventory/${id}/edit`;
-      return `inventory/${id}`;
+      return appendRouteQuery(`inventory/${id}`, route);
     }
     case "orders": {
       let path = "orders";
@@ -361,12 +361,12 @@ export function routeParent(route: AppRoute): AppRoute | undefined {
       return undefined;
     case "inventory":
       if (route.mode === "edit") return route.ingredientId ? { name: "inventory", ingredientId: route.ingredientId, mode: "detail" } : { name: "inventory" };
-      if (route.mode === "new" || route.ingredientId) return { name: "inventory" };
+      if (route.mode === "new" || route.ingredientId) return { name: "inventory", ...(route.filter ? { filter: route.filter } : {}) };
       return undefined;
     case "orders":
       if (route.mode === "edit") return route.orderId ? { name: "orders", orderId: route.orderId, mode: "detail" } : { name: "orders" };
-      if (route.mode === "new") return route.returnTo ?? { name: "orders" };
-      if (route.orderId) return route.returnTo ?? { name: "orders" };
+      if (route.mode === "new") return route.returnTo ?? { name: "orders", ...(route.filter ? { filter: route.filter } : {}) };
+      if (route.orderId) return route.returnTo ?? { name: "orders", ...(route.filter ? { filter: route.filter } : {}) };
       return undefined;
     case "production":
       return route.orderId ? { name: "production" } : undefined;

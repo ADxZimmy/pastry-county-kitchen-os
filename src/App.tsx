@@ -1541,6 +1541,10 @@ function Inventory({ user, setPage, setSelectedIngredientId, query, setQuery, cu
   // and the filtered view is shareable.
   const [filter, setFilter] = useState(currentRoute?.name === "inventory" && currentRoute.filter ? currentRoute.filter : "All");
   const categories = ["All", "Dry Goods", "Dairy", "Chocolate", "Fruits", "Packaging", "Low Stock"];
+  const applyFilter = (next: string) => {
+    setFilter(next);
+    setPage({ name: "inventory", ...(next && next !== "All" ? { filter: next } : {}) }, { replace: true });
+  };
   const list = ingredients.filter((item) => {
     const categoryMatch = filter === "All" || item.category === filter || (filter === "Low Stock" && isBelowReorder(item));
     return categoryMatch && item.name.toLowerCase().includes(query.toLowerCase());
@@ -1548,12 +1552,12 @@ function Inventory({ user, setPage, setSelectedIngredientId, query, setQuery, cu
   return (
     <>
       <Toolbar query={query} setQuery={setQuery} placeholder="Search ingredients" action={<div className="button-row"><Button variant="secondary" onClick={() => exportCsv("pastry-county-inventory.csv", ["Ingredient", "Category", "Current Stock", "Reorder Level", "Base Unit", "Purchase Unit", "Latest Unit Cost", "Supplier", "Allergens", "Storage"], list.map((item) => [item.name, item.category, item.currentStock, item.reorderLevel, item.baseUnit, item.purchaseUnit ?? item.baseUnit, item.latestUnitCost, suppliers.find((supplier) => supplier.id === item.supplierId)?.name ?? "Unassigned", allergenSummary(item.allergenProfile), storageSummary(item.storageProfile)]))}>Export CSV</Button><Button variant="secondary" onClick={() => setPage({ name: "imports", returnTo: { name: "inventory" } })} disabled={!canUser(user, "manageImports")}><Upload size={18} /> Import</Button><Button onClick={() => { setSelectedIngredientId(""); setPage({ name: "inventory", mode: "new" }); }} disabled={!canUser(user, "manageInventory")}><Plus size={18} /> Add Ingredient</Button></div>} />
-      <Chips items={categories} active={filter} setActive={setFilter} />
+      <Chips items={categories} active={filter} setActive={applyFilter} />
       <ResponsiveTable
         headers={["Ingredient", "Category", "Current Stock", "Reorder", "Latest Cost", "Status"]}
         rows={list.map((item) => ({
           key: item.id,
-          onClick: () => { setSelectedIngredientId(item.id); setPage({ name: "inventory", ingredientId: item.id, mode: "detail" }); },
+          onClick: () => { setSelectedIngredientId(item.id); setPage({ name: "inventory", ingredientId: item.id, mode: "detail", ...(filter && filter !== "All" ? { filter } : {}) }); },
           cells: [item.name, item.category, formatQuantity(item.currentStock, item.baseUnit), formatQuantity(item.reorderLevel, item.baseUnit), `${formatNaira(item.latestUnitCost)}/${item.baseUnit}`, <Badge tone={isBelowReorder(item) ? "danger" : "success"}>{isBelowReorder(item) ? "Low Stock" : "In Stock"}</Badge>]
         }))}
       />
@@ -2150,16 +2154,23 @@ function RecipeScaling({ recipeId, currentRoute, setPage, setSelectedOrderId, se
   );
 }
 
-function Orders({ user, setPage, setSelectedOrderId, setOrderDraft, query, setQuery }: any) {
-  const [filter, setFilter] = useState("All");
+function Orders({ user, setPage, setSelectedOrderId, setOrderDraft, query, setQuery, currentRoute }: any) {
+  const [filter, setFilter] = useState(currentRoute?.name === "orders" && currentRoute.filter ? currentRoute.filter : "All");
   const statuses = ["All", "New", "Confirmed", "In Production", "Produced", "Delivered", "Cancelled"];
+  // The chosen filter is written to the URL (replacing, not stacking history
+  // entries) and carried into a record, so returning from an order lands back on
+  // the list the operator was actually looking at.
+  const applyFilter = (next: string) => {
+    setFilter(next);
+    setPage({ name: "orders", ...(next && next !== "All" ? { filter: next } : {}) }, { replace: true });
+  };
   const list = orders.filter((order) => (filter === "All" || order.status === filter || (filter === "New" && order.status === "Draft")) && order.customerName.toLowerCase().includes(query.toLowerCase()));
   return (
     <>
       <Toolbar query={query} setQuery={setQuery} placeholder="Search orders" action={<div className="button-row"><Button variant="secondary" onClick={() => exportCsv("pastry-county-orders.csv", ["Customer", "Phone", "Due Date", "Delivery", "Status", "Payment", "Production", "Stock", "Estimated Cost"], list.map((order) => [order.customerName, order.customerPhone, order.dueDate, order.deliveryMethod, order.status, order.paymentStatus, order.productionStatus, order.stockStatus, calculateOrderCost(order.id)]))}>Export CSV</Button><Button onClick={() => { setSelectedOrderId(""); setOrderDraft(null); setPage({ name: "orders", mode: "new" }); }} disabled={!canUser(user, "manageOrders")}><Plus size={18} /> Add Order</Button></div>} />
-      <Chips items={statuses} active={filter} setActive={setFilter} />
+      <Chips items={statuses} active={filter} setActive={applyFilter} />
       <div className="card-grid">
-        {list.map((order) => <OrderCard key={order.id} order={order} onClick={() => { setSelectedOrderId(order.id); setPage({ name: "orders", orderId: order.id, mode: "detail" }); }} />)}
+        {list.map((order) => <OrderCard key={order.id} order={order} onClick={() => { setSelectedOrderId(order.id); setPage({ name: "orders", orderId: order.id, mode: "detail", ...(filter && filter !== "All" ? { filter } : {}) }); }} />)}
       </div>
     </>
   );

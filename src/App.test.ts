@@ -721,3 +721,34 @@ describe("order event timeline (PCO-001)", () => {
     expect(orderEventLabel({ eventType: "mystery", newStatus: null })).toBe("Order updated");
   });
 });
+
+describe("list filter survives a detail round trip", () => {
+  it("keeps an inventory filter in the URL", () => {
+    expect(serializeAppRoute({ name: "inventory", filter: "Low Stock" })).toBe("#inventory?filter=Low+Stock");
+    expect(parseAppRoute("#inventory?filter=Low+Stock")).toEqual({ name: "inventory", filter: "Low Stock" });
+  });
+
+  it("carries the filter into a record and back out again", () => {
+    const detail = parseAppRoute("#inventory/flour?filter=Low+Stock");
+    expect(detail).toMatchObject({ name: "inventory", ingredientId: "flour", mode: "detail", filter: "Low Stock" });
+    // Going back must land on the list the operator was looking at, not an
+    // unfiltered one.
+    expect(routeParent(detail!)).toEqual({ name: "inventory", filter: "Low Stock" });
+  });
+
+  it("does the same for orders", () => {
+    const detail = parseAppRoute("#orders/ord-1?filter=In+Production");
+    expect(detail).toMatchObject({ name: "orders", orderId: "ord-1", mode: "detail", filter: "In Production" });
+    expect(routeParent(detail!)).toEqual({ name: "orders", filter: "In Production" });
+  });
+
+  it("leaves the URL clean when no filter is active", () => {
+    expect(serializeAppRoute({ name: "inventory" })).toBe("#inventory");
+    expect(routeParent({ name: "inventory", ingredientId: "flour", mode: "detail" })).toEqual({ name: "inventory" });
+  });
+
+  it("still honours an explicit returnTo over the filter for orders", () => {
+    const detail = parseAppRoute("#orders/ord-1?returnTo=production&filter=New");
+    expect(routeParent(detail!)).toEqual({ name: "production", orderId: undefined, batchId: undefined });
+  });
+});
