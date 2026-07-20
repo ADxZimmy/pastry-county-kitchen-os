@@ -1338,9 +1338,24 @@ export function normalizeStockHoldStage(value) {
   return STOCK_HOLD_STAGES.includes(value) ? value : "order_confirmation";
 }
 
+// Phase 012 moved schema changes into scripts/migrate.mjs, so this column only
+// exists once that has run. Until then the read falls back to the default rather
+// than failing an order operation: a missing settings column must never be able
+// to stop a kitchen taking an order.
+const UNDEFINED_COLUMN = "42703";
+
+function isMissingColumn(error, column) {
+  return error?.code === UNDEFINED_COLUMN || new RegExp(`column .*${column}.* does not exist`, "i").test(String(error?.message ?? ""));
+}
+
 async function stockHoldStage(sql) {
-  const rows = await sql`select stock_hold_stage from settings order by updated_at desc limit 1`;
-  return normalizeStockHoldStage(rows[0]?.stock_hold_stage);
+  try {
+    const rows = await sql`select stock_hold_stage from settings order by updated_at desc limit 1`;
+    return normalizeStockHoldStage(rows[0]?.stock_hold_stage);
+  } catch (error) {
+    if (isMissingColumn(error, "stock_hold_stage")) return normalizeStockHoldStage(undefined);
+    throw error;
+  }
 }
 
 // Statuses that should be holding ingredients. A Draft is not a commitment, so
@@ -2117,7 +2132,22 @@ export async function handleAction(sql, body, actor) {
   if (action === "settings.save") {
     const data = body.settings ?? {};
     const before = await rowById(sql, "settings", "default");
-    await sql`
+    const saveSettings = async (withHoldStage) => {
+      if (!withHoldStage) {
+        // Same write without the Phase 014 column, for a database where
+        // scripts/migrate.mjs has not run yet. Everything else still saves.
+        await sql`
+          insert into settings (id, business_name, currency, default_deduction_stage, allow_negative_inventory, require_ai_conversion_confirmation, gram_rounding_preference, egg_rounding_preference, safety_margin_percentage, default_tax_percentage, low_stock_notification_email)
+          values ('default', ${data.businessName || "Pastry County"}, ${data.currency || "NGN"}, ${normalizeDeductionStage(data.defaultDeductionStage)}, ${bool(data.allowNegativeInventory)}, ${true}, ${num(data.gramRoundingPreference, 5)}, ${data.eggRoundingPreference || "nearest_whole_egg"}, ${nonNegative(num(data.safetyMarginPercentage, 10), "Safety margin")}, ${nonNegative(num(data.defaultTaxPercentage, 0), "Tax percentage")}, ${data.lowStockNotificationEmail || null})
+          on conflict (id) do update set business_name = excluded.business_name, currency = excluded.currency, default_deduction_stage = excluded.default_deduction_stage,
+            allow_negative_inventory = excluded.allow_negative_inventory, require_ai_conversion_confirmation = excluded.require_ai_conversion_confirmation,
+            gram_rounding_preference = excluded.gram_rounding_preference, egg_rounding_preference = excluded.egg_rounding_preference,
+            safety_margin_percentage = excluded.safety_margin_percentage, default_tax_percentage = excluded.default_tax_percentage,
+            low_stock_notification_email = excluded.low_stock_notification_email, updated_at = now()
+        `;
+        return;
+      }
+      await sql`
       insert into settings (id, business_name, currency, default_deduction_stage, allow_negative_inventory, require_ai_conversion_confirmation, gram_rounding_preference, egg_rounding_preference, safety_margin_percentage, default_tax_percentage, low_stock_notification_email, stock_hold_stage)
       values ('default', ${data.businessName || "Pastry County"}, ${data.currency || "NGN"}, ${normalizeDeductionStage(data.defaultDeductionStage)}, ${bool(data.allowNegativeInventory)}, ${true}, ${num(data.gramRoundingPreference, 5)}, ${data.eggRoundingPreference || "nearest_whole_egg"}, ${nonNegative(num(data.safetyMarginPercentage, 10), "Safety margin")}, ${nonNegative(num(data.defaultTaxPercentage, 0), "Tax percentage")}, ${data.lowStockNotificationEmail || null}, ${normalizeStockHoldStage(data.stockHoldStage)})
       on conflict (id) do update set business_name = excluded.business_name, currency = excluded.currency, default_deduction_stage = excluded.default_deduction_stage,
@@ -2126,6 +2156,16 @@ export async function handleAction(sql, body, actor) {
         safety_margin_percentage = excluded.safety_margin_percentage, default_tax_percentage = excluded.default_tax_percentage,
         low_stock_notification_email = excluded.low_stock_notification_email, stock_hold_stage = excluded.stock_hold_stage, updated_at = now()
     `;
+    };
+    try {
+      await saveSettings(true);
+    } catch (error) {
+      // Saving settings must not fail because one new column is not migrated
+      // yet. The rest of the settings still persist; the hold stage falls back
+      // to its default until scripts/migrate.mjs runs.
+      if (!isMissingColumn(error, "stock_hold_stage")) throw error;
+      await saveSettings(false);
+    }
     await audit(sql, "settings", "default", "update", before, await rowById(sql, "settings", "default"));
     return { ok: true };
   }
