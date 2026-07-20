@@ -50,6 +50,11 @@ jobs:
       - name: Whitespace and conflict markers
         run: git diff --check
 
+      - name: Contrast and legibility (WCAG AA)
+        # Computed from the real CSS tokens, so a palette change that dims text
+        # below AA fails a pull request instead of shipping.
+        run: npm run a11y:contrast
+
       - name: Client bundle budget
         # PCO-011 budget: the compressed entry bundle must stay under 150 kB.
         # Enforced here so a regression fails a pull request instead of being
