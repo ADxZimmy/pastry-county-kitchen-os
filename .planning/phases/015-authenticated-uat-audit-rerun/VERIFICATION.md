@@ -38,7 +38,46 @@ Scaling is a client-side calculation, so the gate verifies it the way that canno
 
 The D1 Demo Trust Gate is GREEN. An unscripted operator or investor demonstration is approvable as of this run, for the Demo Trust scope (PCO-001..009, 014, 016). This is NOT an MVP-readiness or certification claim, and no replacement audit score is self-assigned.
 
-## Remaining (stage 015-B, after Phases 011-014)
+## Stage 015-B — MVP and audit rerun gate: PASSED (2026-07-19, commit `8a19e66`)
+
+### `npm run smoke:uat-full` — **9/9 gates passed** against production
+
+| Gate | Time | Covers |
+|---|---|---|
+| `test` | 58s | calculation, policy, role matrix, assistant contracts (316 tests) |
+| `a11y:contrast` | 3s | PCO-013 |
+| `perf:budget` | 3s | PCO-011 |
+| `smoke:uat-core` | 28s | PCO-001..009, 014, 016 |
+| `smoke:auth-cookie` | 11s | PCO-012, RS-006 |
+| `smoke:password-reset` | 14s | PCO-015 |
+| `smoke:route-data` | 10s | PCO-010 |
+| `smoke:a11y` | 159s | PCO-013 |
+| `smoke:live-audit` | 163s | end-to-end browser regression |
+
+The gate composes the suites that already prove each area rather than re-implementing their assertions. A second copy would drift from the first — the failure mode this programme hit twice already (a smoke asserting a stale contract, and a check written so it could never match what it tested). It stops at the first failure rather than piling production side effects onto a known-broken state.
+
+### Permission matrix (plan step 8)
+
+`api/permission-matrix.test.js` — **42 checks**. The action list is derived from `api/_actions.js` at test time, not copied, so a new action cannot be added without a role decision. It asserts:
+
+- every handled action has a non-empty allow-list naming only known roles;
+- an unrecognised action falls back to Owner/Admin, never to everyone;
+- **a Viewer can reach no mutating action at all** — the single most important row;
+- staff administration, settings and schema stay Owner/Admin-only;
+- a Baker can run production but not touch money or staff; an Inventory Manager can move stock but not run production;
+- no absent, empty, spoofed, mis-cased or whitespace-padded role satisfies any check.
+
+Cross-checking declared against handled actions found one action (`schema.ensure`) outside the roles map; it is explicitly special-cased to Owner/Admin, so it is covered rather than a gap.
+
+### Handoff (plan step 12)
+
+`docs/audit-handoff.md` rewritten around the 54/100 baseline: finding → phase → commit → evidence for all 16 PCO and 7 RS findings, reproduction commands, the defects the gates themselves caught, and **eight limitations deliberately not claimed**. It states plainly that the June 96/100 is superseded and **claims no replacement score**.
+
+## Remaining: the audit request itself (plan step 13)
+
+Requesting a fresh independent audit is **owner action** — I cannot commission one. Everything an auditor needs is prepared and reproducible.
+
+## Remaining (stage 015-B, after Phases 011-014)## Remaining (stage 015-B, after Phases 011-014)
 
 - Extend to `scripts/uat-full-smoke.mjs`: cookie/CSRF/login/logout/reset/revocation, role-filtered paginated APIs, caching/chunk/performance evidence, keyboard/axe evidence, provider/fallback assistant outcome, archives/reports.
 - Permanent suites: calculation/policy fixtures, concurrent completion, full role x action matrix, safe-error/no-store/cookie/CSRF projection tests.
