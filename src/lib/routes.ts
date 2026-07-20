@@ -28,8 +28,8 @@ export type AppRoute =
   | { name: "reset"; token?: string }
   | { name: "dashboard" }
   | { name: "recipes"; recipeId?: string; mode?: "detail" | "new" | "edit" | "scale" }
-  | { name: "inventory"; ingredientId?: string; mode?: "detail" | "new" | "edit" }
-  | { name: "orders"; orderId?: string; mode?: "detail" | "new" | "edit"; returnTo?: AppRoute }
+  | { name: "inventory"; ingredientId?: string; mode?: "detail" | "new" | "edit"; filter?: string }
+  | { name: "orders"; orderId?: string; mode?: "detail" | "new" | "edit"; returnTo?: AppRoute; filter?: string }
   | { name: "production"; orderId?: string; batchId?: string }
   | { name: "shopping"; returnTo?: AppRoute }
   | { name: "imports"; mode?: "start" | "review"; returnTo?: AppRoute }
@@ -131,6 +131,11 @@ function appendRouteQuery(path: string, route: AppRoute) {
   if ("returnTo" in route && route.returnTo) {
     params.set("returnTo", serializeRoutePath(route.returnTo));
   }
+  // A list filter belongs in the URL: it makes a filtered view shareable and
+  // lets a dashboard card link straight to it.
+  if ("filter" in route && route.filter) {
+    params.set("filter", route.filter);
+  }
   const query = params.toString();
   return query ? `${path}?${query}` : path;
 }
@@ -178,12 +183,12 @@ export function parseAppRoute(hash: string, context: LegacyRouteContext = {}): A
       if (second === "scale") return { name: "recipes", recipeId: first, mode: "scale" };
       return { name: "recipes", recipeId: first, mode: "detail" };
     case "inventory":
-      if (!first) return { name: "inventory" };
+      if (!first) return { name: "inventory", ...(params.get("filter") ? { filter: params.get("filter") as string } : {}) };
       if (first === "new") return { name: "inventory", mode: "new" };
       if (second === "edit") return { name: "inventory", ingredientId: first, mode: "edit" };
       return { name: "inventory", ingredientId: first, mode: "detail" };
     case "orders":
-      if (!first) return { name: "orders" };
+      if (!first) return { name: "orders", ...(params.get("filter") ? { filter: params.get("filter") as string } : {}) };
       if (first === "new") return { name: "orders", mode: "new", returnTo: parseReturnTo(params) };
       if (second === "edit") return { name: "orders", orderId: first, mode: "edit", returnTo: parseReturnTo(params) };
       return { name: "orders", orderId: first, mode: "detail", returnTo: parseReturnTo(params) };
@@ -227,7 +232,7 @@ export function serializeRoutePath(route: AppRoute): string {
     }
     case "inventory": {
       if (route.mode === "new") return "inventory/new";
-      if (!route.ingredientId) return "inventory";
+      if (!route.ingredientId) return appendRouteQuery("inventory", route);
       const id = encodePathSegment(route.ingredientId);
       if (route.mode === "edit") return `inventory/${id}/edit`;
       return `inventory/${id}`;

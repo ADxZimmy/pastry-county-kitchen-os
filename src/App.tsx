@@ -129,8 +129,12 @@ const desktopNav = [
   ["settings", Settings, "Settings"]
 ] as const;
 
+// The five primary slots hold the daily operating loop: look up a recipe, check
+// stock, work the order book, run production. Dashboard moves to the top of the
+// More sheet -- it is the post-login landing page, so it is seen every session
+// anyway, whereas Recipes was two taps away from a baker who needs it constantly.
 const bottomNav = [
-  ["dashboard", Home, "Dashboard"],
+  ["recipes", Cookie, "Recipes"],
   ["inventory", Boxes, "Inventory"],
   ["orders", ClipboardList, "Orders"],
   ["production", ChefHat, "Production"],
@@ -138,7 +142,7 @@ const bottomNav = [
 ] as const;
 
 const moreItems = [
-  ["recipes", Cookie, "Recipes"],
+  ["dashboard", Home, "Dashboard"],
   ["imports", Upload, "Import"],
   ["shopping", ShoppingBasket, "Shopping"],
   ["costing", Calculator, "Costing"],
@@ -1428,19 +1432,22 @@ function Dashboard({ setPage, setSelectedIngredientId, setSelectedOrderId }: any
   const productionQueue = dashboardProductionQueue(today);
   const lowStock = ingredients.filter(isBelowReorder).slice(0, 3);
   const restockList = restockSuggestions(new Date().toISOString().slice(0, 10));
-  const metrics: { label: string; value: React.ReactNode; hint: string }[] = [
-    { label: "Total Ingredients", value: ingredients.length, hint: "Active pantry and packaging items" },
-    { label: "Low Stock Items", value: ingredients.filter(isBelowReorder).length, hint: "Need attention" },
-    { label: "Orders Due Today", value: activeOrders.filter((order) => order.dueDate === today).length, hint: "Active orders only" },
-    { label: "Pending Production", value: activeOrders.filter((order) => order.productionStatus !== "Completed").length, hint: "Active order queue" },
-    { label: "Shopping Estimate", value: formatNaira(shopping.reduce((sum, item) => sum + item.estimatedCost, 0)), hint: "Suggested restock cost" },
+  // Each card names a list the operator can act on, so tapping it goes there --
+  // filtered where the destination supports it. A count with no way through is a
+  // dead end.
+  const metrics: { label: string; value: React.ReactNode; hint: string; onOpen?: () => void; openLabel?: string }[] = [
+    { label: "Total Ingredients", value: ingredients.length, hint: "Active pantry and packaging items", onOpen: () => setPage({ name: "inventory" }), openLabel: `Total ingredients: ${ingredients.length}. Open inventory.` },
+    { label: "Low Stock Items", value: ingredients.filter(isBelowReorder).length, hint: "Need attention", onOpen: () => setPage({ name: "inventory", filter: "Low Stock" }), openLabel: `Low stock items: ${ingredients.filter(isBelowReorder).length}. Open inventory filtered to low stock.` },
+    { label: "Orders Due Today", value: activeOrders.filter((order) => order.dueDate === today).length, hint: "Active orders only", onOpen: () => setPage({ name: "orders" }), openLabel: `Orders due today: ${activeOrders.filter((order) => order.dueDate === today).length}. Open orders.` },
+    { label: "Pending Production", value: activeOrders.filter((order) => order.productionStatus !== "Completed").length, hint: "Active order queue", onOpen: () => setPage({ name: "production" }), openLabel: "Open the production plan." },
+    { label: "Shopping Estimate", value: formatNaira(shopping.reduce((sum, item) => sum + item.estimatedCost, 0)), hint: "Suggested restock cost", onOpen: () => setPage({ name: "shopping" }), openLabel: "Open the shopping list." },
     { label: "Notifications", value: notifications.length, hint: "Active alerts" }
   ];
   return (
     <div className="page-grid">
       <div className="metric-grid">
-        {metrics.map(({ label, value, hint }) => (
-          <Metric key={label} label={label} value={value} hint={hint} />
+        {metrics.map(({ label, value, hint, onOpen, openLabel }) => (
+          <Metric key={label} label={label} value={value} hint={hint} onOpen={onOpen} openLabel={openLabel} />
         ))}
       </div>
       <Section title="Today's Production" action={<Button variant="secondary" onClick={() => setPage("production")}><ChefHat size={18} /> View Plan</Button>}>
@@ -1529,8 +1536,10 @@ function Dashboard({ setPage, setSelectedIngredientId, setSelectedOrderId }: any
   );
 }
 
-function Inventory({ user, setPage, setSelectedIngredientId, query, setQuery }: any) {
-  const [filter, setFilter] = useState("All");
+function Inventory({ user, setPage, setSelectedIngredientId, query, setQuery, currentRoute }: any) {
+  // Seeded from the route so a dashboard card can deep-link to a filtered list
+  // and the filtered view is shareable.
+  const [filter, setFilter] = useState(currentRoute?.name === "inventory" && currentRoute.filter ? currentRoute.filter : "All");
   const categories = ["All", "Dry Goods", "Dairy", "Chocolate", "Fruits", "Packaging", "Low Stock"];
   const list = ingredients.filter((item) => {
     const categoryMatch = filter === "All" || item.category === filter || (filter === "Low Stock" && isBelowReorder(item));
@@ -3678,10 +3687,19 @@ function SummaryCard({ title, items }: { title: string; items: [string, React.Re
   return <article className="summary-card"><h3>{title}</h3>{items.map(([label, value]) => <div key={label}><span>{label}</span><strong>{value}</strong></div>)}</article>;
 }
 
-function Metric({ label, value, hint }: { label: string; value: React.ReactNode; hint?: React.ReactNode }) {
+function Metric({ label, value, hint, onOpen, openLabel }: { label: string; value: React.ReactNode; hint?: React.ReactNode; onOpen?: () => void; openLabel?: string }) {
   const textValue = typeof value === "string" || typeof value === "number" ? String(value) : "";
   const valueClass = textValue.length > 7 ? "metric-value metric-value-long" : "metric-value";
-  return <article className="metric-card"><span>{label}</span><strong className={valueClass}>{value}</strong>{hint && <small>{hint}</small>}</article>;
+  const body = <><span>{label}</span><strong className={valueClass}>{value}</strong>{hint && <small>{hint}</small>}</>;
+  // A card that leads somewhere is a real button, so it is keyboard-operable and
+  // announces where it goes. Cards with no destination stay inert rather than
+  // pretending to be interactive.
+  if (!onOpen) return <article className="metric-card">{body}</article>;
+  return (
+    <button type="button" className="metric-card metric-card-link" onClick={onOpen} aria-label={openLabel ?? `${label}: ${textValue}. Open list.`}>
+      {body}
+    </button>
+  );
 }
 
 // Loading, error and empty for a route-scoped list. The skeleton reserves the

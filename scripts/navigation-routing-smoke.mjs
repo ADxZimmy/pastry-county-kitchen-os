@@ -171,13 +171,17 @@ async function verifyMobileNavigation(page) {
   await page.locator(".app-shell").waitFor({ state: "visible", timeout: 30000 });
   const bottomNavLabels = await page.locator(".bottom-nav button span").evaluateAll((nodes) => nodes.map((node) => node.textContent?.trim()));
   assert(bottomNavLabels.length === 5, `Expected 5 bottom nav items, received ${bottomNavLabels.length}: ${bottomNavLabels.join(", ")}.`);
-  for (const label of ["Dashboard", "Inventory", "Orders", "Production", "More"]) {
+  // Phase 013: the primary five are the daily operating loop. Dashboard moved to
+  // the More sheet, so it must still be reachable there rather than stranded.
+  for (const label of ["Recipes", "Inventory", "Orders", "Production", "More"]) {
     assert(bottomNavLabels.includes(label), `Bottom nav missing ${label}.`);
   }
   await assertNoHorizontalOverflow(page, "Mobile dashboard navigation");
   await page.getByRole("button", { name: /more/i }).click();
   await page.getByRole("heading", { name: "More & Settings" }).waitFor({ state: "visible", timeout: 10000 });
   await assertNoHorizontalOverflow(page, "Mobile More navigation");
+  const moreLabels = await page.locator(".more-card span").evaluateAll((nodes) => nodes.map((node) => node.textContent?.trim()));
+  assert(moreLabels.includes("Dashboard"), `Dashboard is not reachable from the More sheet: ${moreLabels.join(", ")}.`);
 }
 
 async function main() {

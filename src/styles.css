@@ -881,3 +881,19 @@ tbody tr.is-expanded { background: #edf7f5; }
   color: #6d5a4b;
   font-size: 13px;
 }
+
+/* A metric card that leads somewhere is a real <button>, so it needs the card's
+   look back (buttons reset a lot) plus an affordance that it is actionable. */
+.metric-card-link {
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  width: 100%;
+  transition: transform .12s ease, box-shadow .12s ease, border-color .12s ease;
+}
+.metric-card-link:hover {
+  border-color: var(--caramel);
+  box-shadow: 0 14px 32px rgba(61, 43, 31, 0.12);
+}
+.metric-card-link:active { transform: translateY(1px); }
