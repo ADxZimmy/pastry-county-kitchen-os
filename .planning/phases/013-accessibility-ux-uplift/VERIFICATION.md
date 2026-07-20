@@ -43,13 +43,43 @@ It now looks for the observable signal: a row styled `cursor: pointer` that cont
 
 If axe-core is unavailable the sweep reports itself as **skipped**, never as passed.
 
+## Slice 013-B — navigation and dashboard deep links (deployed 2026-07-19, commit `df8ba52`)
+
+### Mobile navigation (plan step 4)
+
+The five primary slots now hold the daily operating loop — **Recipes, Inventory, Orders, Production** — instead of burying Recipes two taps deep in the More sheet. Dashboard moved to the top of that sheet: it is the post-login landing page, so it is seen every session anyway, whereas a baker reaches for a recipe constantly.
+
+`smoke:navigation-routing` was updated in the same change and now additionally asserts Dashboard is still reachable from More, so the relocation cannot quietly strand it.
+
+### Dashboard deep links (plan step 5)
+
+Metric cards were counts with no way through. Each card naming an actionable list now opens it, filtered where the destination supports it:
+
+| Card | Opens |
+|---|---|
+| Total Ingredients | Inventory |
+| Low Stock Items | Inventory **filtered to Low Stock** |
+| Orders Due Today | Orders |
+| Pending Production | Production plan |
+| Shopping Estimate | Shopping list |
+| Notifications | *(inert — no single destination)* |
+
+The filter travels in the URL (`#/inventory?filter=Low%20Stock`), so a filtered list is shareable and a card can link straight to it; Inventory seeds its filter from the route.
+
+Cards that lead somewhere are real `<button>`s — keyboard-operable, with an `aria-label` stating both the number and the destination. Cards without a destination stay inert `<article>`s rather than pretending to be interactive, which is exactly the pointer-only pattern 013-A added a check for.
+
+### Verification
+
+- `npm.cmd run smoke:navigation-routing` — passed with the new layout.
+- `npm.cmd run smoke:a11y` — **25/25**, axe still clean on Dashboard after the cards became buttons, and still zero pointer-only rows.
+- `npm.cmd run smoke:live-audit` — all 7 browser smokes passed.
+- `npm.cmd test` — 234/234. Contrast gate green.
+
 ## Remaining in Phase 013
 
-Steps 4–8 of the plan are UX improvements rather than accessibility defects, and none is currently failing a check:
+Plan steps 6–8, all UX polish rather than defects, none failing a check:
 
-- Recipes into the primary mobile nav; More menu reshuffle (needs `smoke:navigation-routing` expectations updated in the same change).
-- Dashboard metric cards deep-linking to filtered lists.
-- List-state preservation (search/filter/page/scroll/expanded) across detail round-trips.
+- List-state preservation (search/filter/page/scroll/expanded) across detail round-trips. The route now carries a filter for Inventory and Orders, which is the groundwork for this.
 - Mobile production card scan hierarchy.
 - Builder form ergonomics: collapsible ingredient rows, duplicate action, sticky Add ingredient, item count.
 
