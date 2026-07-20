@@ -22,6 +22,7 @@
     "smoke:milestone7": "node scripts/milestone7-smoke.mjs",
     "smoke:regression-audit": "node scripts/regression-audit-smoke.mjs",
     "smoke:uat-core": "node scripts/uat-core-smoke.mjs",
+    "smoke:uat-full": "node scripts/uat-full-smoke.mjs",
     "smoke:auth-cookie": "node scripts/auth-cookie-smoke.mjs",
     "smoke:password-reset": "node scripts/password-reset-smoke.mjs",
     "smoke:route-data": "node scripts/route-data-smoke.mjs",

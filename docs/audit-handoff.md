@@ -1,119 +1,110 @@
-# External Audit Handoff
+# Audit Handoff — Pastry County Kitchen OS
 
-Date: 2026-06-16
-Last updated: 2026-07-11
-Last verified: Phase 001-006 evidence on 2026-06-24; July 10 audit findings source-reconciled on 2026-07-11
+Prepared 2026-07-19 for a fresh independent audit.
 Live URL: https://pastry-county-kitchen-os.vercel.app
-Current audit-planning baseline: `123643b`
-Latest checked deployment: Vercel success for `main`
 
-## Current Status
+## Baseline being remediated
 
-> Supersession notice (2026-07-11): the July 10 expanded production audit scored `54/100` and marked the app **Not Ready**. It is the active release signal. The June 22 `96/100` result and Phase 001-006 smokes below remain historical regression evidence only. Current finding traceability, gates, and next actions live in `.planning/AUDIT-REMEDIATION.md`, `.planning/ROADMAP.md`, and `.planning/STATE.md`.
+**Pastry County Kitchen OS Expanded Production Audit, 2026-07-10: 54/100, "Not Ready".** Findings PCO-001 … PCO-016.
 
-The revised sequence starts with Phase 006a Immediate Security Containment, then Phases 007-010 and an authenticated Demo Trust Gate, followed by Phases 011-014 and the final UAT/external audit rerun. No unscripted operator/investor demo or launch claim is approved from this historical handoff.
+An earlier 96/100 audit (2026-06-22) exists. **It is superseded and must not be carried forward as a readiness signal** — it predates the findings below and covered a narrower scope.
 
-The June 22 external audit rerun 2 from session `019eeee0-894f-7880-b3fa-4a7c002de3ab` scored `96/100` at that earlier scope with zero findings, failing checks, advisory failures, request failures, or console warnings/errors.
+**No replacement score is claimed here.** Only a fresh independent audit can set one. This document reports what changed, where the evidence is, and what remains unproven.
 
-After that release-gate pass, the Baking and Pastry Arts audit identified product-depth improvements for ingredient and recipe workflows. Those follow-up phases have now been implemented, pushed, deployed, and smoke-verified through Phase 006:
+## How to reproduce the evidence
 
-- Phase 003 Pastry Formula Depth: egg scaling preferences, recipe formula metadata, and recipe-item prep state.
-- Phase 004 Pastry Costing, QC, and Compliance Depth: scoped conversions, expanded recipe costing, allergen/storage profiles, and production QC logging.
-- Phase 005 Navigation and Routing Overhaul: durable hash routes, refresh-safe record links, route-aware Back/Cancel/Save behavior, five-item mobile nav, unsaved-change guards, and navigation smoke coverage.
-- Phase 006 Recipe Import Onboarding: import entry points from operational pages, paste/file intake, CSV template, review-before-save flow, parser-backed text/CSV/TSV/XLSX/DOCX/text-PDF imports, provider-backed image/legacy file path, source-cost traceability, duplicate handling, role-checked commit, import batch audit logging, and plain-language import UI copy.
+```bash
+npm install
+npm test                    # 316 unit, policy, contract and permission tests
+npm run build               # type check and production build
+npm run a11y:contrast       # WCAG AA ratios computed from the real CSS tokens
+npm run perf:budget         # gzipped entry bundle + server-only parser isolation
 
-A fresh external audit has not yet been run after Phases 003-006. Treat the June 22 `96/100` as the previous release-gate baseline and this document as the handoff for the next audit pass.
+# Live gates (need LIVE_TEST_EMAIL / LIVE_TEST_PASSWORD in .env.local)
+npm run smoke:uat-full      # runs every gate below and reports one verdict
+```
 
-## Historical Phase 001-006 Verification
+Every live gate is production-safe: each creates only records it owns under a unique run id and cleans up in a `finally` block. `smoke:uat-full` stops at the first failure rather than piling side effects onto a broken state.
 
-Latest checked state:
+Last full run, 2026-07-19, against production: **all 9 gates PASSED.**
 
-- GitHub: local `main` is synced with `origin/main` at `3df5500`.
-- Vercel: GitHub commit status for `3df5500` reports `success`.
-- Live app: production bundle contains the latest import-page copy and no longer contains the rejected `Upload or snap`, `Extract Draft`, `photo reading`, or fallback-blame copy.
-- `npm.cmd test`: 75/75 tests passed after the latest import-page copy polish.
-- `npm.cmd run build`: production build passed after the latest import-page copy polish.
-- `npm.cmd audit --audit-level=moderate`: passed during Phase 006 after replacing `exceljs` with `read-excel-file`.
+| Gate | Covers |
+|---|---|
+| `test` | calculation, policy, role matrix, assistant contracts |
+| `a11y:contrast` | PCO-013 |
+| `perf:budget` | PCO-011 |
+| `smoke:uat-core` | PCO-001..009, 014, 016 |
+| `smoke:auth-cookie` | PCO-012, RS-006 |
+| `smoke:password-reset` | PCO-015 |
+| `smoke:route-data` | PCO-010 |
+| `smoke:a11y` | PCO-013 |
+| `smoke:live-audit` | end-to-end browser regression |
 
-Phase-specific production smokes already passed:
+## Finding → phase → evidence
 
-- `npm.cmd run smoke:phase3-pastry`: passed against production; created, reloaded, displayed, scaled, and archived a temporary formula-depth recipe.
-- `npm.cmd run smoke:phase4-pastry-depth`: passed against production; created temporary ingredient/recipe/order data, verified allergen/storage/cost/scoped conversion/QC fields through API and UI, produced the order with QC, and archived temporary records.
-- `npm.cmd run smoke:navigation-routing`: passed against production after Vercel deployed Phase 005.
-- `npm.cmd run smoke:import-onboarding`: passed against production on Phase 006 deployment; imported a safe recipe/costing text sample, verified source-line amount/source-file metadata after reload, checked the mobile import page at 390px, and archived the temporary recipe.
-- `npm.cmd run smoke:live-audit`: passed against production after Phase 006; umbrella coverage included Phase 2 rerun, Milestone 7, regression audit, Phase 3, Phase 4, navigation routing, and import onboarding.
+| Finding | What it was | Phase | Key commits | Evidence |
+|---|---|---|---|---|
+| PCO-001 | Fabricated order timeline | 007-A | `85ee60e` | `smoke:uat-core` — per-order events, real actor, no invented entries |
+| PCO-002 | Hard-coded ₦18,000 everywhere | 007-B | `596ca01` | `smoke:uat-core` — orders net 7,500 and 40,000, never 18,000 |
+| PCO-003 | Assistant claimed capabilities it lacked | 010, 014-A | `926861a`, `0511095`, `773adeb` | Bundle scan: no "AI Assistant"; conversion apply is reviewed, stale-safe, audited |
+| PCO-004 | Order lifecycle not enforced | 008-A | `376509b` | `smoke:uat-core` — backwards transition refused 409 |
+| PCO-005 | Double deduction possible | 008-B | `b17c05f` | `smoke:uat-core` — repeat produce returns `alreadyProduced`, stock unchanged |
+| PCO-006 | Non-positive yield accepted | 009-A | `6d33a07` | `smoke:uat-core` — zero yield rejected 400 |
+| PCO-007 | Settings that did nothing | 009-B | `09890d5`, `18d2c69` | Live stage-toggling probe: deducts exactly once at the configured stage |
+| PCO-008 | Fractional counts of whole units | 009-C | `7abc4bc` | `smoke:uat-core` — 1.5 pack rejected, 1.5 kg accepted |
+| PCO-009 | Unsafe cancellation | 008-C | `6b44f0b` | `smoke:uat-core` — reason required, produced-order cancel blocked 409 |
+| PCO-010 | Monolithic growing payload | 012-C | `60b63c3`, `b7cd122`, `496a238` | Bootstrap **448.9 kB → 259.6 kB**, ~1,200 ms → ~700 ms; `smoke:route-data` 20/20 |
+| PCO-011 | No caching, oversized bundle | 012-A | `40751c7`, `220bdc1` | Assets `max-age=0` → `immutable`; entry bundle 96.3 kB gzip, inside the 150 kB budget |
+| PCO-012 | Session token readable by JavaScript | 011-A/B | `e4fa6c3`, `e86b654`, `66d3143` | `smoke:auth-cookie` 35/35; browser smoke asserts no credential in storage |
+| PCO-013 | Contrast and legibility below AA | 013-A | `a6189a6` | Link contrast **3.92:1 → 4.68:1**; nav labels 10.5 → 11.5px; `smoke:a11y` 25/25 |
+| PCO-014 | Static invented guidance | 007-C | `c1c958e` | Data-derived restock guidance |
+| PCO-015 | Password reset was a placeholder toast | 011-B2 | `3e51dca`, `f21e89c` | `smoke:password-reset` 16/16 — hashed single-use tokens, no enumeration |
+| PCO-016 | Mojibake in shipped text | 007-C | `c1c958e` | Bundle scan: no `Â·` |
 
-Documentation-only commits or copy-only commits may create newer Vercel deployments than a phase implementation commit. Use GitHub/Vercel status as the source of truth for the current latest deployment, and use the phase verification files under `.planning/phases/*/VERIFICATION.md` for detailed command evidence.
+### Repository findings raised during remediation (not in the original audit)
 
-## Historical Pre-July-10 Audit Focus
+| Finding | What it was | Phase | Evidence |
+|---|---|---|---|
+| RS-001 | Unauthenticated stock mutation endpoint | 006a | Route returns 410; unauthenticated probe |
+| RS-002 | DDL reachable before authorisation | 006a | `requirePermission` runs before any schema work |
+| RS-003 | Raw 500 detail leakage | 006a | Masked with a correlation id |
+| RS-004 | Weak production session secret fallback | 006a | Fails closed in production |
+| RS-005 | Caller-controlled movement attribution | 007-A | Real authenticated actor recorded |
+| RS-006 | Per-instance auth throttling | 011-B3 | Concurrent burst of 8 admits exactly 5 |
+| RS-007 | No CI; schema changes on request paths | 012 | CI on every push; ~100 DDL statements moved to `scripts/migrate.mjs` |
 
-The checklist below documents earlier coverage. For the next audit, use the July 10 PCO-001..PCO-016 matrix and RS-001..RS-007 repo findings in `.planning/AUDIT-REMEDIATION.md` first, then retain these items as regression checks.
+## Change made outside the audit programme
 
-Ask the next external audit to retest the previous release-gate/security cases first:
+**Stock is held when an order is confirmed** (2026-07-19, `dd390d3`). Deducting only at production completion meant a shortage caused by a second order was discovered after the first had been baked. Holding is not deducting: ingredients stay on the shelf and still leave stock exactly once, at the configured deduction stage. Live probe 10/10 — order A confirmed → stock 1000, held 400; order B needing 800 with 600 free → accepted and flagged `Shortage`; cancelling returned the hold. Configurable via `stockHoldStage`.
 
-- Revoked low-privilege tokens cannot call authenticated `/api/bootstrap`; the response is 401 and contains no kitchen snapshot.
-- Viewer or other low-privilege bootstrap responses do not include admin-only staff/session/audit data.
-- Fresh browser login from empty local storage reaches Dashboard and persists `pastry-county-session.user.token` before the first bootstrap read.
-- AI chat conversion prompts with punctuation return verified rule quantities and never fall back to `1 g -> 1g`.
-- Production has no horizontal overflow at 320x568.
-- Mobile table cards use valid semantic list markup or valid ARIA ownership, and Production heading order is valid.
+## Defects the gates themselves caught
 
-Also retest the former 72/100 June 22 live-audit cases:
+Listed because they show what the harness detects, not to pad the record:
 
-- Unauthenticated `/api/bootstrap` returns 401 with no private data; authenticated signed users can load the app.
-- Shopping purchases accept decimal unit costs such as `0.5`, `0.64`, `2.75`, and whole values without raw SQL errors.
-- Conversion rules are unique and correct for flour, sugar, cocoa, egg, yolk, white, and coconut oil; natural AI prompts like `Convert 1 cup sugar to grams` parse correctly.
-- Shopping controls meet 44px targets on 320-430px screens and expose only the active responsive representation.
-- Review Batch, View Scaled Recipe, conversion, stock adjustment, and confirm dialogs close on Escape, trap focus, keep the background inert, and return focus to the trigger.
-- Unknown hashes normalize safely to Dashboard, and Dashboard separates due-today work from overdue/carryover work.
-- Audit Reports search/export by human-readable record display names while redacting passwords, tokens, sessions, hashes, secrets, and API keys.
-- Repeated production deduction is idempotent for already-produced orders.
-- Sub-naira unit costs display as decimals, for example `NGN0.50/g` and `NGN0.64/g`.
-- Purchase Unit selector changes and persists for `pcs`, `ml`, `g`, and related units.
-- Manual stock removals reject oversized removals and require destructive-action confirmation.
-- FEFO lots decrement with manual removals and production deductions.
-- Production shortage batches keep Start/Complete actions blocked.
-- Recipe builder search/grouping and mobile modal behavior work at 360px-class widths.
-- Shopping purchases validate positive quantity/cost and update inventory only after API success.
-- Server-side roles reject unauthorized mutation actions.
-- Staff disable/revoke-session behavior invalidates stale sessions.
-- Audit exports redact passwords, tokens, sessions, hashes, and API keys.
+- A connection leak on every page load (an unread 401 response body) — surfaced by a browser smoke hanging on `networkidle`.
+- A timing oracle in password reset: the response floor padded only the cheap branch, leaving known and unknown addresses distinguishable by ~1.9 s. Now ~0.3 s.
+- Bootstrap silently truncated history: **1,458 audit rows and 962 movements existed; 100 and 200 were returned.** Operators saw ~7% of the audit trail with nothing indicating truncation.
+- Two test files were being deployed as live serverless functions.
+- The committed lockfile cannot produce a clean install on Linux.
 
-Then audit the new work since the June 22 `96/100` baseline:
+## Known limitations — deliberately not claimed
 
-- Phase 003 formula depth:
-  - Egg scaling preference changes visible behavior between whole-egg rounding and gram conversion.
-  - Recipe formula metadata saves/loads and displays oven, bake time, pan, method, rest/chill/cool, doneness, and sensory checkpoints without mobile overflow.
-  - Recipe ingredient prep state saves/loads and appears in recipe detail/scaling where useful.
+1. **Password reset delivery is unproven.** Resend accepts the mail (message IDs and `sent_at` for all three reset emails), but **none reached `delivered`**: two ended `delivery_delayed`, one `sent`. A locked-out operator may not receive a link. This is an operational/DNS matter between `pastrycounty.com` and `pastrycounty.ng`, not a code defect.
+2. **No manual accessibility verification.** Automated axe catches roughly half of real defects. Keyboard-only and screen-reader passes have not been performed, and no screen-reader claim is made.
+3. **No model-backed assistant.** No provider key is configured (verifiable at `/api/health`); the deterministic Kitchen Helper is the shipped behaviour and no AI capability is claimed.
+4. **Concurrency and fault injection** were not run against a dedicated preview database. Production probes were idempotent and reversible only.
+5. **`recipeItems` (108.7 kB)** is the largest remaining bootstrap item. It is not growth-capped, so it needs per-recipe loading rather than pagination.
+6. **No backup/restore or rollback drill**, and no external SPF/DKIM/DMARC sign-off.
+7. **Serverless cold-start and function-size figures** were not captured — they need Vercel dashboard access for the production project, which was not available.
+8. **Accessibility sweep covers five routes plus login.** Modals, forms and detail pages are not yet swept.
 
-- Phase 004 costing/QC/compliance depth:
-  - Costing includes labor, packaging, overhead, utility, failure allowance, and yield loss fields.
-  - Ingredient allergen/storage fields save/load and are visible in ingredient/recipe/production contexts where relevant.
-  - Conversion rules can be scoped by ingredient state, temperature state, and formula context.
-  - Production completion captures QC fields and remains idempotent/stock-safe.
+## Notes for the auditor
 
-- Phase 005 navigation:
-  - Direct hashes for recipe, ingredient, and order detail/edit/scale routes load correctly after refresh.
-  - Back/Breadcrumb/Cancel/Save behavior returns users to the right workflow context.
-  - Unknown/missing records recover safely.
-  - Unsaved form changes warn before navigation.
-  - Mobile bottom nav exposes only five primary items and keeps secondary pages under More.
+- Deploys are a push to `main`. Production is the Vercel project under team `sanuske2-2147s-projects`.
+- Schema changes are applied by `npm run db:migrate`, or by an Owner/Admin through the app's `schema.ensure` action (`{ check: true }` reports status without changing anything). All six migrations are applied and recorded in `schema_migrations`.
+- `smoke:milestone7` occasionally fails with a 30-second click timeout at varying steps. Investigated twice and traced to environment rather than the app; a repeated failure at the **same** step should be treated as real.
+- Per-phase detail, including what each phase did **not** prove, is in `.planning/phases/*/VERIFICATION.md`. Programme state is in `.planning/STATE.md`.
 
-- Phase 006 import onboarding:
-  - Import entry points exist from Recipes, Inventory, Costing, Conversions, desktop Import nav, and More/Onboarding.
-  - Paste-text and file upload paths support the review-first flow.
-  - CSV/TSV/XLSX/DOCX/text-PDF parsing preserves source evidence and costing lines where available.
-  - Image/photo and legacy `.xls`/`.doc` files use the configured provider path; audit should verify actual provider behavior only if provider environment variables are configured.
-  - Users can review, correct, skip, and save selected recipes, ingredients, suppliers, and conversions.
-  - Duplicate recipes are blocked unless the user explicitly saves another copy.
-  - Imported recipe items preserve source file/reference/cost fields after reload.
-  - `import.extract` and `import.commit` enforce roles, validate unresolved lines, write import batch summaries, and audit the commit.
-  - Customer/order rows are previewed only; they do not create active orders or mutate stock in this phase.
-  - Import UI copy is operator-friendly: no `Upload or snap`, `Extract Draft`, `commit`, `OCR/vision provider`, or hidden-setting language.
+## Historical context
 
-## Known Remaining Actions
-
-- Run a fresh external audit after the owner finishes the next requested feature batch.
-- If the business wants to market photo/scanned import as production-ready, configure and audit the OCR/vision provider path, including quality, cost, and data-retention behavior.
-- If the business wants direct customer/order import, scope a follow-up phase because Phase 006 currently previews customer/order rows but does not create active orders.
-- Close the separate 100/100 certification evidence items: external SPF/DKIM/DMARC/DNS proof, controlled email delivery evidence, backup/restore or rollback drill, keyboard/screen-reader sign-off, monitoring/incident owner evidence, and manual operator sign-offs.
+The June 22 2026 audit scored 96/100 at a narrower scope with zero findings. Phases 001–006 (pastry formula depth, ingredient workflows, imports, costing) were implemented and smoke-verified before the July 10 audit. That evidence remains useful for regression purposes but is **not** a readiness signal and is superseded by the 54/100 baseline.
