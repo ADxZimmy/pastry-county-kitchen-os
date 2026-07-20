@@ -142,6 +142,16 @@ DEFECT I INTRODUCED AND FIXED: the new settings column cannot be created automat
 
 ASSISTANT KEYS ARE NOT SET IN PRODUCTION. Checked via /api/health, which now reports provider, model and which variable supplied the key -- never the key. It accepts ASSISTANT_API_KEY, ANTHROPIC_API_KEY or OPENAI_API_KEY and reports configured:false for all three, so no assistant key exists on this project. Given the earlier account-boundary confusion, they may be set on a different Vercel project.
 
+MIGRATIONS APPLIED TO PRODUCTION 2026-07-19 (`98606b7`, `4e7cabd`). All six steps recorded in `schema_migrations`; re-running is a verified no-op (ran: [], skipped: all six).
+
+There is no database credential in this environment and a connection string should not be copied around to work past that, so the migration runs through the app instead. `schema.ensure` -- Owner/Admin only, authenticated, audited -- applies the same step list as the CLI runner, using the server's own credential. RS-007 forbids schema mutation on ORDINARY requests; an explicit authorised admin action is the deliberate operation that rule carves out. `{ check: true }` reports applied/pending without changing anything.
+
+The step list now lives in `api/_migrations.js` so the CLI runner and the admin action cannot drift into applying different things.
+
+Verified after applying: `stockHoldStage` persists a round trip and reads back through bootstrap as `order_confirmation`, with `defaultDeductionStage` still `production_completion` -- hold at order confirmation, deduct at production completion, which is the configuration the owner asked for. D1 gate 30/30, all 7 browser smokes green.
+
+SMOKE FLAKINESS WORTH KNOWING: `smoke:milestone7` failed three times in a row at three DIFFERENT buttons with 30s click timeouts, then passed cleanly. Before accepting it as flaky I checked the two plausible real causes and ruled both out by measurement: Inventory renders 78 rows in production, and the enlarged bottom-nav labels from 013-A obscure ZERO controls (nav 72px against 104px clearance). Driving the exact failing sequence by hand works. Treat a single milestone7 click timeout as environmental and re-run; treat a repeated failure at the SAME step as real.
+
 ## Verification Snapshot
 
 - Command/check: `npm.cmd test`
