@@ -180,6 +180,30 @@ confirmed by probing the endpoints and comparing the served bundle hash rather
 than by a deployment status. Worth knowing the next time a deploy appears not to
 have happened.
 
+## The gap the gates did not catch
+
+Every server check, every engine test and the 32/32 production privacy smoke
+passed while **the feature was unusable**: there was no signup screen and no link
+to one, so nothing in the app ever reached the endpoint those tests were proving.
+The owner found it by opening the site.
+
+Worth recording plainly, because the gates were not wrong — they were aimed at the
+wrong thing. Every suite here drives the API or the engine directly. Nothing drives
+the signed-out UI, and the browser smoke family authenticates by seeding a cookie,
+so it never renders a login screen either. A feature can therefore be completely
+proven at the layer below the one a user touches.
+
+The fix needed two changes, and the second is the one that would have wasted an
+afternoon: the `signup` route had to be added to the **signed-out render
+allow-list**. Without it an unauthenticated visitor fell through to the `!user`
+branch and got the login form, so the first attempt changed the URL and rendered
+nothing new — the route worked and the screen did not.
+
+Verified in a real browser rather than inferred: navigation in both directions
+between login and signup, both client-side validations (short password, mismatched
+confirmation) refusing before any request, and a 375px viewport with no horizontal
+overflow and no touch target under 44px.
+
 ## Not claimed
 
 - **No multi-device sync.** Signing in on a second device starts a separate empty

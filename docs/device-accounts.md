@@ -1,115 +1,79 @@
-# Device accounts — for testers, and for whoever hands them out
+# Welcome to Pastry County Kitchen OS
 
-A device account is a Kitchen OS login whose kitchen data stays in the browser you
-use it in. You get an empty workspace and fill it with your own recipes,
-ingredients and orders. None of it is stored in the Pastry County database.
+You've been given a code to set up your own kitchen. Here's how it works.
 
-## What "private" means here, exactly
+## Getting started
 
-Worth being precise, because the honest version is narrower than "nothing ever
-leaves your device".
+1. Open **https://pastry-county-kitchen-os.vercel.app**
+2. Tap **"Have an invite code? Create your kitchen"** under the login button
+3. Enter your code, your name, your email and a password (at least 12 characters)
+4. Tap **Create my kitchen**
 
-**Your kitchen data is never stored on the server.** Recipes, ingredients,
-suppliers, orders, production runs, stock movements and your settings live in this
-browser only. The owner cannot see them. Neither can another tester.
+That's it — you're in. Your kitchen starts empty, ready for your own recipes and
+ingredients.
 
-**Two things still go through the server, because a browser cannot do them:**
+Next time you visit, just log in with the email and password you chose.
 
-- **Importing a document.** When you import a recipe from a PDF, Word or Excel
-  file, the file is sent to the server to be read, and the text is parsed there.
-  For scanned images and older `.xls`/`.doc` files it is also sent to an external
-  AI provider. The result comes back to your browser and is saved there — nothing
-  from the import is kept in the database. If a file is sensitive, type or paste
-  the recipe in instead; that is parsed on your own machine.
-- **Low-stock email alerts.** Sending mail needs a mail provider. When you send an
-  alert, the ingredient names in it go through that provider, and the email is
-  sent only to your own address.
+## Your recipes stay yours
 
-**Your account itself is central.** Your name, email and password hash are in the
-Pastry County database, like any other account. The owner can see that your
-account exists and can disable it. They cannot see what is in your kitchen.
+Everything you add — recipes, ingredients, orders, costs — is saved **on your own
+device**, in the browser you're using. It isn't stored on our servers, and nobody
+else can see it.
 
-**Your data is not encrypted on your device.** Anyone with access to your computer
-and your browser profile can read it. Treat it the way you would treat a notebook
-left on the counter.
+Two small exceptions, so you know:
 
-## Back up, or you will lose it
+- If you **import a recipe from a file** (PDF, Word, Excel), the file is sent to
+  be read, then the result comes back to you. Nothing from it is kept. If a file
+  is sensitive, type or paste the recipe in instead.
+- If you **email yourself a low-stock alert**, that email goes through a mail
+  service, like any email would. It only ever goes to your own address.
 
-This is the part that catches people out.
+## Please back up your work
 
-- **Clearing your browser data deletes your kitchen.** So does "clear cookies and
-  site data" for this site, and some privacy cleaners do it on a schedule.
-- **Another device is another kitchen.** Signing in on your phone does not show
-  your laptop's work. It starts a second, empty workspace.
-- **The browser may evict the data** if the device runs very low on space. The app
-  asks for permanent storage and tells you in Settings whether the browser agreed.
+This is the one thing worth remembering.
 
-**Settings → Device Data → Download backup** writes a single file with everything
-in it. Keep it somewhere that is not this browser. **Restore backup** on the same
-page loads it back, on this device or another one.
+Because your kitchen lives in your browser, **clearing your browsing data will
+delete it.** There's no copy on our side to restore from.
 
-Restoring **replaces** the workspace — it does not merge. If you have two devices
-with different work on them, restoring one onto the other loses whatever was
-there. That is deliberate: guessing how to merge two versions of your stock would
-be worse than telling you plainly.
+Also: your phone and your laptop are separate kitchens. Logging in somewhere new
+starts a fresh, empty one.
 
-The dashboard nags you about this until you have exported once, then stops.
+**To make a backup:** go to **Settings → Device Data → Download backup**. Save the
+file somewhere safe — email it to yourself, or drop it in your cloud storage.
 
-## What is different from a normal account
+**To use a backup:** on the same page, tap **Restore backup** and pick the file.
+This is also how you move your kitchen to another device.
 
-- **No staff management.** Accounts are handed out centrally, so Settings shows
-  your own account and nothing else. Ask the owner if you need another one.
-- **Password reset gets your account back, not your data.** Your kitchen is on the
-  device, not in the account.
-- **Everything else works the same.** Recipes, scaling, stock, holds, production,
-  costing, the shopping list, conversions, the Kitchen Helper, archive and
-  restore, the audit trail — all of it runs in your browser against your data.
+One warning: restoring **replaces** everything currently on that device. If
+you've been working on two devices, restoring one onto the other will overwrite
+what's there.
 
----
+## What you can do
 
-## For the owner
+Everything the app offers:
 
-### Opening signup
+- Add your recipes, with ingredients, quantities and instructions
+- Scale a recipe up or down — it works out the new quantities for you
+- Track your ingredient stock, and get warned when something runs low
+- Take orders, and see whether you have enough to make them
+- Mark production done — your stock updates automatically
+- See what a recipe costs you and what margin you're making
+- Build a shopping list from what you're short of
 
-Set **`SIGNUP_INVITE_CODE`** in the Vercel project's Production environment, then
-redeploy — serverless functions read it at runtime, but the change needs a new
-deployment to reach them.
+## If something goes wrong
 
-Until it is set, `POST /api/auth/signup` returns 503 with "Signup is not open on
-this deployment". That check depends only on server configuration, so a closed
-deployment gives nothing away.
+**Forgot your password?** Use "Forgot password?" on the login screen. This gets
+you back into your account — your recipes are on your device and stay there.
 
-Testers go to the app, choose to create an account, and enter the code you give
-them. Every account they create appears on your Staff page.
+**Need another account, or your code doesn't work?** Get in touch with whoever
+gave you the code.
 
-### Closing it again
+**Lost your kitchen after clearing your browser?** If you have a backup file, use
+Restore backup. Without one, it's gone — which is why the app keeps reminding you
+until you've made one.
 
-Remove `SIGNUP_INVITE_CODE` and redeploy. Existing accounts keep working; no new
-ones can be created. Rotate the code the same way if it gets shared further than
-you intended.
+## One more thing
 
-### Shutting one account out
-
-`user.disable` on the Staff page. It revokes every session immediately, so the
-tester is locked out of signing in and of the two server-backed actions. **It does
-not delete their local data** — that is on their device, and only they can clear
-it.
-
-### What a tester costs you
-
-Device accounts can still call document import and low-stock email, which use the
-AI provider and mail provider quotas. Invite-gating and the disable switch are the
-brakes; there is no per-account spend limit on those two actions today.
-
-### Proving the guarantee
-
-```bash
-npm run smoke:device-account
-```
-
-Needs `SIGNUP_INVITE_CODE` and a database credential. It creates a real account
-against production, checks that it is refused every business read and write,
-checks that the two allowed actions still work and reach only the tester, then
-checks the database directly for anything the account left behind — and cleans up
-after itself. It exits non-zero if either credential is missing rather than
-skipping, because a privacy check that quietly reports green is worse than none.
+Your data isn't locked or encrypted on your device. Anyone who can use your
+computer and open your browser could look at it. If you're on a shared machine,
+keep that in mind.

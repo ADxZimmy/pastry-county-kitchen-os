@@ -224,7 +224,11 @@ PROVEN AGAINST PRODUCTION: `smoke:device-account` 32/32 (run `DEVICE-SMOKE-17869
 
 Bundle cost to everyone else: the engine is behind a dynamic import, so it is a 13.9 kB gzipped lazy chunk and the entry grew 97.9 -> 100.5 kB. The budget script proves that placement, requiring the marker to be PRESENT in a lazy chunk as well as absent from the entry one, because an absence check alone passes by finding nothing anywhere.
 
-`SIGNUP_INVITE_CODE` is set, so signup is open to invite holders. Removing it and redeploying closes it. `docs/device-accounts.md` is the tester-facing note and is deliberate about the narrow version of "private": kitchen data is never stored on the server, but imports and alerts transit it, the account itself is central, and the data is not encrypted on their device.
+`SIGNUP_INVITE_CODE` is set, so signup is open to invite holders. Removing it and redeploying closes it.
+
+A SIGNUP SCREEN WAS MISSING AND IS NOW BUILT (2026-08-17). The endpoint, the guards and the engine all shipped and were proven against production, but nothing in the app ever reached the endpoint: there was no signup page and no link to one, so the feature was unusable by the people it was for. Caught by the owner opening the site, not by any gate — none of them drive the signed-out UI. Fixed with a `signup` route, a Create Your Kitchen screen and a link under the login button, and the render guard had to learn the route too: an unauthenticated visitor on any page outside the welcome/login/reset allow-list fell through to the login form, so the first attempt changed the URL and rendered nothing new. Verified in a real browser this time — both navigation directions, both client-side validations, and a 375px viewport with no horizontal overflow and no touch target under 44px.
+
+THE DOCS ARE SPLIT BY AUDIENCE after the first version was too technical to hand anyone. `docs/device-accounts.md` is the tester's: plain language, no configuration, no internals, and honest about the two things that still transit the server, about backups being the only safety net, and about the data not being encrypted on their device. `docs/device-accounts-owner.md` carries the operational half — opening and closing signup, rotating the code, the disable switch, provider quota exposure, and the 12-of-12 function ceiling.
 
 `docs/audit-handoff.md` now says plainly that the audited surface changed after the 015-B gate — a public unauthenticated endpoint, a second authorization dimension, and a client-side engine, none of it covered by the 9/9 evidence.
 

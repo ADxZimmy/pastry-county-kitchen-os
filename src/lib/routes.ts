@@ -1,6 +1,7 @@
 export type Page =
   | "welcome"
   | "login"
+  | "signup"
   | "reset"
   | "dashboard"
   | "recipes"
@@ -25,6 +26,7 @@ export type Page =
 export type AppRoute =
   | { name: "welcome" }
   | { name: "login" }
+  | { name: "signup" }
   | { name: "reset"; token?: string }
   | { name: "dashboard" }
   | { name: "recipes"; recipeId?: string; mode?: "detail" | "new" | "edit" | "scale" }
@@ -48,6 +50,7 @@ export type LegacyRouteContext = {
 export const pageIds = new Set<Page>([
   "welcome",
   "login",
+  "signup",
   "reset",
   "dashboard",
   "recipes",
@@ -90,6 +93,7 @@ export const topLevelPages = new Set<Page>([
 const pageRouteNames = new Set([
   "welcome",
   "login",
+  "signup",
   "reset",
   "dashboard",
   "recipes",
@@ -172,6 +176,8 @@ export function parseAppRoute(hash: string, context: LegacyRouteContext = {}): A
       return { name: "welcome" };
     case "login":
       return { name: "login" };
+    case "signup":
+      return { name: "signup" };
     case "reset":
       return first ? { name: "reset", token: first } : { name: "reset" };
     case "dashboard":
@@ -217,6 +223,7 @@ export function serializeRoutePath(route: AppRoute): string {
   switch (route.name) {
     case "welcome":
     case "login":
+    case "signup":
     case "dashboard":
     case "ai":
       return route.name;
@@ -274,6 +281,7 @@ export function routeFromPage(page: Page, context: LegacyRouteContext = {}): App
   switch (page) {
     case "welcome":
     case "login":
+    case "signup":
     case "reset":
     case "dashboard":
     case "production":
@@ -312,6 +320,7 @@ export function pageForRoute(route: AppRoute): Page {
   switch (route.name) {
     case "welcome":
     case "login":
+    case "signup":
     case "reset":
     case "dashboard":
     case "production":
@@ -392,6 +401,8 @@ export function routeTitle(route: AppRoute): string {
       return "Welcome";
     case "login":
       return "Login";
+    case "signup":
+      return "Create Your Kitchen";
     case "reset":
       return route.token ? "Choose A New Password" : "Reset Password";
     case "dashboard":

@@ -894,7 +894,11 @@ function App() {
         setRoute((current) => (current.name === "login" ? { name: "dashboard" } : current));
       } else {
         setUser(undefined);
-        setRoute((current) => (current.name === "welcome" || current.name === "reset" ? current : { name: "login" }));
+        // Routes a signed-out visitor is allowed to stay on. Without signup here,
+        // anyone opening the invite link would be bounced straight to login.
+        setRoute((current) =>
+          current.name === "welcome" || current.name === "reset" || current.name === "signup" ? current : { name: "login" }
+        );
       }
       setSessionState("ready");
     })();
@@ -1005,6 +1009,8 @@ function App() {
         return <Welcome setPage={navigate} />;
       case "login":
         return <Login setPage={navigate} setUser={setUser} notify={notify} />;
+      case "signup":
+        return <SignupPage setPage={navigate} setUser={setUser} notify={notify} />;
       case "reset":
         return <ResetPassword token={route.name === "reset" ? route.token : undefined} setPage={navigate} notify={notify} />;
       case "dashboard":
@@ -1050,11 +1056,15 @@ function App() {
 
   // Until the server confirms the cookie, a protected route must not render —
   // otherwise a signed-in refresh would flash the login screen.
-  if (sessionState === "checking" && page !== "welcome" && page !== "reset") {
+  // Screens a signed-out visitor can be on. Signup belongs here for the same
+  // reason reset does: someone arriving with an invite has no session yet, and
+  // falling through to the !user branch below would render the login form over
+  // the top of wherever they were trying to go.
+  if (sessionState === "checking" && page !== "welcome" && page !== "reset" && page !== "signup") {
     return <LoadingScreen />;
   }
 
-  if (page === "welcome" || page === "login" || page === "reset") {
+  if (page === "welcome" || page === "login" || page === "reset" || page === "signup") {
     return (
       <>
         {content}
@@ -1322,6 +1332,101 @@ function Login({ setPage, setUser, notify }: { setPage: Navigate; setUser: (user
           <LogIn size={18} /> {working ? "Checking..." : "Login"}
         </Button>
         <button type="button" className="text-link" onClick={() => setPage({ name: "reset" })}>Forgot password?</button>
+        <button type="button" className="text-link" onClick={() => setPage({ name: "signup" })}>Have an invite code? Create your kitchen</button>
+      </form>
+    </main>
+  );
+}
+
+// Creating an account with an invite code. The account is created centrally; the
+// kitchen it opens lives in this browser.
+function SignupPage({ setPage, notify, setUser }: { setPage: Navigate; notify: Notify; setUser: (user: AppUser) => void }) {
+  const [working, setWorking] = useState(false);
+  const [error, setError] = useState("");
+
+  return (
+    <main className="auth-shell">
+      <form
+        className="auth-card"
+        onSubmit={async (event) => {
+          event.preventDefault();
+          setError("");
+          const form = event.currentTarget;
+          const password = formValue(form, "password");
+          const confirmation = formValue(form, "confirmPassword");
+
+          // Checked here so a typo is caught before an account exists, using the
+          // same rules the server applies.
+          const strengthError = validatePasswordStrength(password);
+          if (strengthError) {
+            setError(strengthError);
+            return;
+          }
+          if (!passwordsMatch(password, confirmation)) {
+            setError("Both passwords need to match.");
+            return;
+          }
+
+          setWorking(true);
+          try {
+            const response = await fetch(`${apiBaseUrl}/api/auth/signup`, {
+              method: "POST",
+              credentials: "same-origin",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                fullName: formValue(form, "fullName"),
+                email: formValue(form, "email"),
+                password,
+                inviteCode: formValue(form, "inviteCode")
+              })
+            });
+            const result = await response.json().catch(() => ({}));
+            if (!response.ok) throw new Error(result.error || "Could not create your account.");
+            // Signing up proves the credential, so a session comes back with it
+            // and there is no second sign-in step.
+            setCsrfToken(result.csrfToken ?? "");
+            const signedInUser: AppUser = {
+              id: result.id,
+              email: result.email,
+              fullName: result.fullName,
+              role: result.role,
+              dataMode: result.dataMode
+            };
+            setDataSession(signedInUser);
+            writeSession({ ...readSession(), page: "dashboard", route: { name: "dashboard" } });
+            setUser(signedInUser);
+            notify("Your kitchen is ready. Everything you add stays on this device.");
+            setPage("dashboard");
+          } catch (caught) {
+            setError(caught instanceof Error ? caught.message : "Could not create your account.");
+          } finally {
+            setWorking(false);
+          }
+        }}
+      >
+        <BrandMark />
+        <h1>Create your kitchen</h1>
+        <p>Your recipes, stock and orders stay in this browser. They are never stored on our servers.</p>
+        <Field label="Invite code">
+          <input name="inviteCode" autoComplete="off" placeholder="The code you were given" required />
+        </Field>
+        <Field label="Your name">
+          <input name="fullName" autoComplete="name" placeholder="Ada Baker" required />
+        </Field>
+        <Field label="Email">
+          <input name="email" type="email" autoComplete="email" placeholder="you@example.com" required />
+        </Field>
+        <Field label="Password">
+          <input name="password" type="password" autoComplete="new-password" placeholder={`At least ${MINIMUM_PASSWORD_LENGTH} characters`} required />
+        </Field>
+        <Field label="Confirm password">
+          <input name="confirmPassword" type="password" autoComplete="new-password" placeholder="Type it again" required />
+        </Field>
+        {error && <p className="form-error" role="alert">{error}</p>}
+        <Button type="submit" disabled={working}>
+          {working ? "Creating your kitchen..." : "Create my kitchen"}
+        </Button>
+        <button type="button" className="text-link" onClick={() => setPage({ name: "login" })}>Already have an account? Sign in</button>
       </form>
     </main>
   );
