@@ -118,6 +118,24 @@ The FK was **not** changed to `ON DELETE CASCADE`. The only `delete from app_use
 
 The rerun then reported `Live audit smoke cleanup verified: {"smokeUsers":0,"activeSmokeIngredients":0,"fefoOverstatements":0}` — the first time that assertion has executed against a temporary user and passed, rather than skipping.
 
+### Third run: the gate against an `npm ci`-built production (2026-08-17, `0b81bc8`)
+
+Run again after `vercel.json` moved `installCommand` to `npm ci`, so this is the first full gate against a production deployment installed from the lockfile rather than re-resolved at build time. **9/9 passed.**
+
+| Gate | Time | Gate | Time |
+|---|---|---|---|
+| `test` | 15s | `smoke:auth-cookie` | 10s |
+| `a11y:contrast` | 1s | `smoke:password-reset` | 12s |
+| `perf:budget` | 1s | `smoke:route-data` | 9s |
+| `smoke:uat-core` | 24s | `smoke:a11y` | 29s |
+| `smoke:live-audit` | 72s | | |
+
+This is what makes the install change verified rather than merely deployed. The checks immediately after that deploy were a health response and an asset-hash comparison — structurally sound but shallow. This run drives the application end to end on that build: order lifecycle, pricing, real stock deduction, cookie sessions, CSRF, shared throttling, password recovery, role-scoped reads, rendered accessibility and the seven-smoke browser family.
+
+Cleanup verified zero a second consecutive time, so the teardown fix holds rather than having passed once by coincidence. Timings are unchanged against the previous run (`smoke:live-audit` 72s both times), which is a modest signal in itself that installing from the lockfile altered no runtime behaviour.
+
+Three runs on 2026-08-17, in order: **FAILED** in teardown with all seven browser smokes passing; **9/9** after the teardown fix; **9/9** against the `npm ci` build.
+
 ## Remaining: the audit request itself (plan step 13)
 
 Requesting a fresh independent audit is **owner action** — I cannot commission one. Everything an auditor needs is prepared and reproducible.
