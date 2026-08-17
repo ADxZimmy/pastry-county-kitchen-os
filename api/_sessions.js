@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { isProductionRuntime, sessionSecret } from "./_runtime.js";
+import { isMissingColumn, isProductionRuntime, normalizeDataMode, sessionSecret } from "./_runtime.js";
 
 // Production uses the __Host- prefix, which browsers only accept when the cookie
 // is Secure, Path=/, and carries no Domain. Local development is plain http, so
@@ -148,6 +148,7 @@ export async function resolveSession(sql, token) {
         app_sessions.expires_at < now() as expired,
         extract(epoch from app_sessions.created_at)::bigint as "issuedAt",
         app_users.email, app_users.full_name as "fullName", app_users.role, app_users.active,
+        app_users.data_mode as "dataMode",
         extract(epoch from app_users.session_revoked_at)::bigint as "userRevokedAt"
       from app_sessions
       join app_users on app_users.id = app_sessions.user_id
@@ -158,7 +159,29 @@ export async function resolveSession(sql, token) {
     // Before the first login on a fresh deployment the table may not exist yet.
     // Treat that as "no session" rather than failing the whole request.
     if (isUndefinedTableError(error)) return null;
-    throw error;
+    // Before migration 007 the data_mode column does not exist. Retry without it
+    // and treat the account as server-mode, which is what it necessarily is:
+    // signup refuses to create a device account until the column is there.
+    if (!isMissingColumn(error, "data_mode")) throw error;
+    rows = await sql`
+      with touched as (
+        update app_sessions set last_seen_at = now()
+        where token_hash = ${hashSessionToken(token)}
+          and revoked_at is null
+          and last_seen_at < now() - ${TOUCH_INTERVAL}::interval
+        returning id
+      )
+      select app_sessions.id as "sessionId", app_sessions.user_id as "userId", app_sessions.csrf_token as "csrfToken",
+        app_sessions.revoked_at as "revokedAt",
+        app_sessions.expires_at < now() as expired,
+        extract(epoch from app_sessions.created_at)::bigint as "issuedAt",
+        app_users.email, app_users.full_name as "fullName", app_users.role, app_users.active,
+        extract(epoch from app_users.session_revoked_at)::bigint as "userRevokedAt"
+      from app_sessions
+      join app_users on app_users.id = app_sessions.user_id
+      where app_sessions.token_hash = ${hashSessionToken(token)}
+      limit 1
+    `;
   }
   const row = rows[0];
   if (!row) return null;
@@ -172,6 +195,7 @@ export async function resolveSession(sql, token) {
     email: row.email,
     fullName: row.fullName,
     role: row.role,
+    dataMode: normalizeDataMode(row.dataMode),
     iat: Number(row.issuedAt ?? 0),
     sessionId: row.sessionId,
     csrfToken: row.csrfToken,

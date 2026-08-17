@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { neon } from "@neondatabase/serverless";
+import { isMissingColumn } from "./_runtime.js";
 
 export function getSql() {
   if (!process.env.DATABASE_URL) {
@@ -160,6 +161,19 @@ export async function ensureSnapshotSchema(sql) {
   `;
 }
 
+// The Staff page lists every account, so a device signup shows up to the owner
+// automatically. Carrying the data mode lets the page say which accounts keep
+// their kitchen data on their own device rather than in this database.
+async function loadAppUsers(sql) {
+  try {
+    return await sql`select id, email, full_name as "fullName", role, active, data_mode as "dataMode", session_revoked_at::text as "sessionRevokedAt", updated_at::date::text as "updatedAt" from app_users order by role, full_name`;
+  } catch (error) {
+    if (!isMissingColumn(error, "data_mode")) throw error;
+    const rows = await sql`select id, email, full_name as "fullName", role, active, session_revoked_at::text as "sessionRevokedAt", updated_at::date::text as "updatedAt" from app_users order by role, full_name`;
+    return rows.map((row) => ({ ...row, dataMode: "server" }));
+  }
+}
+
 export async function loadKitchenSnapshot(sql = getSql()) {
   const [
     supplierRows,
@@ -178,7 +192,7 @@ export async function loadKitchenSnapshot(sql = getSql()) {
     settingRows
   ] = await Promise.all([
     sql`select id, name, contact_name as "contactName", phone, email, address, default_currency as "defaultCurrency", lead_time_days as "leadTimeDays", supplied_ingredient_ids as "suppliedIngredientIds", notes, active from suppliers where active = true order by name`,
-    sql`select id, email, full_name as "fullName", role, active, session_revoked_at::text as "sessionRevokedAt", updated_at::date::text as "updatedAt" from app_users order by role, full_name`,
+    loadAppUsers(sql),
     sql`
       select ingredients.id, name, category, base_unit as "baseUnit", current_stock::float as "currentStock",
         reorder_level::float as "reorderLevel", coalesce(nullif(latest_unit_cost, 0), latest_purchase.cost_per_base_unit, 0)::float as "latestUnitCost",

@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { allowedRolesForAction, canRolePerformAction } from "./_actions.js";
+import { DEVICE_ALLOWED_ACTIONS, allowedRolesForAction, canRolePerformAction } from "./_actions.js";
 
 // Phase 015-B step 8: every mutating action, across every role.
 //
@@ -23,6 +23,17 @@ describe("every handled action has an explicit role decision", () => {
     expect(HANDLED_ACTIONS).toContain("order.produce");
     expect(HANDLED_ACTIONS).toContain("inventory.adjust");
     expect(HANDLED_ACTIONS).toContain("schema.ensure");
+  });
+
+  // Phase 016 added a second dimension to authorization: a device account holds
+  // Owner/Admin and passes every role check, so data mode is what stops it. The
+  // role sweep here and the device sweep in device-mode.test.js are derived from
+  // the same source list, so neither can quietly stop covering a new action.
+  it("keeps the device allow-list inside the handled action set", () => {
+    expect(DEVICE_ALLOWED_ACTIONS.size).toBeGreaterThan(0);
+    for (const action of DEVICE_ALLOWED_ACTIONS) {
+      expect(HANDLED_ACTIONS).toContain(action);
+    }
   });
 
   it("gives every action a non-empty allow-list", () => {

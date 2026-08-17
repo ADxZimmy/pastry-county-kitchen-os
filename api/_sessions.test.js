@@ -235,6 +235,34 @@ describe("credential resolution", () => {
     expect(resolved.via).toBe("cookie");
   });
 
+  // Phase 016. The session is where data mode enters the request, so the guards
+  // downstream have something to fast-fail on before querying anything.
+  it("carries the account's data mode onto the actor", async () => {
+    const req = request({ headers: { cookie: `${sessionCookieName()}=cookie-token` } });
+    const resolved = await authenticateRequest(async () => [{ ...cookieRow, dataMode: "device" }], req);
+    expect(resolved.dataMode).toBe("device");
+  });
+
+  it("treats an account with no data mode as a server account", async () => {
+    const req = request({ headers: { cookie: `${sessionCookieName()}=cookie-token` } });
+    const resolved = await authenticateRequest(async () => [cookieRow], req);
+    expect(resolved.dataMode).toBe("server");
+  });
+
+  it("falls back to server mode when the column has not been migrated yet", async () => {
+    const req = request({ headers: { cookie: `${sessionCookieName()}=cookie-token` } });
+    let call = 0;
+    const sql = async () => {
+      call += 1;
+      if (call === 1) throw Object.assign(new Error('column "data_mode" does not exist'), { code: "42703" });
+      return [cookieRow];
+    };
+    const resolved = await authenticateRequest(sql, req);
+    expect(resolved.sub).toBe("cookie-user");
+    expect(resolved.dataMode).toBe("server");
+    expect(call).toBe(2);
+  });
+
   it("ignores a bearer token and uses the cookie", async () => {
     const token = createSessionToken({ id: "bearer-user", email: "a@b.c", role: "Owner/Admin" });
     const req = request({ headers: { cookie: `${sessionCookieName()}=cookie-token`, authorization: `Bearer ${token}` } });

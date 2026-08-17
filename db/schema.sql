@@ -6,6 +6,9 @@ create table if not exists app_users (
   password_hash text not null,
   active boolean not null default true,
   session_revoked_at timestamptz,
+  -- 'device' accounts keep their kitchen data in the tester's browser and are
+  -- refused every server business read and write. 'server' is the normal account.
+  data_mode text not null default 'server',
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );

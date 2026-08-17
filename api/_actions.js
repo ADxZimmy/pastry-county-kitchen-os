@@ -3,6 +3,7 @@ import { Resend } from "resend";
 import { ensureSessionColumns, sessionAccessError } from "./_auth.js";
 import { revokeAllUserSessions } from "./_sessions.js";
 import { extractImportDraft, importParserVersion } from "./_imports.js";
+import { isMissingColumn, normalizeDataMode } from "./_runtime.js";
 import { validatePositiveNumber, validateQuantityIncrement } from "../shared/policy.js";
 // Phase 016: the pure business rules moved to shared/ so the device-mode local
 // engine runs the same code rather than a second copy of it. They are imported
@@ -80,20 +81,60 @@ let decimalOperationalColumnsReady = false;
 let auditConversionRulesReady = false;
 let orderEventsBackfilled = false;
 
+// Phase 016. The only two actions a device account may reach, because both need
+// something a browser cannot do: import.extract parses PDF/DOCX/XLSX with Node
+// libraries, and notification.lowStockEmail sends through the mail provider.
+// Both have device-specific branches below so a tester's request never reads the
+// bakery's records and never writes into them.
+export const DEVICE_ALLOWED_ACTIONS = new Set(["import.extract", "notification.lowStockEmail"]);
+
+export function deviceModeActionError(dataMode, action) {
+  if (normalizeDataMode(dataMode) !== "device" || DEVICE_ALLOWED_ACTIONS.has(action)) return null;
+  return {
+    message: `This tester account keeps its kitchen data on its own device, so ${action} does not run on the server. File imports and low-stock emails still work.`,
+    statusCode: 403
+  };
+}
+
+// Returns the authoritative data mode so the caller can branch on it without
+// trusting the actor it was handed.
 async function requirePermission(sql, action, actor) {
   const missingActorError = sessionAccessError(actor, { active: true });
   if (missingActorError) throw Object.assign(new Error(missingActorError.message), { statusCode: missingActorError.statusCode });
   if (!canRolePerformAction(actor.role, action)) {
     throw Object.assign(new Error(`${actor.role} cannot perform ${action}.`), { statusCode: 403 });
   }
-  const rows = await sql`
-    select active, extract(epoch from session_revoked_at)::bigint as revoked_at
-    from app_users
-    where id = ${actor.sub}
-    limit 1
-  `;
+  // Refuse on what the session already told us before querying anything. Device
+  // accounts hold Owner/Admin, so the role check above passes for every action
+  // and this is the only fence.
+  const claimedDeviceError = deviceModeActionError(actor.dataMode, action);
+  if (claimedDeviceError) throw Object.assign(new Error(claimedDeviceError.message), { statusCode: claimedDeviceError.statusCode });
+
+  let rows;
+  try {
+    rows = await sql`
+      select active, data_mode, extract(epoch from session_revoked_at)::bigint as revoked_at
+      from app_users
+      where id = ${actor.sub}
+      limit 1
+    `;
+  } catch (error) {
+    if (!isMissingColumn(error, "data_mode")) throw error;
+    rows = await sql`
+      select active, extract(epoch from session_revoked_at)::bigint as revoked_at
+      from app_users
+      where id = ${actor.sub}
+      limit 1
+    `;
+  }
   const sessionError = sessionAccessError(actor, rows[0]);
   if (sessionError) throw Object.assign(new Error(sessionError.message), { statusCode: sessionError.statusCode });
+  // The stored row is the authority. An actor built from a bearer token carries
+  // no data mode, so trusting the actor alone would leave that path open.
+  const dataMode = normalizeDataMode(rows[0]?.data_mode);
+  const storedDeviceError = deviceModeActionError(dataMode, action);
+  if (storedDeviceError) throw Object.assign(new Error(storedDeviceError.message), { statusCode: storedDeviceError.statusCode });
+  return dataMode;
 }
 
 function escapeHtml(value) {
@@ -766,6 +807,42 @@ async function loadImportContext(sql) {
   return { ingredients: ingredientRows, recipes: recipeRows, suppliers: supplierRows };
 }
 
+// The matching context an import is resolved against is normally read from the
+// database. For a device account that would hand a tester the bakery's whole
+// ingredient, recipe and supplier name list, so their own names come up from the
+// browser instead and no business table is read at all.
+//
+// Caps are deliberate: this is attacker-supplied input on a path that then runs a
+// parser, and an unbounded list would be a cheap way to make the server work hard.
+const DEVICE_IMPORT_CONTEXT_LIMIT = 500;
+const DEVICE_IMPORT_FIELD_LIMIT = 120;
+
+function deviceContextText(value) {
+  return String(value ?? "").slice(0, DEVICE_IMPORT_FIELD_LIMIT);
+}
+
+export function deviceImportContext(raw) {
+  const list = (value) => (Array.isArray(value) ? value.slice(0, DEVICE_IMPORT_CONTEXT_LIMIT) : []);
+  return {
+    ingredients: list(raw?.ingredients).map((row) => ({
+      id: deviceContextText(row?.id),
+      name: deviceContextText(row?.name),
+      category: deviceContextText(row?.category),
+      baseUnit: deviceContextText(row?.baseUnit),
+      latestUnitCost: num(row?.latestUnitCost, 0)
+    })),
+    recipes: list(raw?.recipes).map((row) => ({
+      id: deviceContextText(row?.id),
+      name: deviceContextText(row?.name),
+      category: deviceContextText(row?.category)
+    })),
+    suppliers: list(raw?.suppliers).map((row) => ({
+      id: deviceContextText(row?.id),
+      name: deviceContextText(row?.name)
+    }))
+  };
+}
+
 async function commitImportDraft(sql, draft, actor) {
   if (!draft || typeof draft !== "object") throw Object.assign(new Error("Import draft is required."), { statusCode: 400 });
   const source = draft.source ?? {};
@@ -1094,13 +1171,8 @@ async function productionQcLogForOrder(sql, orderId, qcInput, actor) {
 // Phase 012 moved schema changes into scripts/migrate.mjs, so this column only
 // exists once that has run. Until then the read falls back to the default rather
 // than failing an order operation: a missing settings column must never be able
-// to stop a kitchen taking an order.
-const UNDEFINED_COLUMN = "42703";
-
-function isMissingColumn(error, column) {
-  return error?.code === UNDEFINED_COLUMN || new RegExp(`column .*${column}.* does not exist`, "i").test(String(error?.message ?? ""));
-}
-
+// to stop a kitchen taking an order. isMissingColumn now lives in _runtime.js,
+// where Phase 016 needed it for data_mode too.
 async function stockHoldStage(sql) {
   try {
     const rows = await sql`select stock_hold_stage from settings order by updated_at desc limit 1`;
@@ -1239,7 +1311,7 @@ export async function produceOrder(sql, orderId, actor, qcInput = {}) {
 
 export async function handleAction(sql, body, actor) {
   const action = required(body.action, "Action");
-  await requirePermission(sql, action, actor);
+  const dataMode = await requirePermission(sql, action, actor);
 
   if (action === "schema.ensure") {
     // Owner/Admin only, authenticated and audited. This is how migrations reach
@@ -1253,7 +1325,7 @@ export async function handleAction(sql, body, actor) {
   }
 
   if (action === "import.extract") {
-    const context = await loadImportContext(sql);
+    const context = dataMode === "device" ? deviceImportContext(body.localContext) : await loadImportContext(sql);
     return extractImportDraft(body, context);
   }
 
@@ -1951,6 +2023,22 @@ export async function handleAction(sql, body, actor) {
     const items = Array.isArray(body.items) ? body.items.map(String) : [];
     const subject = `Low stock alert: ${items.length} item${items.length === 1 ? "" : "s"} need attention`;
     const message = items.join("\n") || "No low-stock items were supplied.";
+
+    // A device account's alert is about ingredients only it can see, so it goes
+    // to the one address proven by signing in and nowhere else. Reading the
+    // bakery's staff list to pick recipients would mail the wrong people about
+    // stock they do not hold; writing notification_events or an audit row would
+    // put a tester's activity into the bakery's records, which is the whole thing
+    // a device account exists to avoid.
+    if (dataMode === "device") {
+      const recipients = lowStockRecipients({ actor });
+      if (!recipients.length) {
+        throw Object.assign(new Error("This account has no email address to send the alert to."), { statusCode: 400 });
+      }
+      const delivery = await sendResendEmail({ to: recipients, subject, text: message });
+      return { ok: true, recipients, recipient: recipients.join(", "), status: delivery.status, providerId: delivery.providerId, error: delivery.error };
+    }
+
     const settingsRows = await sql`select low_stock_notification_email from settings order by updated_at desc limit 1`;
     const staffRows = await sql`
       select email, role from app_users

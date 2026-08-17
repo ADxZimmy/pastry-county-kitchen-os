@@ -3,6 +3,7 @@ import { bearerCompatEnabled, createSessionToken } from "../_auth.js";
 import { issueSession, readSessionCookie, revokeSession, setSessionCookie } from "../_sessions.js";
 import { first, getSql, sendError, setPrivateNoStore } from "../_db.js";
 import { enforceAuthRateLimit, sendRateLimit } from "../_rateLimit.js";
+import { isMissingColumn, normalizeDataMode } from "../_runtime.js";
 
 export default async function handler(req, res) {
   if (req.method !== "POST") {
@@ -25,12 +26,26 @@ export default async function handler(req, res) {
       sendRateLimit(res, loginLimit);
       return;
     }
-    const user = first(await sql`
-      select id, email, full_name, role, password_hash
-      from app_users
-      where lower(email) = lower(${email}) and coalesce(active, true) = true
-      limit 1
-    `);
+    let user;
+    try {
+      user = first(await sql`
+        select id, email, full_name, role, password_hash, data_mode
+        from app_users
+        where lower(email) = lower(${email}) and coalesce(active, true) = true
+        limit 1
+      `);
+    } catch (error) {
+      // Migration 007 has not run yet. Every account is necessarily server-mode
+      // in that state, because signup refuses to create a device one until the
+      // column exists.
+      if (!isMissingColumn(error, "data_mode")) throw error;
+      user = first(await sql`
+        select id, email, full_name, role, password_hash
+        from app_users
+        where lower(email) = lower(${email}) and coalesce(active, true) = true
+        limit 1
+      `);
+    }
     if (!user || !bcrypt.compareSync(password, user.password_hash)) {
       res.status(401).json({ error: "Invalid email or password" });
       return;
@@ -48,6 +63,7 @@ export default async function handler(req, res) {
       email: user.email,
       fullName: user.full_name,
       role: user.role,
+      dataMode: normalizeDataMode(user.data_mode),
       csrfToken: session.csrfToken,
       ...(bearerCompatEnabled() ? { token: createSessionToken(user) } : {})
     });

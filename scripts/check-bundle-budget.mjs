@@ -4,7 +4,7 @@
 // size of the entry JavaScript. Runs against dist/ after a build, so CI fails on
 // a regression rather than letting one reach production unnoticed.
 import { gzipSync } from "node:zlib";
-import { readFileSync, readdirSync } from "node:fs";
+import { readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 
 const distDir = path.resolve("dist", "assets");
@@ -59,10 +59,40 @@ const leaked = SERVER_ONLY_PACKAGES.filter((pkg) => clientJs.includes(pkg));
 console.log("\n  server-only packages absent from the client bundle:");
 for (const pkg of SERVER_ONLY_PACKAGES) console.log(`    ${leaked.includes(pkg) ? "LEAKED" : "ok    "} ${pkg}`);
 
+// Vercel turns every non-underscore, non-test file under api/ into a serverless
+// function, and the deployment has a hard function limit. Phase 012-C hit it:
+// adding one route took the count to 13, the build failed, and because a failed
+// build leaves the PREVIOUS deployment serving, every existing route kept
+// working -- so it read as a routing bug rather than a failed deploy. Phase 016
+// added the signup route and put the count at exactly the ceiling.
+//
+// Failing here means the next function fails a pull request instead of a
+// production build that looks like something else entirely. When this trips, the
+// fix is to consolidate rather than to raise the number: the six api/auth/*.js
+// routes would collapse to one api/auth/[op].js dispatcher.
+const FUNCTION_LIMIT = Number(process.env.VERCEL_FUNCTION_LIMIT || 12);
+
+function serverlessFunctions(dir) {
+  return readdirSync(dir).flatMap((entry) => {
+    const full = path.join(dir, entry);
+    if (statSync(full).isDirectory()) return serverlessFunctions(full);
+    if (!entry.endsWith(".js")) return [];
+    if (entry.startsWith("_") || entry.endsWith(".test.js")) return [];
+    return [path.relative(path.resolve("api"), full).replace(/\\/g, "/")];
+  });
+}
+
+const functions = serverlessFunctions(path.resolve("api")).sort();
+console.log(`\n  serverless functions ${functions.length} / ${FUNCTION_LIMIT}`);
+for (const fn of functions) console.log(`    api/${fn}`);
+
 const failures = [];
 if (jsTotal > ENTRY_BUDGET_KB) failures.push(`entry JavaScript ${jsTotal.toFixed(1)} kB exceeds the ${ENTRY_BUDGET_KB} kB budget`);
 if (cssTotal > CSS_BUDGET_KB) failures.push(`entry CSS ${cssTotal.toFixed(1)} kB exceeds the ${CSS_BUDGET_KB} kB budget`);
 if (leaked.length) failures.push(`server-only package(s) reached the client bundle: ${leaked.join(", ")}`);
+if (functions.length > FUNCTION_LIMIT) {
+  failures.push(`${functions.length} serverless functions exceeds the ${FUNCTION_LIMIT} the deployment allows -- consolidate api/auth/* into one dispatcher rather than raising the limit`);
+}
 
 console.log(`\n  entry JS total   ${jsTotal.toFixed(1)} kB / ${ENTRY_BUDGET_KB} kB`);
 console.log(`  entry CSS total  ${cssTotal.toFixed(1)} kB / ${CSS_BUDGET_KB} kB`);

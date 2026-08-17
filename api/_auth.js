@@ -1,5 +1,5 @@
 import crypto from "node:crypto";
-import { isProductionRuntime, sessionSecret, sessionSecretConfigured } from "./_runtime.js";
+import { isMissingColumn, isProductionRuntime, normalizeDataMode, sessionSecret, sessionSecretConfigured } from "./_runtime.js";
 import { csrfViolation, readSessionCookie, resolveSession } from "./_sessions.js";
 
 const roles = new Set(["Owner/Admin", "Baker", "Inventory Manager", "Viewer"]);
@@ -109,24 +109,72 @@ export async function ensureSessionColumns(sql) {
   await sql`alter table app_users add column if not exists session_revoked_at timestamptz`;
 }
 
+// Phase 016. A 'device' account keeps its kitchen data in the tester's browser
+// and is refused every server business read and write; 'server' is the existing
+// behaviour and the default, so applying this migration changes nothing for
+// anyone who already has an account.
+export async function ensureDataModeColumn(sql) {
+  await sql`alter table app_users add column if not exists data_mode text not null default 'server'`;
+}
+
+// Between deploying this code and running migration 007 the data_mode column
+// does not exist. Reads must not fail on that, and cannot fail open either:
+// signup refuses to create a device account until the column is there, so
+// "column missing" provably means "no device account exists" rather than
+// "assume the best". isMissingColumn and normalizeDataMode live in _runtime.js
+// because _sessions.js needs them too and importing this module from there would
+// make the two import each other.
+export { isMissingColumn, normalizeDataMode };
+
+export function deviceReadError(dataMode) {
+  if (normalizeDataMode(dataMode) !== "device") return null;
+  return {
+    message: "This tester account keeps its kitchen data on this device. The shared kitchen database is not available to it.",
+    statusCode: 403
+  };
+}
+
 export async function requireActiveSession(sql, actor) {
   const missingActorError = sessionAccessError(actor, { active: true });
   if (missingActorError) throw Object.assign(new Error(missingActorError.message), { statusCode: missingActorError.statusCode });
 
-  const rows = await sql`
-    select id, email, full_name as "fullName", role, active,
-      extract(epoch from session_revoked_at)::bigint as revoked_at
-    from app_users
-    where id = ${actor.sub}
-    limit 1
-  `;
+  // Fast-fail on what the session already told us, so the common case is refused
+  // without a query at all. The stored row is still checked below, because the
+  // bearer-compat path builds an actor from a token that carries no data mode.
+  const claimedError = deviceReadError(actor.dataMode);
+  if (claimedError) throw Object.assign(new Error(claimedError.message), { statusCode: claimedError.statusCode });
+
+  let rows;
+  try {
+    rows = await sql`
+      select id, email, full_name as "fullName", role, active,
+        data_mode as "dataMode",
+        extract(epoch from session_revoked_at)::bigint as revoked_at
+      from app_users
+      where id = ${actor.sub}
+      limit 1
+    `;
+  } catch (error) {
+    if (!isMissingColumn(error, "data_mode")) throw error;
+    rows = await sql`
+      select id, email, full_name as "fullName", role, active,
+        extract(epoch from session_revoked_at)::bigint as revoked_at
+      from app_users
+      where id = ${actor.sub}
+      limit 1
+    `;
+  }
   const sessionError = sessionAccessError(actor, rows[0]);
   if (sessionError) throw Object.assign(new Error(sessionError.message), { statusCode: sessionError.statusCode });
   const user = rows[0];
+  const dataMode = normalizeDataMode(user.dataMode);
+  const storedError = deviceReadError(dataMode);
+  if (storedError) throw Object.assign(new Error(storedError.message), { statusCode: storedError.statusCode });
   return {
     ...actor,
     email: user.email,
     fullName: user.fullName,
-    role: roles.has(user.role) ? user.role : actor.role
+    role: roles.has(user.role) ? user.role : actor.role,
+    dataMode
   };
 }

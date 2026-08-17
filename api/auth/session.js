@@ -1,6 +1,7 @@
 import { authenticateRequest } from "../_auth.js";
 import { clearSessionCookie, readSessionCookie } from "../_sessions.js";
 import { getSql, sendError, setPrivateNoStore } from "../_db.js";
+import { normalizeDataMode } from "../_runtime.js";
 
 // The browser cannot read the HttpOnly session cookie, so this is how the app
 // learns who it is signed in as and gets the CSRF token for mutating requests.
@@ -23,7 +24,7 @@ export default async function handler(req, res) {
     }
     res.status(200).json({
       authenticated: true,
-      user: { id: actor.sub, email: actor.email, fullName: actor.fullName, role: actor.role },
+      user: { id: actor.sub, email: actor.email, fullName: actor.fullName, role: actor.role, dataMode: normalizeDataMode(actor.dataMode) },
       csrfToken: actor.csrfToken ?? null,
       via: actor.via ?? "cookie"
     });

@@ -31,6 +31,15 @@ import {
 import { loadAuthenticatedKitchenSnapshot } from "../api/bootstrap.js";
 import { sendError, setPrivateNoStore } from "../api/_db.js";
 import { enforceAuthRateLimit, rateLimit, rateLimitKey, sendRateLimit } from "../api/_rateLimit.js";
+import { isMissingColumn, normalizeDataMode } from "../api/_runtime.js";
+import {
+  SIGNUP_INVITE_REJECTED,
+  SIGNUP_UNAVAILABLE,
+  inviteCodeMatches,
+  performSignup,
+  signupConfigured,
+  validateSignupInput
+} from "../api/_signup.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, "..");
@@ -75,12 +84,23 @@ app.post("/api/auth/login", requireDatabase, async (req, res, next) => {
       sendRateLimit(res, loginLimit);
       return;
     }
-    const user = first(await sql`
-      select id, email, full_name, role, password_hash
-      from app_users
-      where lower(email) = lower(${email}) and coalesce(active, true) = true
-      limit 1
-    `);
+    let user;
+    try {
+      user = first(await sql`
+        select id, email, full_name, role, password_hash, data_mode
+        from app_users
+        where lower(email) = lower(${email}) and coalesce(active, true) = true
+        limit 1
+      `);
+    } catch (error) {
+      if (!isMissingColumn(error, "data_mode")) throw error;
+      user = first(await sql`
+        select id, email, full_name, role, password_hash
+        from app_users
+        where lower(email) = lower(${email}) and coalesce(active, true) = true
+        limit 1
+      `);
+    }
     if (!user || !bcrypt.compareSync(password, user.password_hash)) {
       res.status(401).json({ error: "Invalid email or password" });
       return;
@@ -94,8 +114,53 @@ app.post("/api/auth/login", requireDatabase, async (req, res, next) => {
       email: user.email,
       fullName: user.full_name,
       role: user.role,
+      dataMode: normalizeDataMode(user.data_mode),
       csrfToken: session.csrfToken,
       ...(bearerCompatEnabled() ? { token: createSessionToken(user) } : {})
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Phase 016 signup, mirrored from api/auth/signup.js. The guards themselves live
+// in the shared modules this file already imports, so only the route wiring is
+// duplicated here.
+app.post("/api/auth/signup", requireDatabase, async (req, res, next) => {
+  try {
+    setPrivateNoStore(res);
+    if (!signupConfigured()) {
+      res.status(503).json({ error: SIGNUP_UNAVAILABLE });
+      return;
+    }
+    const limit = await enforceAuthRateLimit(sql, req, {
+      scope: "auth.signup",
+      identity: "",
+      limit: 5,
+      windowMs: 15 * 60 * 1000
+    });
+    if (limit.limited) {
+      sendRateLimit(res, limit);
+      return;
+    }
+    if (!inviteCodeMatches(req.body?.inviteCode)) {
+      res.status(403).json({ error: SIGNUP_INVITE_REJECTED });
+      return;
+    }
+    const input = validateSignupInput(req.body ?? {});
+    if (input.error) {
+      res.status(400).json({ error: input.error });
+      return;
+    }
+    const { user, session } = await performSignup(sql, req, { ...input, password: req.body.password });
+    setSessionCookie(res, session.token, { maxAgeSeconds: session.ttlSeconds });
+    res.json({
+      id: user.id,
+      email: user.email,
+      fullName: user.fullName,
+      role: user.role,
+      dataMode: user.dataMode,
+      csrfToken: session.csrfToken
     });
   } catch (error) {
     next(error);
@@ -114,7 +179,7 @@ app.get("/api/auth/session", requireDatabase, async (req, res, next) => {
     }
     res.json({
       authenticated: true,
-      user: { id: actor.sub, email: actor.email, fullName: actor.fullName, role: actor.role },
+      user: { id: actor.sub, email: actor.email, fullName: actor.fullName, role: actor.role, dataMode: normalizeDataMode(actor.dataMode) },
       csrfToken: actor.csrfToken ?? null,
       via: actor.via ?? "cookie"
     });
