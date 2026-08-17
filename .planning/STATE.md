@@ -1,6 +1,6 @@
 # State
 
-Last updated: 2026-07-11
+Last updated: 2026-08-17
 
 ## Current Focus
 
@@ -161,6 +161,22 @@ New permanent suite: `api/permission-matrix.test.js`, 42 checks. The action list
 `docs/audit-handoff.md` rewritten around the 54/100 baseline: finding -> phase -> commit -> evidence for all 16 PCO and 7 RS findings, reproduction commands, the defects the gates themselves caught, and eight limitations deliberately NOT claimed. No replacement score is claimed; the June 96/100 is marked superseded.
 
 REMAINING IS OWNER ACTION: request the fresh independent audit. Everything an auditor needs is prepared and reproducible with `npm run smoke:uat-full`.
+
+## Catch-up and rerun 2026-08-17
+
+Local `main` was 64 commits behind and fast-forwarded to `4c7e98c`; no open PRs or issues, and `origin/main` is the only branch. `.planning/ROADMAP.md` was a month stale — it still listed Phases 012, 013, 014 and the 015-B gate as planned — and was reconciled with delivered state in `e1e9702`.
+
+CI had gone red on a docs-only commit. The cause was three advisories published during the idle month (`postcss` high, `nanoid` high, `body-parser` low), all transitive with non-major fixes, cleared in `79b2248`. Because `postcss` generates the CSS, the bundle was measured rather than assumed: the build emits byte-identical output, same content hashes, entry JS 97.9 kB and CSS 5.4 kB unchanged. Worth knowing: `npm audit fix` also moved `@emnapi/*`, the exact packages phase 012 recorded as platform-skewed, but CI on Linux passed because the pipeline runs `npm install` rather than `npm ci`.
+
+THE FULL UAT GATE PASSED 9/9 AGAIN on 2026-08-17 — but only on the second attempt, and the first failure is the important part.
+
+`smoke:live-audit` passed all seven browser smokes and then failed in TEARDOWN: `app_sessions_user_id_fkey` is NO ACTION, and `removeSmokeUser()` deleted the temporary user without clearing the session rows the runner's own login had created. Since RS-006 the runner signs in itself, so it manufactures the exact row that blocks its own cleanup.
+
+THE REASON IT WAS NEVER CAUGHT MATTERS MORE THAN THE BUG. `useTemporaryUser` is `Boolean(databaseUrl)`, and until 2026-08-17 there was no `DATABASE_URL` in this environment. So the temporary-user path never ran AND `assertCleanup()` returned early printing "skipped". The 2026-07-19 gate proved the seven smokes but did NOT prove cleanup; the assertion was inert. The defect had been latent since Phase 011 created `app_sessions` on 2026-07-11. That is the third check in this programme found to be passing for a reason other than the one claimed.
+
+One `codex-smoke-%` Owner/Admin row with three unrevoked sessions sat in production for about an hour. No credential was recoverable — the random password died with the process and only token hashes are stored — but the row should not have existed. Removed on the owner's instruction and verified zero.
+
+The FK was deliberately NOT changed to ON DELETE CASCADE. The only `delete from app_users` in the codebase is this smoke's teardown; the app deactivates users via `active` and never hard-deletes one, so cascading a live constraint to suit a test would weaken a real guarantee to obtain a pass. The teardown clears its own dependents instead. The rerun then verified cleanup with a temporary user for the first time.
 
 ## Verification Snapshot
 

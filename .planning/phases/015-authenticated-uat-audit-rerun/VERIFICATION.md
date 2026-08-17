@@ -73,6 +73,51 @@ Cross-checking declared against handled actions found one action (`schema.ensure
 
 `docs/audit-handoff.md` rewritten around the 54/100 baseline: finding → phase → commit → evidence for all 16 PCO and 7 RS findings, reproduction commands, the defects the gates themselves caught, and **eight limitations deliberately not claimed**. It states plainly that the June 96/100 is superseded and **claims no replacement score**.
 
+## Stage 015-B rerun — PASSED (2026-08-17), and a cleanup assertion that had never run
+
+Rerun on `79b2248` after a month of inactivity. **9/9 gates passed**, but the first attempt failed, and what it exposed changes how the 2026-07-19 result above should be read.
+
+| Gate | Time | Gate | Time |
+|---|---|---|---|
+| `test` | 13s | `smoke:auth-cookie` | 11s |
+| `a11y:contrast` | 1s | `smoke:password-reset` | 14s |
+| `perf:budget` | 1s | `smoke:route-data` | 9s |
+| `smoke:uat-core` | 23s | `smoke:a11y` | 27s |
+| `smoke:live-audit` | 74s | | |
+
+### The first attempt failed in teardown, not in a test
+
+All seven browser smokes passed. `smoke:live-audit` then failed at cleanup:
+
+```
+Temporary smoke user cleanup failed: update or delete on table "app_users"
+violates foreign key constraint "app_sessions_user_id_fkey" on table "app_sessions"
+Live audit smoke cleanup check failed: {"smokeUsers":1,...}
+```
+
+`app_sessions_user_id_fkey` is `NO ACTION` (confirmed from `pg_constraint`, not from the source). `removeSmokeUser()` deleted the user without clearing the session rows the runner's own login had created — and since RS-006 the runner signs in itself, so it manufactures the exact row that blocks its own teardown. `password_reset_tokens_user_id_fkey` is the same shape and the same latent trap.
+
+### Why it was never caught: the check was inert
+
+`useTemporaryUser` is `Boolean(databaseUrl)`. Until 2026-08-17 this environment had no `DATABASE_URL` (see `STATE.md`, phase 012), so **two** things were true at once:
+
+- the temporary-user path never ran, so the defect could not fire; and
+- `assertCleanup()` returned early at `live-audit-smoke.mjs:74`, printing "skipped".
+
+So the 2026-07-19 run — and every "all 7 browser smokes green" result before it — proved the seven smokes but **did not prove cleanup**. The defect had been latent since Phase 011 created `app_sessions` on 2026-07-11. This is the third time in this programme that a check turned out to be passing for a reason other than the one claimed, after the stale phase-2 selector and the `tr[onclick]` pointer-row test.
+
+### Production residue, and its actual exposure
+
+One `codex-smoke-%` Owner/Admin row with `active = true` and three unrevoked, unexpired sessions sat in production for roughly one hour. Exposure was limited but the row should not have existed: the password was `crypto.randomBytes(24)` generated in a process that had exited and was never persisted, and `app_sessions` stores only `token_hash`, so no credential was recoverable by anyone. Removed under the owner's instruction — 3 sessions then the user — and verified zero against the gate's own predicates.
+
+### The fix, and the fix deliberately not made
+
+Teardown now clears `app_sessions` and `password_reset_tokens` for the user before deleting it.
+
+The FK was **not** changed to `ON DELETE CASCADE`. The only `delete from app_users` in the entire codebase is this smoke's teardown; the application deactivates a user via `active` and never hard-deletes one. Cascading a live constraint to suit a test would weaken a real guarantee to obtain a pass, which is the thing this gate's own failure message forbids.
+
+The rerun then reported `Live audit smoke cleanup verified: {"smokeUsers":0,"activeSmokeIngredients":0,"fefoOverstatements":0}` — the first time that assertion has executed against a temporary user and passed, rather than skipping.
+
 ## Remaining: the audit request itself (plan step 13)
 
 Requesting a fresh independent audit is **owner action** — I cannot commission one. Everything an auditor needs is prepared and reproducible.
