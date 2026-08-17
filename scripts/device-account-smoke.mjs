@@ -116,6 +116,18 @@ try {
   check("a wrong invite code is refused", wrongInvite.status === 403, `status ${wrongInvite.status}`);
 
   const signup = await post("/api/auth/signup", { fullName: FULL_NAME, email: EMAIL, password: PASSWORD, inviteCode });
+  // Signup is throttled 5 per 15 minutes per IP, and one run of this smoke spends
+  // three of those (wrong code, real signup, duplicate). Two runs inside the
+  // window therefore trip the limiter on the suite's own legitimate traffic --
+  // the same shape as the RS-006 problem the login smokes already hit. Stop here
+  // and say so, rather than letting five downstream assertions fail with
+  // "dataMode undefined" and bury the actual cause.
+  if (signup.status === 429) {
+    console.error("\nTHROTTLED: signup returned 429.");
+    console.error("This gate spends 3 of the 5 signups allowed per 15 minutes, so it cannot run twice");
+    console.error("inside that window. This is the limiter working, not a defect. Wait and re-run.");
+    process.exit(1);
+  }
   check("signup succeeds with the invite code", signup.status === 200, `status ${signup.status} ${signup.payload.error ?? ""}`);
   check("the new account is a device account", signup.payload.dataMode === "device", `dataMode ${signup.payload.dataMode}`);
   check("signup issues a session immediately", Boolean(signup.payload.csrfToken), "csrf token returned");
