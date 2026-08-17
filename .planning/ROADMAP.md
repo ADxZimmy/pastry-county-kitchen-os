@@ -1,6 +1,8 @@
 # Roadmap
 
-Revised 2026-08-17 to reconcile with delivered state at `4c7e98c`. The previous revision (2026-07-11) predated Phases 012, 013, 014-A and the 015-B gate, and still listed them as planned. Phase identifiers 007-015 remain stable, and the risk-gated execution order below was followed as written. Full traceability is in `.planning/AUDIT-REMEDIATION.md`; per-phase evidence is in `.planning/phases/*/VERIFICATION.md`.
+Revised 2026-08-17, twice. The first pass reconciled this file with delivered state at `4c7e98c`, because the previous revision (2026-07-11) predated Phases 012, 013, 014-A and the 015-B gate and still listed them as planned. The second pass, at `e1cbf59`, records the maintenance that followed — see **Maintenance** below. Phase identifiers 007-015 remain stable, and the risk-gated execution order below was followed as written. Full traceability is in `.planning/AUDIT-REMEDIATION.md`; per-phase evidence is in `.planning/phases/*/VERIFICATION.md`.
+
+**Nothing about the programme's position changed today.** The work below is upkeep and re-verification; it closed no findings and moved no phase.
 
 ## Execution Order
 
@@ -56,7 +58,8 @@ All eleven steps are executed. `014` stopped at its decision-and-contracts slice
 
 - Gate: 015-B Full Authenticated UAT And External Audit Rerun
   Outcome: one command, nine gates, one verdict — unit/policy/permission suites (316 tests), contrast, bundle budget, Demo Trust UAT, cookie/CSRF/throttling, password reset, route-scoped reads, rendered accessibility, and the full browser regression family.
-  Status: **PASSED 9/9** against production 2026-07-19 (`8a19e66`, `2c6b55f`, `4c7e98c`) via `npm run smoke:uat-full`. Adds the permanent `api/permission-matrix.test.js` (42 checks, action list derived from source at test time so a new action cannot ship without a role decision). `docs/audit-handoff.md` rewritten around the 54/100 baseline. **No replacement score is claimed** — the June 96/100 is marked superseded, and the external rerun is owner action above.
+  Status: **PASSED 9/9** against production 2026-07-19 (`8a19e66`, `2c6b55f`, `4c7e98c`) via `npm run smoke:uat-full`, and **re-verified 9/9 twice on 2026-08-17**. Adds the permanent `api/permission-matrix.test.js` (42 checks, action list derived from source at test time so a new action cannot ship without a role decision). `docs/audit-handoff.md` rewritten around the 54/100 baseline. **No replacement score is claimed** — the June 96/100 is marked superseded, and the external rerun is owner action above.
+  Read the July result with one correction: its cleanup assertion never executed. `useTemporaryUser` is `Boolean(databaseUrl)` and no `DATABASE_URL` existed in the working environment until 2026-08-17, so the temporary-user path never ran and `assertCleanup()` returned early printing "skipped". July proved the seven browser smokes; it did not prove cleanup. The 2026-08-17 runs are the first to create a temporary Owner/Admin user, drive it through every smoke, tear it down and verify nothing was left behind.
 
 - Gate: D1 Demo Trust / 015-A Authenticated Demo Trust UAT
   Outcome: core Prompt 10 create/edit/refresh/lifecycle checks pass against production with isolated, reversible, manifest-owned data.
@@ -111,6 +114,21 @@ All eleven steps are executed. `014` stopped at its decision-and-contracts slice
 - Change: Production schema migrations applied (2026-07-19, `98606b7`, `4e7cabd`).
   Outcome: all six steps recorded in `schema_migrations`; re-running is a verified no-op. There is no database credential in this environment, so the migration runs through the app: `schema.ensure` is Owner/Admin-only, authenticated and audited, and applies the same step list as the CLI runner from `api/_migrations.js` so the two cannot drift. RS-007 forbids schema mutation on *ordinary* requests; an explicit authorised admin action is the operation that rule carves out. This closes the "run `npm run db:migrate` against production" item still listed under Remaining in `.planning/phases/012-performance-loading/VERIFICATION.md`.
 
+## Maintenance (2026-08-17)
+
+Upkeep after a four-week idle period. None of it closes a finding or advances a phase; it is recorded because two items change how earlier evidence should be read.
+
+- Change: Three dependency advisories cleared (`79b2248`).
+  `postcss` 8.5.15 → 8.5.26 and `nanoid` 3.3.15 → 3.3.18 (both high), `body-parser` 1.20.5 → 1.20.6 (low), all published during the idle month and all transitive with non-major fixes. CI had gone red on a docs-only commit as a result. Because `postcss` generates the CSS, the bundle was measured rather than assumed: the rebuild emitted byte-identical output, same content hashes, entry JS 97.9 kB and CSS 5.4 kB unchanged.
+
+- Change: `npm ci` restored on CI and production (`fbc568b`, `0b81bc8`).
+  The lockfile skew that forced CI onto `npm install` was gone — cleared as a side effect of the advisory bump above, which hoisted `@emnapi/*` to the versions Linux already resolved, not by the Linux regeneration the 012 note anticipated. Verified on both platforms before restoring rather than inferred: `npm ci` installs cleanly on Linux (node 22 / npm 10.9.8, 248 packages) and Windows (node 24 / npm 11.9.0, 245 packages), and the full CI sequence passes on Linux from a clean checkout, emitting byte-identical assets to the Windows build. `vercel.json` was aligned in the same pass, so production installs the exact tree CI verified. This closes the phase 012 residual risk on install drift. Accepted cost: a lockfile out of sync with `package.json` now fails the build rather than being resolved around — which is the point, since silent resolution is how the skew survived a month.
+
+- Fix: Live-audit smoke teardown (`ea47f64`, recorded in `3eab6a5`).
+  `removeSmokeUser()` deleted its temporary user without clearing the session rows the runner's own login created, which `app_sessions_user_id_fkey` (NO ACTION) refuses. Latent since Phase 011 created `app_sessions` on 2026-07-11, and invisible because the cleanup assertion was inert (see the 015-B note above). It left one Owner/Admin row and three unrevoked sessions in production for about an hour; no credential was recoverable, and both were removed and verified zero. The foreign key was deliberately **not** cascaded — the app deactivates users via `active` and never hard-deletes one, so loosening a live constraint to let a test tear down cleanly would weaken a real guarantee.
+
+**The pattern worth carrying forward:** this is the third check in the programme found to be passing for a reason other than the one claimed, after the stale phase-2 selector and the `tr[onclick]` pointer-row test React could never have matched. A green check is worth confirming actually ran.
+
 ## Later
 
 - Phase: Certification Evidence Closeout
@@ -124,4 +142,5 @@ All eleven steps are executed. `014` stopped at its decision-and-contracts slice
 ## Known Operational Notes
 
 - `smoke:milestone7` is intermittently flaky: it failed three times in a row at three *different* buttons with 30s click timeouts, then passed cleanly. Both plausible real causes were ruled out by measurement (Inventory renders 78 rows in production; the enlarged 013-A nav labels obscure zero controls — 72px nav against 104px clearance). Treat a single click timeout as environmental and re-run; treat a repeated failure at the **same** step as real.
-- CI installs with `npm install` rather than `npm ci`. The committed lockfile is platform-skewed (`@emnapi/*` resolves differently on Linux), so `npm ci` was never reproducible across platforms. Vercel runs the same command, so the pipeline exercises the resolution production gets. Restoring `npm ci` needs a lockfile regenerated on Linux.
+- CI and Vercel both install with `npm ci` as of 2026-08-17, so a deploy gets exactly the dependency tree CI verified. A lockfile that drifts out of sync with `package.json` now fails the build instead of being quietly resolved around; regenerate the lockfile and commit it rather than reaching for `npm install` to get past it. A failed build is not an outage — the previous deployment keeps serving.
+- The live-audit smoke only creates a temporary user, and only checks its own cleanup, when a `DATABASE_URL` is present. Without one it silently falls back to the configured `LIVE_TEST_EMAIL` account and prints "skipped" for the cleanup assertion. A green `smoke:live-audit` therefore means less in an environment with no database credential; check which mode it ran in before treating it as full evidence.
