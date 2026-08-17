@@ -3,6 +3,12 @@
 Prepared 2026-07-19 for a fresh independent audit.
 Live URL: https://pastry-county-kitchen-os.vercel.app
 
+> **The audited surface changed on 2026-08-17.** Phase 016 added device accounts:
+> a public invite-gated signup endpoint, a new authorization dimension
+> (`app_users.data_mode`), and a client-side engine that runs the kitchen in the
+> browser for those accounts. **The 015-B evidence below predates all of it and
+> does not cover it.** See "Changes after the 015-B gate" before scoping a review.
+
 ## Baseline being remediated
 
 **Pastry County Kitchen OS Expanded Production Audit, 2026-07-10: 54/100, "Not Ready".** Findings PCO-001 … PCO-016.
@@ -76,6 +82,51 @@ Last full run, 2026-07-19, against production: **all 9 gates PASSED.**
 ## Change made outside the audit programme
 
 **Stock is held when an order is confirmed** (2026-07-19, `dd390d3`). Deducting only at production completion meant a shortage caused by a second order was discovered after the first had been baked. Holding is not deducting: ingredients stay on the shelf and still leave stock exactly once, at the configured deduction stage. Live probe 10/10 — order A confirmed → stock 1000, held 400; order B needing 800 with 600 free → accepted and flagged `Shortage`; cancelling returned the hold. Configurable via `stockHoldStage`.
+
+## Changes after the 015-B gate
+
+Phase 016 (2026-08-17) shipped **device accounts** so the owner could hand the app
+to several testers, each with their own empty kitchen. It is outside the
+remediation programme and **outside the evidence above**: the 9/9 gate result
+predates it. An auditor should treat the following as new surface.
+
+**A public unauthenticated endpoint now exists.** `POST /api/auth/signup` creates
+an account when given an invite code from `SIGNUP_INVITE_CODE`. It is closed with
+a 503 when that variable is unset. Throttled 5 per 15 minutes per IP with a
+constant identity, so an attacker cannot get a fresh bucket per invented address.
+The invite code is compared by hashing both sides. Enumeration posture differs
+deliberately from password reset — a duplicate email is answered plainly, because
+only an invite holder can probe and the owner sees every signup.
+
+**Authorization gained a second dimension.** `app_users.data_mode` is `'server'`
+(every pre-existing account, unchanged) or `'device'`. Device accounts hold
+`Owner/Admin` so the app's permission gating works inside their own workspace,
+which means **role checks all pass for them and `data_mode` is the only fence**.
+It is enforced at `requirePermission` and `requireActiveSession`, twice each —
+once on the session actor before any query, then on the stored row, because a
+bearer-built actor carries no data mode.
+
+**Two actions remain callable by device accounts**, both with device-specific
+branches that read no business table: `import.extract` (matching context comes
+from the caller, not the database) and `notification.lowStockEmail` (recipients
+are the caller alone, and no `notification_events` or audit row is written).
+
+**A client-side engine now runs the kitchen in the browser** for device accounts —
+order lifecycle, holds, FEFO deduction, idempotent production, audit and order
+events, all against IndexedDB. Rules shared with the server are imported from
+`shared/` and held to reference identity by `shared/engine-parity.test.js`.
+
+Evidence for this phase lives in `.planning/phases/016-device-accounts/VERIFICATION.md`,
+including a list of what is deliberately not claimed. Reproduce with:
+
+```bash
+npm test                        # 519 tests across 16 files
+npm run smoke:device-account    # needs SIGNUP_INVITE_CODE and a database credential
+```
+
+The second is the privacy proof: it creates a real account against production,
+confirms it is refused every business read and write, and then queries the
+database directly for anything the account left behind.
 
 ## Defects the gates themselves caught
 

@@ -29,7 +29,8 @@
     "perf:baseline": "node scripts/perf-baseline.mjs",
     "perf:budget": "node scripts/check-bundle-budget.mjs",
     "a11y:contrast": "node scripts/check-contrast.mjs",
-    "smoke:a11y": "node scripts/a11y-smoke.mjs"
+    "smoke:a11y": "node scripts/a11y-smoke.mjs",
+    "smoke:device-account": "node scripts/device-account-smoke.mjs"
   },
   "dependencies": {
     "@neondatabase/serverless": "^0.10.4",
