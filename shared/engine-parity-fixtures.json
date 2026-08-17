@@ -1,0 +1,176 @@
+{
+  "_comment": "Canonical scenarios for business rules that BOTH the server and the device-mode local engine must satisfy. Phase 016 extracted these rules into shared/ so there is one implementation; these fixtures exist so a future re-implementation on either side is caught by evidence rather than by review. Loaders assert a minimum scenario count so a truncated or mis-parsed file fails loudly instead of passing vacuously.",
+  "pricing": [
+    {
+      "name": "single line, no tax or delivery",
+      "input": { "lines": [{ "saleQuantity": 1, "unitSellingPrice": 7500 }] },
+      "expect": { "subtotal": 7500, "netTotal": 7500, "taxAmount": 0, "grossTotal": 7500, "balance": 7500, "hasPricing": true }
+    },
+    {
+      "name": "tax and delivery both applied, tax on net only",
+      "input": { "lines": [{ "saleQuantity": 2, "unitSellingPrice": 5000 }], "deliveryFee": 1500, "taxRate": 7.5 },
+      "expect": { "subtotal": 10000, "netTotal": 10000, "taxAmount": 750, "deliveryFee": 1500, "grossTotal": 12250, "balance": 12250, "hasPricing": true }
+    },
+    {
+      "name": "discount is clamped to subtotal, never negative net",
+      "input": { "lines": [{ "saleQuantity": 1, "unitSellingPrice": 1000 }], "discountAmount": 5000 },
+      "expect": { "subtotal": 1000, "discountAmount": 1000, "netTotal": 0, "taxAmount": 0, "grossTotal": 0, "balance": 0 }
+    },
+    {
+      "name": "discount reduces the tax base",
+      "input": { "lines": [{ "saleQuantity": 1, "unitSellingPrice": 10000 }], "discountAmount": 2000, "taxRate": 10 },
+      "expect": { "subtotal": 10000, "discountAmount": 2000, "netTotal": 8000, "taxAmount": 800, "grossTotal": 8800 }
+    },
+    {
+      "name": "amount paid produces the balance",
+      "input": { "lines": [{ "saleQuantity": 1, "unitSellingPrice": 10000 }], "amountPaid": 4000 },
+      "expect": { "grossTotal": 10000, "amountPaid": 4000, "balance": 6000 }
+    },
+    {
+      "name": "overpayment yields a negative balance rather than clamping",
+      "input": { "lines": [{ "saleQuantity": 1, "unitSellingPrice": 1000 }], "amountPaid": 1500 },
+      "expect": { "grossTotal": 1000, "balance": -500 }
+    },
+    {
+      "name": "multiple lines sum",
+      "input": { "lines": [{ "saleQuantity": 2, "unitSellingPrice": 1500 }, { "saleQuantity": 3, "unitSellingPrice": 1000 }] },
+      "expect": { "subtotal": 6000, "netTotal": 6000, "grossTotal": 6000, "hasPricing": true }
+    },
+    {
+      "name": "line totals round to two places",
+      "input": { "lines": [{ "saleQuantity": 3, "unitSellingPrice": 33.333 }] },
+      "expect": { "subtotal": 100, "netTotal": 100, "grossTotal": 100 }
+    },
+    {
+      "name": "zero prices mean the order carries no pricing",
+      "input": { "lines": [{ "saleQuantity": 2, "unitSellingPrice": 0 }] },
+      "expect": { "subtotal": 0, "netTotal": 0, "grossTotal": 0, "hasPricing": false }
+    },
+    {
+      "name": "no lines at all",
+      "input": { "lines": [] },
+      "expect": { "subtotal": 0, "netTotal": 0, "grossTotal": 0, "balance": 0, "hasPricing": false }
+    },
+    {
+      "name": "negative unit price is refused",
+      "input": { "lines": [{ "saleQuantity": 1, "unitSellingPrice": -5 }] },
+      "throws": true
+    },
+    {
+      "name": "non-numeric sale quantity is refused",
+      "input": { "lines": [{ "saleQuantity": "abc", "unitSellingPrice": 100 }] },
+      "throws": true
+    },
+    {
+      "name": "negative discount is refused",
+      "input": { "lines": [{ "saleQuantity": 1, "unitSellingPrice": 100 }], "discountAmount": -1 },
+      "throws": true
+    },
+    {
+      "name": "negative tax rate is refused",
+      "input": { "lines": [{ "saleQuantity": 1, "unitSellingPrice": 100 }], "taxRate": -1 },
+      "throws": true
+    },
+    {
+      "name": "negative delivery fee is refused",
+      "input": { "lines": [{ "saleQuantity": 1, "unitSellingPrice": 100 }], "deliveryFee": -1 },
+      "throws": true
+    },
+    {
+      "name": "negative amount paid is refused",
+      "input": { "lines": [{ "saleQuantity": 1, "unitSellingPrice": 100 }], "amountPaid": -1 },
+      "throws": true
+    }
+  ],
+  "transitions": [
+    { "from": "Draft", "to": "Confirmed", "valid": true },
+    { "from": "Draft", "to": "Cancelled", "valid": true },
+    { "from": "Draft", "to": "Produced", "valid": false },
+    { "from": "Draft", "to": "Delivered", "valid": false },
+    { "from": "Confirmed", "to": "Stock Reserved", "valid": true },
+    { "from": "Confirmed", "to": "In Production", "valid": true },
+    { "from": "Confirmed", "to": "Produced", "valid": false },
+    { "from": "Stock Reserved", "to": "Produced", "valid": true },
+    { "from": "Stock Reserved", "to": "Confirmed", "valid": true },
+    { "from": "In Production", "to": "Produced", "valid": true },
+    { "from": "In Production", "to": "Stock Reserved", "valid": true },
+    { "from": "Produced", "to": "Delivered", "valid": true },
+    { "from": "Produced", "to": "Cancelled", "valid": false },
+    { "from": "Delivered", "to": "Produced", "valid": false },
+    { "from": "Delivered", "to": "Cancelled", "valid": false },
+    { "from": "Cancelled", "to": "Confirmed", "valid": false },
+    { "from": "Confirmed", "to": "Confirmed", "valid": true },
+    { "from": "", "to": "Confirmed", "valid": true }
+  ],
+  "fefo": [
+    {
+      "name": "spans two lots in expiry order",
+      "batches": [{ "id": "b1", "quantity_remaining": 100 }, { "id": "b2", "quantity_remaining": 150 }],
+      "quantity": 180,
+      "expect": [{ "batchId": "b1", "quantity": 100 }, { "batchId": "b2", "quantity": 80 }]
+    },
+    {
+      "name": "stops at the first lot when it covers the need",
+      "batches": [{ "id": "b1", "quantity_remaining": 100 }, { "id": "b2", "quantity_remaining": 150 }],
+      "quantity": 50,
+      "expect": [{ "batchId": "b1", "quantity": 50 }]
+    },
+    {
+      "name": "exact lot boundary does not touch the next lot",
+      "batches": [{ "id": "b1", "quantity_remaining": 100 }, { "id": "b2", "quantity_remaining": 150 }],
+      "quantity": 100,
+      "expect": [{ "batchId": "b1", "quantity": 100 }]
+    },
+    {
+      "name": "shortfall consumes every lot and silently stops (aggregate stock still falls by the full amount)",
+      "batches": [{ "id": "b1", "quantity_remaining": 100 }, { "id": "b2", "quantity_remaining": 150 }],
+      "quantity": 300,
+      "expect": [{ "batchId": "b1", "quantity": 100 }, { "batchId": "b2", "quantity": 150 }]
+    },
+    {
+      "name": "no lots yields no plan",
+      "batches": [],
+      "quantity": 120,
+      "expect": []
+    },
+    {
+      "name": "empty lots are skipped rather than emitted as zero takes",
+      "batches": [{ "id": "b1", "quantity_remaining": 0 }, { "id": "b2", "quantity_remaining": 40 }],
+      "quantity": 30,
+      "expect": [{ "batchId": "b2", "quantity": 30 }]
+    },
+    {
+      "name": "camelCase lot rows are accepted alongside snake_case",
+      "batches": [{ "id": "b1", "quantityRemaining": 25 }],
+      "quantity": 25,
+      "expect": [{ "batchId": "b1", "quantity": 25 }]
+    }
+  ],
+  "stages": {
+    "holdStage": [
+      { "input": "order_confirmation", "expect": "order_confirmation" },
+      { "input": "production_start", "expect": "production_start" },
+      { "input": "none", "expect": "none" },
+      { "input": "nonsense", "expect": "order_confirmation" },
+      { "input": null, "expect": "order_confirmation" }
+    ],
+    "holdStatus": [
+      { "status": "Confirmed", "stage": "order_confirmation", "expect": true },
+      { "status": "Stock Reserved", "stage": "order_confirmation", "expect": true },
+      { "status": "In Production", "stage": "order_confirmation", "expect": true },
+      { "status": "Draft", "stage": "order_confirmation", "expect": false },
+      { "status": "Produced", "stage": "order_confirmation", "expect": false },
+      { "status": "Delivered", "stage": "order_confirmation", "expect": false },
+      { "status": "Cancelled", "stage": "order_confirmation", "expect": false },
+      { "status": "Confirmed", "stage": "production_start", "expect": false },
+      { "status": "Confirmed", "stage": "none", "expect": false }
+    ],
+    "deductionStage": [
+      { "input": "confirmation", "expect": "confirmation" },
+      { "input": "production_start", "expect": "production_start" },
+      { "input": "production_completion", "expect": "production_completion" },
+      { "input": "nonsense", "expect": "production_completion" },
+      { "input": null, "expect": "production_completion" }
+    ]
+  }
+}
