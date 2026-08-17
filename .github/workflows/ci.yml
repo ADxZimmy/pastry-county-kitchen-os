@@ -45,9 +45,9 @@ jobs:
         # sync with package.json again, this step fails loudly instead of npm
         # install quietly resolving around it.
         #
-        # Note this no longer matches vercel.json's installCommand (npm install),
-        # so CI proves the lockfile is exact while production still resolves at
-        # build time.
+        # vercel.json's installCommand was aligned to npm ci in the same pass, so
+        # CI and production install identically again and a deploy gets exactly
+        # the dependency tree verified here.
         run: npm ci --no-audit --no-fund
 
       - name: Unit and policy tests

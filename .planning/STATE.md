@@ -184,7 +184,9 @@ Proven on both platforms before the step was restored, because the whole point o
 
 `npm ci` is now its own guard: a lockfile that drifts out of sync with package.json fails the step instead of being quietly resolved around.
 
-STILL OPEN, NARROWER: `vercel.json` keeps `installCommand: npm install`, so CI and production no longer install the same way. CI proves the lockfile is exact; a deploy can still resolve a transitive dependency differently from the commit CI verified. Aligning Vercel to `npm ci` closes it, at the cost of a deploy failing outright if the lockfile ever falls out of sync. Owner decision.
+VERCEL ALIGNED TO NPM CI on the owner's instruction, in the same pass. `vercel.json` now sets `installCommand: npm ci`, so CI and production install identically and a deploy gets exactly the dependency tree CI verified. This closes the phase 012 residual risk about install drift completely, rather than for CI only.
+
+The accepted cost is deliberate: a lockfile that ever falls out of sync with `package.json` now fails the build instead of being quietly resolved around. That is the point — silent resolution is how the original skew survived a month unnoticed. A failed build is also not an outage; the previous deployment keeps serving, as this programme already observed when the serverless function-count limit broke a build during 012-C part 1.
 
 ## Verification Snapshot
 
