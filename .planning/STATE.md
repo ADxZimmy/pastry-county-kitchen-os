@@ -178,6 +178,14 @@ One `codex-smoke-%` Owner/Admin row with three unrevoked sessions sat in product
 
 The FK was deliberately NOT changed to ON DELETE CASCADE. The only `delete from app_users` in the codebase is this smoke's teardown; the app deactivates users via `active` and never hard-deletes one, so cascading a live constraint to suit a test would weaken a real guarantee to obtain a pass. The teardown clears its own dependents instead. The rerun then verified cleanup with a temporary user for the first time.
 
+NPM CI RESTORED 2026-08-17. The lockfile skew that forced CI onto `npm install` is gone, and not by the Linux regeneration the phase 012 note anticipated: the dependency bump in `79b2248` hoisted `@emnapi/core` and `@emnapi/runtime` to 1.11.3, the versions Linux was already resolving, which removed the divergence as a side effect. The `@emnapi` movement flagged as a risk when that bump landed turned out to be the fix.
+
+Proven on both platforms before the step was restored, because the whole point of the original finding was that this had never actually been reproducible: `npm ci` installs cleanly on Linux (node 22 / npm 10.9.8, 248 packages) and Windows (node 24 / npm 11.9.0, 245 packages), differing only by platform-conditional optional dependencies, and the full CI sequence runs green on Linux from a clean `git archive` checkout in a node:22-slim container — install, 316 tests, build, audit, contrast, bundle budget. The Linux build emits BYTE-IDENTICAL assets to the Windows one (`index-DX7-Mvcy.css`, `index-B36g1KXT.js`), which is the real evidence of reproducibility.
+
+`npm ci` is now its own guard: a lockfile that drifts out of sync with package.json fails the step instead of being quietly resolved around.
+
+STILL OPEN, NARROWER: `vercel.json` keeps `installCommand: npm install`, so CI and production no longer install the same way. CI proves the lockfile is exact; a deploy can still resolve a transitive dependency differently from the commit CI verified. Aligning Vercel to `npm ci` closes it, at the cost of a deploy failing outright if the lockfile ever falls out of sync. Owner decision.
+
 ## Verification Snapshot
 
 - Command/check: `npm.cmd test`

@@ -26,17 +26,29 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        # `npm ci` cannot run here: the committed lockfile was generated on
-        # Windows and resolves @emnapi/* 1.10.0 nested under a rolldown WASM
-        # binding, while Linux resolves 1.11.2 hoisted, so npm refuses it as
-        # out of sync. The lockfile is platform-skewed, which means npm ci was
-        # never actually reproducible across platforms.
+        # Restored 2026-08-17. This was `npm install` because the lockfile was
+        # platform-skewed: it pinned @emnapi/* 1.10.0 nested under a rolldown
+        # WASM binding while Linux resolved 1.11.2 hoisted, so npm ci refused it
+        # as out of sync and the lockfile was never reproducible across
+        # platforms.
         #
-        # `npm install` also matches how Vercel builds this project
-        # (installCommand in vercel.json), so CI now exercises the same
-        # resolution production gets. Restoring npm ci needs a lockfile
-        # regenerated on Linux.
-        run: npm install --no-audit --no-fund
+        # The skew was cleared as a side effect of the dependency bump in
+        # 79b2248, which hoisted @emnapi/core and @emnapi/runtime to 1.11.3.
+        # Verified before restoring, on both platforms rather than assumed:
+        # npm ci installs cleanly on Linux (node 22 / npm 10.9.8, 248 packages)
+        # and on Windows (node 24 / npm 11.9.0, 245 packages) — the count
+        # differs only by platform-conditional optional dependencies — and the
+        # full pipeline below passes on Linux from a clean checkout, emitting
+        # byte-identical assets to the Windows build.
+        #
+        # Keeping npm ci here is the guard: if the lockfile ever drifts out of
+        # sync with package.json again, this step fails loudly instead of npm
+        # install quietly resolving around it.
+        #
+        # Note this no longer matches vercel.json's installCommand (npm install),
+        # so CI proves the lockfile is exact while production still resolves at
+        # build time.
+        run: npm ci --no-audit --no-fund
 
       - name: Unit and policy tests
         run: npm test
