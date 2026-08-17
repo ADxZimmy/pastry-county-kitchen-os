@@ -66,7 +66,17 @@ async function createSmokeUser() {
 
 async function removeSmokeUser() {
   if (!sql) return;
-  await sql`delete from app_users where lower(email) = lower(${smokeEmail})`;
+  // app_sessions and password_reset_tokens reference app_users with NO ACTION,
+  // and since RS-006 this runner signs in itself, so its own session row refuses
+  // the delete below. The constraint is not the defect: the app deactivates a
+  // user via `active` and nothing in it ever hard-deletes one, so cascading the
+  // real table to suit a test teardown would weaken a live guarantee. The
+  // dependents this smoke created are cleared here instead.
+  const [user] = await sql`select id from app_users where lower(email) = lower(${smokeEmail})`;
+  if (!user) return;
+  await sql`delete from app_sessions where user_id = ${user.id}`;
+  await sql`delete from password_reset_tokens where user_id = ${user.id}`;
+  await sql`delete from app_users where id = ${user.id}`;
   console.log("Temporary smoke user removed.");
 }
 
