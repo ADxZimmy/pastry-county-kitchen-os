@@ -11,6 +11,8 @@ import {
   ClipboardList,
   Clock,
   Cookie,
+  Eye,
+  EyeOff,
   FileSpreadsheet,
   FileText,
   Home,
@@ -30,7 +32,7 @@ import {
   Users,
   Wand2
 } from "lucide-react";
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { apiBaseUrl, backendMode } from "./lib/backend";
 import { auditChangedFields, auditChangeSummary, auditDataJson, auditExportRows, auditFieldLabel, auditRecordLabel, auditSearchText, type AuditRecordNameLookup } from "./lib/audit";
 import { appUsers, conversionRules, ingredientBatches, ingredients, inventoryMovements, orderEvents, orderItems, orders, products, productionQcLogs, recipeItems, recipes, settings, suppliers, setKitchenSnapshot } from "./data";
@@ -338,6 +340,70 @@ function Field({ label, children, helper }: { label: string; children: React.Rea
       {children}
       {helper && <small>{helper}</small>}
     </label>
+  );
+}
+
+// A password input with a show/hide toggle.
+//
+// Not built on Field, deliberately. Field wraps its children in a <label>, and a
+// <button> inside a <label> is invalid HTML: a click on the toggle also counts as
+// a click on the label, and screen readers read the control's name unpredictably.
+// This uses an explicit htmlFor/id pairing instead, so the toggle is a sibling of
+// the input rather than part of its label.
+//
+// Typing is never interrupted: toggling only swaps the input's type, so the value,
+// cursor position and any autofill association survive. Autocomplete is passed
+// through so password managers still recognise the field.
+function PasswordField({
+  label,
+  name,
+  autoComplete,
+  placeholder,
+  helper,
+  minLength,
+  required = true
+}: {
+  label: string;
+  name: string;
+  autoComplete: "current-password" | "new-password";
+  placeholder?: string;
+  helper?: string;
+  minLength?: number;
+  required?: boolean;
+}) {
+  const [visible, setVisible] = useState(false);
+  const inputId = useId();
+  return (
+    <div className="field">
+      <label htmlFor={inputId}>
+        <span>{label}</span>
+      </label>
+      <div className="password-input">
+        <input
+          id={inputId}
+          name={name}
+          type={visible ? "text" : "password"}
+          autoComplete={autoComplete}
+          placeholder={placeholder}
+          minLength={minLength}
+          required={required}
+        />
+        <button
+          type="button"
+          className="password-toggle"
+          onClick={() => setVisible((current) => !current)}
+          // The label carries the state as words rather than relying on the icon
+          // alone, and aria-pressed tells assistive tech this is a toggle rather
+          // than a one-shot action.
+          aria-label={visible ? `Hide ${label.toLowerCase()}` : `Show ${label.toLowerCase()}`}
+          aria-pressed={visible}
+          aria-controls={inputId}
+        >
+          {visible ? <EyeOff size={18} aria-hidden="true" /> : <Eye size={18} aria-hidden="true" />}
+        </button>
+      </div>
+      {helper && <small>{helper}</small>}
+    </div>
   );
 }
 
@@ -1326,9 +1392,7 @@ function Login({ setPage, setUser, notify }: { setPage: Navigate; setUser: (user
         <Field label="Email">
           <input name="email" type="email" autoComplete="email" placeholder="owner@pastrycounty.ng" required />
         </Field>
-        <Field label="Password">
-          <input name="password" type="password" autoComplete="current-password" placeholder="Password" required />
-        </Field>
+        <PasswordField label="Password" name="password" autoComplete="current-password" placeholder="Password" />
         <Button type="submit" disabled={working}>
           <LogIn size={18} /> {working ? "Checking..." : "Login"}
         </Button>
@@ -1418,12 +1482,8 @@ function SignupPage({ setPage, notify, setUser }: { setPage: Navigate; notify: N
         <Field label="Email">
           <input name="email" type="email" autoComplete="email" placeholder="you@example.com" required />
         </Field>
-        <Field label="Password">
-          <input name="password" type="password" autoComplete="new-password" placeholder="Password" required />
-        </Field>
-        <Field label="Confirm password">
-          <input name="confirmPassword" type="password" autoComplete="new-password" placeholder="Type it again" required />
-        </Field>
+        <PasswordField label="Password" name="password" autoComplete="new-password" placeholder="Password" />
+        <PasswordField label="Confirm password" name="confirmPassword" autoComplete="new-password" placeholder="Type it again" />
         <p className="muted">At least {MINIMUM_PASSWORD_LENGTH} characters. A long passphrase is a good choice.</p>
         <Button type="submit" disabled={working}>
           <UserPlus size={18} /> {working ? "Creating..." : "Create my kitchen"}
@@ -1530,12 +1590,8 @@ function ResetPassword({ token, setPage, notify }: { token?: string; setPage: Na
         <h1>Choose a new password</h1>
         <p>Setting a new password signs out every other device.</p>
         {error && <p className="form-error" role="alert">{error}</p>}
-        <Field label="New password">
-          <input name="password" type="password" autoComplete="new-password" minLength={MINIMUM_PASSWORD_LENGTH} required />
-        </Field>
-        <Field label="Confirm new password">
-          <input name="confirmPassword" type="password" autoComplete="new-password" minLength={MINIMUM_PASSWORD_LENGTH} required />
-        </Field>
+        <PasswordField label="New password" name="password" autoComplete="new-password" minLength={MINIMUM_PASSWORD_LENGTH} />
+        <PasswordField label="Confirm new password" name="confirmPassword" autoComplete="new-password" minLength={MINIMUM_PASSWORD_LENGTH} />
         <p className="muted">At least {MINIMUM_PASSWORD_LENGTH} characters. A long passphrase is a good choice.</p>
         <Button type="submit" disabled={working}>{working ? "Saving..." : "Save new password"}</Button>
         <button type="button" className="text-link" onClick={() => setPage({ name: "reset" })}>Request a new link</button>
@@ -3859,7 +3915,7 @@ function SettingsPage({ user, setPage, notify, reloadData }: { user?: AppUser; s
             <Field label="Full name"><input name="fullName" defaultValue={editingUser.fullName ?? ""} required /></Field>
             <Field label="Email"><input name="email" type="email" defaultValue={editingUser.email ?? ""} required /></Field>
             <Field label="Role"><select name="role" defaultValue={editingUser.role ?? "Baker"}><option>Owner/Admin</option><option>Baker</option><option>Inventory Manager</option><option>Viewer</option></select></Field>
-            <Field label="Temporary password"><input name="password" type="password" placeholder={editingUser.id ? "Leave blank to keep password" : "Required for new staff"} /></Field>
+            <PasswordField label="Temporary password" name="password" autoComplete="new-password" placeholder={editingUser.id ? "Leave blank to keep password" : "Required for new staff"} required={false} />
             <Field label="Active"><select name="active" defaultValue={editingUser.active === false ? "No" : "Yes"}><option>Yes</option><option>No</option></select></Field>
           </div>
           <div className="button-row"><Button variant="secondary" onClick={() => setEditingUser(null)}>Cancel</Button><Button type="submit">Save Staff</Button></div>

@@ -557,6 +557,38 @@ tbody tr.is-expanded { background: #edf7f5; }
 .field span { color: var(--ink); font-weight: 800; }
 .field small { color: var(--muted); }
 .field-error { color: var(--red) !important; font-weight: 800; }
+
+/* Password input with a show/hide toggle.
+   The toggle sits inside the input's box, so the input reserves room for it with
+   padding-right rather than shrinking -- swapping the icon must not move the
+   caret or reflow the field. */
+.password-input { position: relative; display: grid; }
+.password-input input { padding-right: 52px; }
+.password-toggle {
+  position: absolute;
+  top: 50%;
+  right: 2px;
+  transform: translateY(-50%);
+  /* 44x44 hit area even though the icon is 18px, per the touch-target minimum. */
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  /* --muted reaches 4.5:1 on the input's #fffdf8 background, so the icon stays
+     legible rather than sitting at the 3:1 floor for glyphs. */
+  color: var(--muted);
+  cursor: pointer;
+  transition: color 160ms ease, background-color 160ms ease;
+}
+.password-toggle:hover { color: var(--ink); background: rgba(44, 26, 16, 0.06); }
+.password-toggle:focus-visible { color: var(--ink); }
+@media (prefers-reduced-motion: reduce) {
+  .password-toggle { transition: none; }
+}
 .check-field {
   display: flex;
   align-items: flex-start;
