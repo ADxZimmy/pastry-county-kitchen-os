@@ -26,6 +26,7 @@ import {
   Sparkles,
   Truck,
   Upload,
+  UserPlus,
   Users,
   Wand2
 } from "lucide-react";
@@ -1345,7 +1346,7 @@ function SignupPage({ setPage, notify, setUser }: { setPage: Navigate; notify: N
   const [error, setError] = useState("");
 
   return (
-    <main className="auth-shell">
+    <main className="auth-screen">
       <form
         className="auth-card"
         onSubmit={async (event) => {
@@ -1407,6 +1408,7 @@ function SignupPage({ setPage, notify, setUser }: { setPage: Navigate; notify: N
         <BrandMark />
         <h1>Create your kitchen</h1>
         <p>Your recipes, stock and orders stay in this browser. They are never stored on our servers.</p>
+        {error && <p className="form-error" role="alert">{error}</p>}
         <Field label="Invite code">
           <input name="inviteCode" autoComplete="off" placeholder="The code you were given" required />
         </Field>
@@ -1417,14 +1419,14 @@ function SignupPage({ setPage, notify, setUser }: { setPage: Navigate; notify: N
           <input name="email" type="email" autoComplete="email" placeholder="you@example.com" required />
         </Field>
         <Field label="Password">
-          <input name="password" type="password" autoComplete="new-password" placeholder={`At least ${MINIMUM_PASSWORD_LENGTH} characters`} required />
+          <input name="password" type="password" autoComplete="new-password" placeholder="Password" required />
         </Field>
         <Field label="Confirm password">
           <input name="confirmPassword" type="password" autoComplete="new-password" placeholder="Type it again" required />
         </Field>
-        {error && <p className="form-error" role="alert">{error}</p>}
+        <p className="muted">At least {MINIMUM_PASSWORD_LENGTH} characters. A long passphrase is a good choice.</p>
         <Button type="submit" disabled={working}>
-          {working ? "Creating your kitchen..." : "Create my kitchen"}
+          <UserPlus size={18} /> {working ? "Creating..." : "Create my kitchen"}
         </Button>
         <button type="button" className="text-link" onClick={() => setPage({ name: "login" })}>Already have an account? Sign in</button>
       </form>
