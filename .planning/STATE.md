@@ -4,7 +4,13 @@ Last updated: 2026-08-17
 
 ## Current Focus
 
-Execute the revised audit-remediation program from the July 10 expanded production audit (54/100, Not Ready). The Demo Trust Program is COMPLETE: S0 (006a), 007, 008, 009 and 010 are all deployed and production-verified, and the **D1 Demo Trust Gate (015-A) PASSED 30/30 against production on 2026-07-11**. An unscripted operator/investor demo is now approvable for the Demo Trust scope. Next is the MVP Hardening Program: Phase 011 (auth/session), 012 (performance), 013 (accessibility), 014 (real AI, optional and gated), then 015-B full UAT + external audit rerun.
+The audit-remediation programme from the July 10 expanded production audit (54/100, Not Ready) is **executed end to end**. Both sub-programmes are complete and production-verified: Demo Trust (S0/006a, 007, 008, 009, 010) with the D1 gate PASSED 30/30 on 2026-07-11, and MVP Hardening (011 auth/session, 012 performance, 013 accessibility, 014-A assistant contracts) with the 015-B full UAT gate PASSED 9/9 on 2026-07-19 and again twice on 2026-08-17.
+
+**Nothing is in flight and no engineering blocks closure.** What remains is owner action, listed in `.planning/ROADMAP.md`: commission the fresh independent audit (the step that closes the programme), the manual keyboard-only and screen-reader pass, the `pastrycounty.com` → `pastrycounty.ng` mail-delivery DNS problem, and the provider/retention decision gating 014-B/C. Optional engineering with no failing check behind it: 014-B/C, Phase 013 cosmetic polish, and the Phase 012 optimisation leftovers.
+
+No replacement audit score is claimed. The June 96/100 is superseded and only a fresh independent audit can set a new one.
+
+The stale note this section carried until 2026-08-17 — that Phases 011-014 and 015-B were still "next" — predated their delivery by a month. `.planning/ROADMAP.md` carried the same error and was corrected in the same pass.
 
 ## Completed
 
@@ -188,12 +194,39 @@ VERCEL ALIGNED TO NPM CI on the owner's instruction, in the same pass. `vercel.j
 
 The accepted cost is deliberate: a lockfile that ever falls out of sync with `package.json` now fails the build instead of being quietly resolved around. That is the point — silent resolution is how the original skew survived a month unnoticed. A failed build is also not an outage; the previous deployment keeps serving, as this programme already observed when the serverless function-count limit broke a build during 012-C part 1.
 
+THE GATE PASSED A THIRD TIME (`e1cbf59`), against the `npm ci`-built production. That run is what makes the install change verified rather than merely deployed: the checks taken immediately after that deploy were a health response and an asset-hash comparison — sound, but neither exercised the application. The third run drives it end to end on that build, and cleanup verified zero for a second consecutive time, so the teardown fix holds rather than having passed once by coincidence. `smoke:live-audit` took 72s in both runs, a small signal that installing from the lockfile changed no runtime behaviour.
+
+Three gate runs on 2026-08-17, in order: FAILED in teardown with all seven browser smokes passing; 9/9 after the teardown fix; 9/9 against the `npm ci` build.
+
+`.planning/ROADMAP.md` was updated twice today (`e1e9702`, `e92b090`) — first to reconcile it with delivered state, then to record this maintenance under its own section, stating plainly that none of it moved the programme. Both files now agree on where the work actually stands, which they did not this morning.
+
 ## Verification Snapshot
 
-- Command/check: `npm.cmd test`
-  Result: Passed; 114/114 tests across 6 files (94 at 006a, +20 across Phase 007).
-- Command/check: `npm.cmd run build`
-  Result: Passed; Vite production build clean (JS ~339.7 kB / 95.4 kB gzip).
+### Current (2026-08-17, `e1cbf59`)
+
+- Command/check: `npm run smoke:uat-full` — the 015-B full gate (production)
+  Result: **PASSED 9/9**, twice — after the teardown fix, and again against the `npm ci`-built production. `test` 15s, `a11y:contrast` 1s, `perf:budget` 1s, `smoke:uat-core` 24s, `smoke:auth-cookie` 10s, `smoke:password-reset` 12s, `smoke:route-data` 9s, `smoke:a11y` 29s, `smoke:live-audit` 72s. Cleanup verified `{"smokeUsers":0,"activeSmokeIngredients":0,"fefoOverstatements":0}` on both runs — the first two times that assertion has executed against a temporary user rather than skipping.
+- Command/check: `npm test`
+  Result: Passed; **316/316 across 11 files**. Supersedes the 114/114 Phase 007 figure below.
+- Command/check: `npm run build`
+  Result: Passed; `index-B36g1KXT.js` 359.52 kB / 101.16 kB gzip, `index-DX7-Mvcy.css` 22.85 kB / 5.53 kB gzip. Identical content hashes on Windows and on Linux in a `node:22-slim` container, which is the reproducibility evidence.
+- Command/check: `npm run perf:budget`
+  Result: Passed; entry JS 97.9 kB / 150 kB, entry CSS 5.4 kB / 30 kB. Server-only parsers (mammoth, pdf-parse, read-excel-file, @napi-rs/canvas) absent from the client bundle.
+- Command/check: `npm audit --audit-level=moderate`
+  Result: Passed; **0 vulnerabilities** after `79b2248` cleared postcss, nanoid and body-parser.
+- Command/check: `npm run a11y:contrast`
+  Result: Passed; every pair above its AA threshold, nav labels 11.5px.
+- Command/check: `npm ci` cross-platform
+  Result: Passed on both. Linux node 22 / npm 10.9.8 → 248 packages; Windows node 24 / npm 11.9.0 → 245 packages, differing only by platform-conditional optional dependencies. Full CI sequence green on Linux from a clean `git archive` checkout.
+- Command/check: production probes after the `npm ci` deploy (`0b81bc8`)
+  Result: Passed. `/api/health` ok with `sessionSecret: "configured"`; the deployed shell references `index-B36g1KXT.js` and `index-DX7-Mvcy.css` — the same hashes built locally and in the Linux container; assets carry `public, max-age=31536000, immutable`.
+
+### Historical
+
+- Command/check: `npm.cmd test` (Phase 007)
+  Result: Passed; 114/114 tests across 6 files (94 at 006a, +20 across Phase 007). Superseded by the 316/316 figure above.
+- Command/check: `npm.cmd run build` (Phase 007)
+  Result: Passed; Vite production build clean (JS ~339.7 kB / 95.4 kB gzip). Superseded above.
 - Command/check: `npm.cmd audit --audit-level=moderate`
   Result: Passed at 006a; zero known vulnerabilities.
 - Command/check: `git diff --check`
