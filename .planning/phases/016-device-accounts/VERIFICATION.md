@@ -112,6 +112,27 @@ Postgres.
 | `npx tsc --noEmit` | clean |
 | `npm run perf:budget` | entry JS **100.5 kB / 150 kB**; engine present in a lazy chunk, absent from entry; 12/12 serverless functions |
 | `npm run smoke:auth-cookie` (production, post-migration) | 35/35 |
+| `npm run smoke:device-account` (production) | **32/32 — run `DEVICE-SMOKE-1786983888749-g8mytw`** |
+| `npm run smoke:uat-full` (production, after the phase) | **9/9** — the existing kitchen is undisturbed |
+
+### The privacy proof, run against production 2026-08-17
+
+A real device account was created through the live signup endpoint and then, while
+holding `Owner/Admin`:
+
+- refused `/api/bootstrap`, all five `/api/data/*` resources, and `ingredient.save`,
+  `settings.save`, `order.save` and `schema.ensure` — all 403;
+- allowed `import.extract` and `notification.lowStockEmail`, with the alert's
+  recipient list containing **only the tester's own address**;
+- left **zero** rows in `inventory_movements`, `order_events`, `notification_events`,
+  `orders`, `ingredients` and `recipes`;
+- left exactly one `audit_logs` row, its own `signup` — the deliberate exception,
+  so the owner can see who let themselves in;
+- was locked out immediately (401) by `user.disable`, proving the central kill
+  switch reaches a device account;
+- cleaned up to `{"accounts":0,"sessions":0,"auditRows":0}`.
+
+A wrong invite code was refused 403 and a duplicate email 409 in the same run.
 
 ### Checks that were proven to bite
 
@@ -152,7 +173,7 @@ absence check alone would pass by finding nothing anywhere, which is the
 | Code deployed | Done. `POST /api/auth/signup` returns 503 with the unavailable message, `GET` returns 405, and the deployed bundle hash matches the local build. |
 | Serverless function count | **12 of 12.** At the ceiling. The next endpoint must consolidate `api/auth/*` into one `api/auth/[op].js` dispatcher; CI now fails at 13 rather than letting a production build fail. |
 | Migration `007-app-users-data-mode` | Applied 2026-08-17. Column present, default `'server'`, all 89 existing accounts read as server mode — no behaviour change for anyone. |
-| `SIGNUP_INVITE_CODE` | Owner action. Until it is set, signup is closed with an honest 503. |
+| `SIGNUP_INVITE_CODE` | **Set by the owner 2026-08-17.** Signup is open to invite holders. Remove the variable and redeploy to close it again. |
 
 GitHub stopped recording deployment entries after `8619582`, so the deploy was
 confirmed by probing the endpoints and comparing the served bundle hash rather

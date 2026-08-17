@@ -26,6 +26,13 @@ const GATES = [
   { script: "smoke:auth-cookie", label: "Cookie sessions, CSRF, shared throttling", area: "PCO-012, RS-006" },
   { script: "smoke:password-reset", label: "Password recovery", area: "PCO-015" },
   { script: "smoke:route-data", label: "Route-scoped reads and role isolation", area: "PCO-010" },
+  // Phase 016. A device account must reach no business data on the server and
+  // leave none behind. This sits in the gate rather than beside it because a
+  // privacy check that is optional is a privacy check that quietly stops running
+  // -- the same shape as the cleanup assertion that sat inert for a month. It
+  // exits non-zero on a missing credential rather than skipping, so a green
+  // verdict here always means it actually ran.
+  { script: "smoke:device-account", label: "Device accounts reach no server data", area: "phase 016" },
   { script: "smoke:a11y", label: "Rendered accessibility sweep", area: "PCO-013" },
   { script: "smoke:live-audit", label: "Full browser regression family", area: "end-to-end" }
 ];

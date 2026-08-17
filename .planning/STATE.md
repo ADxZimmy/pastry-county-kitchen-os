@@ -200,9 +200,50 @@ Three gate runs on 2026-08-17, in order: FAILED in teardown with all seven brows
 
 `.planning/ROADMAP.md` was updated twice today (`e1e9702`, `e92b090`) — first to reconcile it with delivered state, then to record this maintenance under its own section, stating plainly that none of it moved the programme. Both files now agree on where the work actually stands, which they did not this morning.
 
+## Phase 016 Device Accounts — complete 2026-08-17
+
+Delivered outside the audit-remediation programme, on the owner's instruction: hand the app to several testers, each with their own account and their own EMPTY kitchen, and keep their recipes out of the central database because that was going to be their first concern.
+
+Login stays central. Every signup lands in `app_users`, appears on the owner's Staff page, and `user.disable` locks it out immediately. The kitchen data does not: it lives in the tester's browser, and the server refuses a device account every business read and write.
+
+THE FENCE IS `data_mode`, NOT ROLE. Device accounts hold Owner/Admin so the app's own permission gating works inside their workspace — which means every role check passes for them and this one column is all that stands between a tester and the bakery's records. That is why it is enforced at the two chokepoints every business path already flows through (`requirePermission` covers all 31 actions plus `produceOrder`; `requireActiveSession` covers bootstrap and all five `/api/data` resources), and why each refuses TWICE: once on the session actor before any query, then again on the stored row, because an actor built from a bearer token carries no data mode.
+
+Two actions stay on the server because a browser cannot do them, and both needed a device branch to stop tenant data crossing. Document import normally reads the bakery's ingredient, recipe and supplier names as matching context — a device caller sends its own instead and no business table is touched. Low-stock email normally derives recipients from the bakery's staff — a device alert goes to the one address proven by signing in, and writes no notification or audit row.
+
+SIGNUP REFUSES 503 RATHER THAN INSERTING WITHOUT THE COLUMN. That is what makes every "missing column means server mode" fallback safe rather than merely tolerable: no device account can exist before migration 007, so the default is provably correct. Inserting without it would have created a server-mode Owner/Admin, the worst outcome of a missed migration.
+
+THE TRAP AVOIDED IN THE CLIENT ENGINE: `src/lib/kitchen.ts` already computes recipe requirements and reusing it was the obvious shortcut. It applies display rounding — whole eggs, ceil for pcs, one decimal elsewhere — before summing, which is right for a preview and wrong for a deduction. The server rounds nothing. The engine ports the server's formula; kitchen.ts stays the preview.
+
+Idempotency is a storage constraint on both sides. A production claim is written with IndexedDB `add()` on a store keyed by orderId, so a repeat or concurrent completion raises ConstraintError and aborts the whole transaction with no stock moved — what `unique (order_id)` does in Postgres.
+
+TWO DEFECTS THE TESTS CAUGHT. `runTransaction` was wrapping ConstraintError in a generic error, which would have turned "already produced" into an unexplained failure. And `api/_actions.js` kept a local `isMissingColumn` while importing the shared one: vitest's transform accepted it, plain Node refused the module outright — a 500 on every route. Module loading is now checked directly rather than inferred from a green suite.
+
+TWO GUARDS PROVEN TO BITE, rather than trusted: the FEFO assertion was run against a reversed comparator and failed on the exact lot quantities; the serverless function-count guard was run against a limit of 11 and failed with its consolidation advice. The deployment sits at 12 of 12 functions, so the next endpoint must collapse `api/auth/*` into one dispatcher.
+
+PROVEN AGAINST PRODUCTION: `smoke:device-account` 32/32 (run `DEVICE-SMOKE-1786983888749-g8mytw`). A real device account was refused bootstrap, all five data resources and every write including `schema.ensure`; the two allowed actions worked with the alert reaching only the tester; the database held zero movements, order events, notification rows, orders, ingredients or recipes for it; the single audit row was its own signup. Disable locked it out at 401 and cleanup left nothing. `smoke:uat-full` then passed 9/9, so the existing kitchen is undisturbed. The smoke is now the tenth gate in that runner, and exits non-zero on a missing credential rather than skipping — an optional privacy check is one that quietly stops running.
+
+Bundle cost to everyone else: the engine is behind a dynamic import, so it is a 13.9 kB gzipped lazy chunk and the entry grew 97.9 -> 100.5 kB. The budget script proves that placement, requiring the marker to be PRESENT in a lazy chunk as well as absent from the entry one, because an absence check alone passes by finding nothing anywhere.
+
+`SIGNUP_INVITE_CODE` is set, so signup is open to invite holders. Removing it and redeploying closes it. `docs/device-accounts.md` is the tester-facing note and is deliberate about the narrow version of "private": kitchen data is never stored on the server, but imports and alerts transit it, the account itself is central, and the data is not encrypted on their device.
+
+`docs/audit-handoff.md` now says plainly that the audited surface changed after the 015-B gate — a public unauthenticated endpoint, a second authorization dimension, and a client-side engine, none of it covered by the 9/9 evidence.
+
 ## Verification Snapshot
 
-### Current (2026-08-17, `e1cbf59`)
+### Current (2026-08-17, phase 016)
+
+- Command/check: `npm run smoke:device-account` — the device-account privacy proof (production)
+  Result: **PASSED 32/32**, run `DEVICE-SMOKE-1786983888749-g8mytw`. Device account refused bootstrap, all five `/api/data` resources and every write including `schema.ensure`; the two allowed actions worked with the alert reaching only the tester; zero rows attributable to it in movements, order events, notifications, orders, ingredients or recipes; one audit row, its own signup; disable locked it out at 401; cleanup `{"accounts":0,"sessions":0,"auditRows":0}`.
+- Command/check: `npm run smoke:uat-full` after phase 016 (production)
+  Result: **PASSED 9/9.** The existing kitchen is undisturbed by device accounts.
+- Command/check: `npm test`
+  Result: Passed; **519/519 across 16 files** (401 before phase 016).
+- Command/check: `npm run perf:budget`
+  Result: Passed; entry JS 100.5 kB / 150 kB, device engine present in a lazy chunk and absent from the entry chunk, 12/12 serverless functions.
+- Command/check: migration `007-app-users-data-mode` (production)
+  Result: Applied. Column present, default `'server'`, all 89 existing accounts read as server mode. `smoke:auth-cookie` 35/35 immediately afterwards.
+
+### Earlier the same day (`e1cbf59`)
 
 - Command/check: `npm run smoke:uat-full` — the 015-B full gate (production)
   Result: **PASSED 9/9**, twice — after the teardown fix, and again against the `npm ci`-built production. `test` 15s, `a11y:contrast` 1s, `perf:budget` 1s, `smoke:uat-core` 24s, `smoke:auth-cookie` 10s, `smoke:password-reset` 12s, `smoke:route-data` 9s, `smoke:a11y` 29s, `smoke:live-audit` 72s. Cleanup verified `{"smokeUsers":0,"activeSmokeIngredients":0,"fefoOverstatements":0}` on both runs — the first two times that assertion has executed against a temporary user rather than skipping.

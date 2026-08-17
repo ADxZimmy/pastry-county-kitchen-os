@@ -2,7 +2,7 @@
 
 Revised 2026-08-17, twice. The first pass reconciled this file with delivered state at `4c7e98c`, because the previous revision (2026-07-11) predated Phases 012, 013, 014-A and the 015-B gate and still listed them as planned. The second pass, at `e1cbf59`, records the maintenance that followed — see **Maintenance** below. Phase identifiers 007-015 remain stable, and the risk-gated execution order below was followed as written. Full traceability is in `.planning/AUDIT-REMEDIATION.md`; per-phase evidence is in `.planning/phases/*/VERIFICATION.md`.
 
-**Nothing about the programme's position changed today.** The work below is upkeep and re-verification; it closed no findings and moved no phase.
+**The audit-remediation programme's position is unchanged.** The maintenance below is upkeep and re-verification; it closed no findings and moved no phase. Phase 016 Device Accounts is new work delivered outside that programme, and the 015-B gate evidence predates it — `docs/audit-handoff.md` says so explicitly, because an auditor scoping from that document would otherwise miss a public endpoint, a new authorization dimension, and a client-side engine.
 
 ## Execution Order
 
@@ -113,6 +113,17 @@ All eleven steps are executed. `014` stopped at its decision-and-contracts slice
 
 - Change: Production schema migrations applied (2026-07-19, `98606b7`, `4e7cabd`).
   Outcome: all six steps recorded in `schema_migrations`; re-running is a verified no-op. There is no database credential in this environment, so the migration runs through the app: `schema.ensure` is Owner/Admin-only, authenticated and audited, and applies the same step list as the CLI runner from `api/_migrations.js` so the two cannot drift. RS-007 forbids schema mutation on *ordinary* requests; an explicit authorised admin action is the operation that rule carves out. This closes the "run `npm run db:migrate` against production" item still listed under Remaining in `.planning/phases/012-performance-loading/VERIFICATION.md`.
+
+## Delivered Outside The Programme — Phase 016 Device Accounts (2026-08-17)
+
+- Phase: 016 Device Accounts
+  Outcome: testers get their own accounts and their own empty kitchens, with the kitchen data kept in their browser rather than in this database. Login stays central — every signup appears on the owner's Staff page and `user.disable` locks an account out immediately.
+  Status: **COMPLETE and production-verified.** Deployed across `a636198` (shared rules), `b193f87` (server guards and invite-gated signup), `c752de1` (the browser engine) and `9fe721b` (the privacy smoke and records). Migration `007-app-users-data-mode` applied; all 89 pre-existing accounts read as server mode with no behaviour change. `npm run smoke:device-account` passed **32/32** against production, and `npm run smoke:uat-full` passed **9/9** afterwards, so the existing kitchen is undisturbed.
+  The fence is `data_mode`, not role: device accounts hold Owner/Admin so the app's permission gating works inside their own workspace, which means every role check passes for them and this column is the only thing between a tester and the bakery's records. It is enforced at `requirePermission` and `requireActiveSession`, twice each — once on the session actor before any query, then on the stored row, because a bearer-built actor carries no data mode.
+  Two actions stay on the server because a browser cannot do them, both with device branches that read no business table: document import (matching context comes from the caller) and low-stock email (recipients are the caller alone).
+  Full evidence and eight explicit non-claims in `.planning/phases/016-device-accounts/VERIFICATION.md`; tester-facing notes in `docs/device-accounts.md`.
+
+- Owner action, now live: `SIGNUP_INVITE_CODE` is set, so signup is open to invite holders. Removing the variable and redeploying closes it again.
 
 ## Maintenance (2026-08-17)
 
