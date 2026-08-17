@@ -1,6 +1,6 @@
 # Roadmap
 
-Revised 2026-07-11 after reconciling the July 10 expanded external audit (54/100, Not Ready) with commit `123643b` and the current source. Phase identifiers 007-015 remain stable, but execution is now risk-gated instead of relying only on numeric order. Full traceability is in `.planning/AUDIT-REMEDIATION.md`.
+Revised 2026-08-17 to reconcile with delivered state at `4c7e98c`. The previous revision (2026-07-11) predated Phases 012, 013, 014-A and the 015-B gate, and still listed them as planned. Phase identifiers 007-015 remain stable, and the risk-gated execution order below was followed as written. Full traceability is in `.planning/AUDIT-REMEDIATION.md`; per-phase evidence is in `.planning/phases/*/VERIFICATION.md`.
 
 ## Execution Order
 
@@ -16,70 +16,112 @@ Revised 2026-07-11 after reconciling the July 10 expanded external audit (54/100
 10. `014` Real AI Orchestration, after an explicit provider/data-retention decision.
 11. `015-B` Full Authenticated UAT And External Audit Rerun.
 
+All eleven steps are executed. `014` stopped at its decision-and-contracts slice by design, gated on a provider key.
+
 ## Now
 
-- Phase: 012 Performance And Loading Architecture
-  Outcome: Immutable hashed assets, route chunks, paginated role-filtered endpoints, shrinking bootstrap, Web Vitals, and a real CI performance gate. (PCO-010, 011)
-  Status: Ready to begin.
+- Nothing in flight.
+  Every product phase in the audit-remediation programme is deployed and production-verified, and the 015-B full UAT gate passed 9/9 on 2026-07-19. The programme is blocked only on owner action, not on engineering.
 
-## Completed (MVP Hardening Program)
+## Owner Action (blocks programme closure)
 
-- Phase: 011 Auth And Session Hardening
-  Outcome: Opaque server-side sessions in HttpOnly cookies, CSRF protection, private/no-store responses, distributed auth throttling, and hashed single-use password-reset tokens. (PCO-012, 015)
-  Status: COMPLETE. Deployed and production-verified 2026-07-11 across 011-A (`e4fa6c3`), 011-B1 (`e86b654`, `ca7241d`), 011-B2 (`3e51dca`, `f21e89c`) and 011-B3 (`5c149a6`, `66d3143`). PCO-012, PCO-015 and RS-006 are closed; bearer credentials are retired.
+- Action: Commission the fresh independent audit.
+  Why it blocks: 015-B's final step is an external audit rerun against the 54/100 July 10 baseline. It cannot be self-served.
+  Prepared: `docs/audit-handoff.md` carries finding -> phase -> commit -> evidence for all 16 PCO and 7 RS findings. An auditor reproduces the state with `npm run smoke:uat-full`.
+
+- Action: Manual keyboard-only walkthrough and an NVDA/VoiceOver pass, recorded with assistive-technology versions.
+  Why it blocks: automated axe catches roughly half of real accessibility defects. No screen-reader claim is made anywhere in this programme without it. (Phase 013 plan step 10.)
+
+- Action: Resolve mail delivery between `pastrycounty.com` and `pastrycounty.ng` (SPF/DKIM/DMARC alignment).
+  Why it blocks: Resend accepts reset mail and returns message ids, but two of three test messages ended `delivery_delayed` and one at `sent` — none reached `delivered`. A locked-out operator may never receive a link. PCO-015 is closed for implementation; this is an operational/DNS dependency, not a code defect.
+
+- Decision: Whether to configure an assistant provider at all, and on whose retention terms.
+  Why it blocks 014-B/C: recipes and costs are commercial IP, and code cannot enforce a third party's policy.
+
+## Optional Engineering (nothing failing behind it)
+
+- Phase: 014-B/C Real AI Orchestration, remaining slices.
+  Outcome: server endpoint on Phase 011 cookie/CSRF primitives, read-only tools, bounded session context, provider adapter network calls, UI and review routing, authenticated smoke.
+  Status: Written but unprovable until `ASSISTANT_PROVIDER` and `ASSISTANT_API_KEY` exist. `/api/health` currently reports `configured: false` for all three accepted variable names. No AI capability claim may be made before this is proven.
+
+- Phase: 013 cosmetic polish (plan steps 7-8).
+  Outcome: mobile production card scan hierarchy; builder form ergonomics (collapsible ingredient rows, duplicate action, sticky Add ingredient, item count).
+  Status: Deferred. No failing check sits behind either item. Search and scroll position are still not preserved across detail round trips; only the filter is.
+
+- Phase: 012 optimisation leftovers.
+  Outcome: per-recipe loading for `recipeItems` (108.7 kB, 266 rows — not growth-capped, so pagination is the wrong tool); moving Dashboard and Orders onto the existing `/api/data/summary` and `/api/data/orders`; Lighthouse budgets behind an authenticated performance job.
+  Status: Optimisation, not defect repair. The current snapshot-driven versions are correct and bounded. A public login-page Lighthouse score is explicitly not evidence for the authenticated app.
 
 ## Completed Gates
 
-- Phase: 006a Immediate Security Containment / S0
-  Outcome: Retired unauthenticated stock mutation, authorized maintenance before DDL, restricted `schema.ensure`, masked unexpected errors, and required a dedicated production session secret.
-  Status: Deployed and production-verified 2026-07-11. Health, unauthenticated route probes, full live smoke, and cleanup passed.
+- Gate: 015-B Full Authenticated UAT And External Audit Rerun
+  Outcome: one command, nine gates, one verdict — unit/policy/permission suites (316 tests), contrast, bundle budget, Demo Trust UAT, cookie/CSRF/throttling, password reset, route-scoped reads, rendered accessibility, and the full browser regression family.
+  Status: **PASSED 9/9** against production 2026-07-19 (`8a19e66`, `2c6b55f`, `4c7e98c`) via `npm run smoke:uat-full`. Adds the permanent `api/permission-matrix.test.js` (42 checks, action list derived from source at test time so a new action cannot ship without a role decision). `docs/audit-handoff.md` rewritten around the 54/100 baseline. **No replacement score is claimed** — the June 96/100 is marked superseded, and the external rerun is owner action above.
 
 - Gate: D1 Demo Trust / 015-A Authenticated Demo Trust UAT
-  Outcome: Core Prompt 10 create/edit/refresh/lifecycle checks pass against production with isolated, reversible, manifest-owned data.
-  Status: PASSED 2026-07-11, 30/30 (`npm.cmd run smoke:uat-core`, run id `AUDIT-UAT-1784387883299-53b5tx`). Unscripted operator/investor demos are approved for the Demo Trust scope. Cleanup left no residue.
+  Outcome: core Prompt 10 create/edit/refresh/lifecycle checks pass against production with isolated, reversible, manifest-owned data.
+  Status: PASSED 2026-07-11, 30/30 (`npm.cmd run smoke:uat-core`, run id `AUDIT-UAT-1784387883299-53b5tx`). Unscripted operator/investor demos are approved for the Demo Trust scope. Cleanup left no residue. Re-verified green after every subsequent phase.
 
-## Demo Trust Program (complete)
+- Phase: 006a Immediate Security Containment / S0
+  Outcome: retired unauthenticated stock mutation, authorized maintenance before DDL, restricted `schema.ensure`, masked unexpected errors, and required a dedicated production session secret.
+  Status: Deployed and production-verified 2026-07-11. Health, unauthenticated route probes, full live smoke, and cleanup passed. (RS-001..RS-004.)
+
+## Completed — MVP Hardening Program
+
+- Phase: 011 Auth And Session Hardening
+  Outcome: opaque server-side sessions in HttpOnly cookies, CSRF protection, private/no-store responses, distributed auth throttling, and hashed single-use password-reset tokens. (PCO-012, PCO-015, RS-006)
+  Status: COMPLETE, deployed and production-verified 2026-07-11 — 011-A (`e4fa6c3`), 011-B1 (`e86b654`, `ca7241d`), 011-B2 (`3e51dca`, `f21e89c`), 011-B3 (`5c149a6`, `66d3143`). Bearer credentials are retired; cookies are the only credential the API accepts. `AUTH_BEARER_COMPAT=on` remains only as an unsupported rollback lever.
+
+- Phase: 012 Performance And Loading Architecture
+  Outcome: immutable hashed assets, route-scoped paginated role-filtered endpoints, a shrinking bootstrap, schema changes moved off request paths, and a real CI gate. (PCO-010, PCO-011, RS-007)
+  Status: COMPLETE for its defect scope, deployed and production-verified 2026-07-19 — 012-A (`40751c7`, `220bdc1`, `becf7a2`), 012-B reduced on evidence, 012-C part 1 (`60b63c3`, `3535101`), part 2 (`b7cd122`, `3e5466b`, `496a238`, `b00a019`), part 3 (`3c6f9be`). **Bootstrap fell 448.9 kB -> 259.6 kB, 42%.**
+  Measurement redirected the phase twice, and both redirections are the point: the entry bundle was already 96.3 kB gzipped and inside the audit's own 150 kB budget — the audit's 334 kB figure was uncompressed — so the App.tsx refactor was dropped on the owner's decision as a large regression-prone change to a problem that did not exist, with the enforced CI budget keeping that honest. And the work uncovered a **correctness defect, not just a performance one**: operators had been seeing roughly 7% of the audit trail and 21% of stock movements behind silent server-side LIMITs, with nothing indicating truncation. That is fixed and now admitted in the UI ("Showing 50 of 1,485 audit entries" with a Load older control).
+
+- Phase: 013 Accessibility And UX Uplift
+  Outcome: AA contrast, legible mobile nav, promoted primary navigation, filtered dashboard deep links, and list-filter preservation across a detail round trip. (PCO-013 plus audit sections E/F)
+  Status: COMPLETE for its defect scope, deployed and production-verified 2026-07-19 — 013-A (`a6189a6`, `d94fdfb`), 013-B (`df8ba52`), 013-C (`3af9c3b`). PCO-013 confirmed by measurement: caramel links were 3.92:1 on background and 4.03:1 on surfaces against a 4.5:1 AA requirement, nav labels 10.5px. Caramel is now `#af5714` (4.68:1 / 4.81:1 — the nearer 4.54:1 candidate was rejected for sitting on the line) and nav labels 11.5px/700. Two permanent gates: `npm run a11y:contrast` in CI computes ratios from the real `:root` tokens, and `npm run smoke:a11y` drives the app with axe-core (25/25 live). Cosmetic polish and the owner's manual pass are listed above.
+
+- Phase: 014 Real AI Orchestration — slice 014-A only
+  Outcome: owner decision record and assistant contracts — provider-neutral adapter, allow-list redaction, untrusted-notes quoting, a response contract under which a model cannot propose a write, and a clamped budget. (PCO-003 full closure remains open.)
+  Status: 014-A committed 2026-07-19 (`773adeb`, `0e4a9a0`, with `a949ac1` and `f3a73f0` for health reporting and vendor key names). It contacts no provider, needs no key, and **changes no behaviour** — unconfigured is a supported state and the deterministic Kitchen Helper still answers. 27 contract tests. 014-B/C are in Optional Engineering above, gated on the owner's provider decision.
+
+## Completed — Demo Trust Program
 
 - Phase: 007 Truthful Orders And Financials
-  Outcome: Real per-order event history and actor attribution; server-canonical pricing and totals; data-derived dashboard guidance; no hard-coded 18,000 or mojibake. (PCO-001, 002, 014, 016)
+  Outcome: real per-order event history and actor attribution; server-canonical pricing and totals; data-derived dashboard guidance; no hard-coded 18,000 or mojibake. (PCO-001, 002, 014, 016)
   Status: Deployed and production-verified 2026-07-11 (`85ee60e`, `596ca01`, `c1c958e`, hotfix `a75c688`).
 
 - Phase: 008 Production Transaction Safety
-  Outcome: Correct timezone-aware queues; server-enforced lifecycle; locked, atomic, idempotent completion; explicit QC/confirmation; safe cancellation policy. (PCO-004, 005, 009)
+  Outcome: correct timezone-aware queues; server-enforced lifecycle; locked, atomic, idempotent completion; explicit QC/confirmation; safe cancellation policy. (PCO-004, 005, 009)
   Status: Deployed and production-verified 2026-07-11 (`376509b`, `b17c05f`, `6b44f0b`).
 
 - Phase: 009 Validation, Settings And Unit Policy
-  Outcome: Client/server validation, a genuinely shared policy module, effective or explicitly retired settings, and divisible-unit rules. (PCO-006, 007, 008)
+  Outcome: client/server validation, a genuinely shared policy module, effective or explicitly retired settings, and divisible-unit rules. (PCO-006, 007, 008)
   Status: Deployed and production-verified 2026-07-11 (`6d33a07`, `09890d5`, `e8a733f`, `18d2c69`, `7abc4bc`).
 
 - Phase: 010 Conversion Apply And Honest Helper
-  Outcome: Conversion actions truthfully distinguish saving a rule from changing a recipe; recipe changes use review, confirmation, provenance, audited persistence, and reload verification; deterministic assistant is labelled Kitchen Helper. (PCO-003 demo closure)
+  Outcome: conversion actions truthfully distinguish saving a rule from changing a recipe; recipe changes use review, confirmation, provenance, audited persistence, and reload verification; the deterministic assistant is labelled Kitchen Helper. (PCO-003 demo closure)
   Status: Deployed and production-verified 2026-07-11 (`926861a`, `e4d3f1e`, `0511095`). Model-backed assistance remains Phase 014 and optional.
 
-## MVP Hardening Program (remaining)
+## Delivered Outside The Programme
 
-- Phase: 012 Performance And Loading Architecture
-  Outcome: Immutable hashed assets, route chunks, paginated role-filtered endpoints, shrinking bootstrap, Web Vitals, and a real CI performance gate. (PCO-010, 011)
-  Status: Planned.
+- Change: Stock hold at order confirmation (2026-07-19, `dd390d3`, `c86f660`, on owner instruction).
+  Outcome: deducting only at production completion meant a shortage caused by a second order was discovered after the first had already been baked. Stock is now held when an order is confirmed — holding is not deducting, and ingredients still leave stock exactly once at the configured deduction point. Confirmation reports a shortage but does not block, because a kitchen must be able to accept an order it still needs to shop for; production start still blocks. Configurable via `stockHoldStage` (order_confirmation default, production_start, none). Live probe 10/10.
 
-- Phase: 013 Accessibility And UX Uplift
-  Outcome: AA contrast, semantic keyboard-operable links/actions, legible mobile nav, filtered dashboard links, context preservation, production scanning hierarchy, and recorded keyboard/screen-reader/mobile-keyboard evidence. (PCO-013 plus audit sections E/F)
-  Status: Planned.
-
-- Phase: 014 Real AI Orchestration
-  Outcome: Provider-abstracted server-side assistant with read-only tools, traceable structured responses, strict data minimization/cost limits, and confirmation-gated proposed actions. (PCO-003 full closure)
-  Status: Planned last among product phases; provider, retention, and budget decision required before implementation.
-
-- Gate: 015-B Authenticated UAT And External Audit Rerun
-  Outcome: Full Prompt 10 evidence, calculation/permission/security regression suites, production-safe smoke, updated handoff, and a fresh independent audit.
-  Status: Planned after Phases 011-014.
+- Change: Production schema migrations applied (2026-07-19, `98606b7`, `4e7cabd`).
+  Outcome: all six steps recorded in `schema_migrations`; re-running is a verified no-op. There is no database credential in this environment, so the migration runs through the app: `schema.ensure` is Owner/Admin-only, authenticated and audited, and applies the same step list as the CLI runner from `api/_migrations.js` so the two cannot drift. RS-007 forbids schema mutation on *ordinary* requests; an explicit authorised admin action is the operation that rule carves out. This closes the "run `npm run db:migrate` against production" item still listed under Remaining in `.planning/phases/012-performance-loading/VERIFICATION.md`.
 
 ## Later
 
 - Phase: Certification Evidence Closeout
-  Outcome: External SPF/DNS, controlled email delivery, backup/restore or rollback drills, keyboard/screen-reader sign-off, and manual operator evidence for a 100/100 certification claim.
-  Status: Backlog; DNS evidence also affects production email verification in Phase 011.
+  Outcome: external SPF/DNS, controlled email delivery, backup/restore or rollback drills, keyboard/screen-reader sign-off, and manual operator evidence for a 100/100 certification claim.
+  Status: Backlog. Also gates the mail-delivery owner action above.
 
 - Phase: Post-MVP improvements backlog
-  Outcome: Configurable role-based mobile nav, offline production, purchase orders, supplier comparison, price history, stock-exhaustion prediction, waste analytics, recipe versions, and batch labels/print sheets.
-  Status: Waiting until remediation and the audit rerun complete.
+  Outcome: configurable role-based mobile nav, offline production, purchase orders, supplier comparison, price history, stock-exhaustion prediction, waste analytics, recipe versions, and batch labels/print sheets.
+  Status: Waiting until the audit rerun completes.
+
+## Known Operational Notes
+
+- `smoke:milestone7` is intermittently flaky: it failed three times in a row at three *different* buttons with 30s click timeouts, then passed cleanly. Both plausible real causes were ruled out by measurement (Inventory renders 78 rows in production; the enlarged 013-A nav labels obscure zero controls — 72px nav against 104px clearance). Treat a single click timeout as environmental and re-run; treat a repeated failure at the **same** step as real.
+- CI installs with `npm install` rather than `npm ci`. The committed lockfile is platform-skewed (`@emnapi/*` resolves differently on Linux), so `npm ci` was never reproducible across platforms. Vercel runs the same command, so the pipeline exercises the resolution production gets. Restoring `npm ci` needs a lockfile regenerated on Linux.
