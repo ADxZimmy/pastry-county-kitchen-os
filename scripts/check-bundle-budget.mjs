@@ -59,6 +59,22 @@ const leaked = SERVER_ONLY_PACKAGES.filter((pkg) => clientJs.includes(pkg));
 console.log("\n  server-only packages absent from the client bundle:");
 for (const pkg of SERVER_ONLY_PACKAGES) console.log(`    ${leaked.includes(pkg) ? "LEAKED" : "ok    "} ${pkg}`);
 
+// Phase 016: the device-mode engine must stay in a lazily loaded chunk. Only
+// tester accounts use it, and every byte of it in the entry bundle is paid for by
+// every normal user on first paint.
+//
+// The marker is the IndexedDB name prefix, a string literal that survives
+// minification where an identifier would not. Requiring it to be PRESENT
+// somewhere is what keeps the absence check honest: renaming the database would
+// otherwise make this pass by finding nothing anywhere.
+const DEVICE_ENGINE_MARKER = "pcko-local-";
+const entryHasEngine = entryJs.some((file) => readFileSync(path.join(distDir, file), "utf8").includes(DEVICE_ENGINE_MARKER));
+const lazyHasEngine = lazyChunks.some((file) => readFileSync(path.join(distDir, file), "utf8").includes(DEVICE_ENGINE_MARKER));
+
+console.log("\n  device-mode engine placement:");
+console.log(`    ${lazyHasEngine ? "ok    " : "MISSING"} present in a lazily loaded chunk`);
+console.log(`    ${entryHasEngine ? "LEAKED" : "ok    "} absent from the entry chunk`);
+
 // Vercel turns every non-underscore, non-test file under api/ into a serverless
 // function, and the deployment has a hard function limit. Phase 012-C hit it:
 // adding one route took the count to 13, the build failed, and because a failed
@@ -90,6 +106,10 @@ const failures = [];
 if (jsTotal > ENTRY_BUDGET_KB) failures.push(`entry JavaScript ${jsTotal.toFixed(1)} kB exceeds the ${ENTRY_BUDGET_KB} kB budget`);
 if (cssTotal > CSS_BUDGET_KB) failures.push(`entry CSS ${cssTotal.toFixed(1)} kB exceeds the ${CSS_BUDGET_KB} kB budget`);
 if (leaked.length) failures.push(`server-only package(s) reached the client bundle: ${leaked.join(", ")}`);
+if (entryHasEngine) failures.push("the device-mode engine reached the entry chunk; it must stay behind a dynamic import");
+if (!lazyHasEngine) {
+  failures.push(`no chunk contains "${DEVICE_ENGINE_MARKER}" — if the database name changed, update this guard so it keeps checking something real`);
+}
 if (functions.length > FUNCTION_LIMIT) {
   failures.push(`${functions.length} serverless functions exceeds the ${FUNCTION_LIMIT} the deployment allows -- consolidate api/auth/* into one dispatcher rather than raising the limit`);
 }

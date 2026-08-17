@@ -33,6 +33,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "rea
 import { apiBaseUrl, backendMode } from "./lib/backend";
 import { auditChangedFields, auditChangeSummary, auditDataJson, auditExportRows, auditFieldLabel, auditRecordLabel, auditSearchText, type AuditRecordNameLookup } from "./lib/audit";
 import { appUsers, conversionRules, ingredientBatches, ingredients, inventoryMovements, orderEvents, orderItems, orders, products, productionQcLogs, recipeItems, recipes, settings, suppliers, setKitchenSnapshot } from "./data";
+import type { KitchenSnapshot } from "./data";
 import type { AppStaffUser, AuditLog, ConversionRule, ImportDraft, ImportDraftRecipeItem, Ingredient, IngredientAllergenProfile, IngredientBatch, IngredientStorageProfile, InventoryMovement, Order, Recipe, RecipeCostProfile, RecipeFormulaMetadata, RecipeItem, RecipeItemPrepState, StockStatus, Supplier, Unit } from "./types";
 import {
   calculateMargin,
@@ -83,6 +84,7 @@ import {
 } from "./lib/routes";
 import { MINIMUM_PASSWORD_LENGTH, defaultAllowsDecimals, passwordsMatch, unitIncrement, validatePasswordStrength } from "../shared/policy.js";
 import { describeShowing, fetchResourcePage, usePagedResource } from "./lib/routeData";
+import { deviceAccount, deviceUserId, isDeviceMode, sessionActor, setDataSession } from "./lib/dataMode";
 import type { PagedStatus } from "./lib/routeData";
 
 type OrderDraft = {
@@ -174,6 +176,10 @@ export type AppUser = {
   email: string;
   fullName: string;
   role: "Owner/Admin" | "Baker" | "Inventory Manager" | "Viewer";
+  // "device" accounts keep their kitchen data in this browser instead of on the
+  // server, which refuses them every business read and write. Absent means the
+  // normal server-backed account.
+  dataMode?: "server" | "device";
 };
 
 const permissionRoles = {
@@ -210,6 +216,13 @@ export function setCsrfToken(value: string) {
   csrfToken = typeof value === "string" ? value : "";
 }
 
+// Toasts name where a change was persisted. For a device account that is this
+// browser, not the shared database, and saying otherwise would be a small lie
+// told on every save.
+function storageLabel() {
+  return isDeviceMode() ? "this device" : "Neon";
+}
+
 function csrfHeaders(): Record<string, string> {
   return csrfToken ? { "x-csrf-token": csrfToken } : {};
 }
@@ -222,12 +235,18 @@ async function fetchSessionIdentity(): Promise<AppUser | undefined> {
     const body = await response.json().catch(() => ({}));
     if (!response.ok) {
       setCsrfToken("");
+      setDataSession(undefined);
       return undefined;
     }
     setCsrfToken(body.csrfToken ?? "");
-    return body.user as AppUser | undefined;
+    const user = body.user as AppUser | undefined;
+    // Set before anything that reads data can mount, so fetchResourcePage and
+    // apiAction know which engine to use without being handed the user.
+    setDataSession(user);
+    return user;
   } catch {
     setCsrfToken("");
+    setDataSession(undefined);
     return undefined;
   }
 }
@@ -596,9 +615,26 @@ function isStaleCsrfError(status: number, error: unknown) {
   return status === 403 && /security token|did not come from/i.test(String(error ?? ""));
 }
 
+// The two actions a device account still sends to the server, because a browser
+// cannot do them: parsing a PDF/DOCX/XLSX, and sending mail. Everything else runs
+// against the local workspace.
+const SERVER_ACTIONS_IN_DEVICE_MODE = new Set(["import.extract", "notification.lowStockEmail"]);
+
 async function apiAction(action: string, payload: Record<string, unknown> = {}) {
   emitKitchenRequest({ phase: "start" });
   try {
+    if (isDeviceMode()) {
+      const local = await import("./local/store");
+      if (!SERVER_ACTIONS_IN_DEVICE_MODE.has(action)) {
+        return await local.runDeviceAction(action, payload, sessionActor());
+      }
+      // An import is matched against the caller's own ingredient and recipe
+      // names, never the server's — otherwise the parse would resolve a tester's
+      // draft against a kitchen they cannot see.
+      if (action === "import.extract") {
+        payload = { ...payload, localContext: local.localImportContext() };
+      }
+    }
     let { response, result } = await postAction(action, payload);
     // A stale CSRF token — the session was rotated in another tab, or this tab
     // sat open across a re-login — is recoverable. Fetch the current one and
@@ -747,9 +783,43 @@ function App() {
     dirtyRef.current = hasUnsavedChanges;
   }, [hasUnsavedChanges]);
 
+  const applyLoadedSnapshot = useCallback((snapshot: KitchenSnapshot) => {
+    setKitchenSnapshot(snapshot);
+    setSelectedRecipeId((current) => snapshot.recipes.some((item: Recipe) => item.id === current) ? current : snapshot.recipes[0]?.id ?? "");
+    setSelectedIngredientId((current) => snapshot.ingredients.some((item: Ingredient) => item.id === current) ? current : snapshot.ingredients[0]?.id ?? "");
+    setSelectedOrderId((current) => current && snapshot.orders.some((item: Order) => item.id === current) ? current : "");
+    setDataError("");
+    setDataStatus("ready");
+    setDataVersion((version) => version + 1);
+  }, []);
+
   const loadKitchenData = useCallback(async (cancelled?: () => boolean) => {
       const wasReady = dataStatusRef.current === "ready";
       if (wasReady) setIsRefreshing(true);
+
+      // A device account's kitchen is in this browser. /api/bootstrap is not just
+      // unnecessary here — the server refuses it — so it is never called.
+      const account = deviceAccount();
+      if (account) {
+        try {
+          const { hydrateDeviceSnapshot } = await import("./local/store");
+          const snapshot = await hydrateDeviceSnapshot(account);
+          if (!cancelled?.()) applyLoadedSnapshot(snapshot);
+        } catch (error) {
+          if (!cancelled?.()) {
+            // No silent fallback to the server: it would refuse us, and pretending
+            // otherwise would show an empty kitchen as if it were the real one.
+            const message = error instanceof Error ? error.message : "This browser could not open your device workspace.";
+            setDataError(message);
+            if (wasReady) notify(message);
+            else setDataStatus("error");
+          }
+        } finally {
+          if (!cancelled?.()) setIsRefreshing(false);
+        }
+        return;
+      }
+
       try {
         const response = await fetch(`${apiBaseUrl}/api/bootstrap`, { credentials: "same-origin" });
         const result = await response.json().catch(() => ({}));
@@ -769,15 +839,7 @@ function App() {
           throw new Error(result.error || `Kitchen API returned ${response.status}`);
         }
         const snapshot = result;
-        if (!cancelled?.()) {
-          setKitchenSnapshot(snapshot);
-          setSelectedRecipeId((current) => snapshot.recipes.some((item: Recipe) => item.id === current) ? current : snapshot.recipes[0]?.id ?? "");
-          setSelectedIngredientId((current) => snapshot.ingredients.some((item: Ingredient) => item.id === current) ? current : snapshot.ingredients[0]?.id ?? "");
-          setSelectedOrderId((current) => current && snapshot.orders.some((item: Order) => item.id === current) ? current : "");
-          setDataError("");
-          setDataStatus("ready");
-          setDataVersion((version) => version + 1);
-        }
+        if (!cancelled?.()) applyLoadedSnapshot(snapshot);
       } catch (error) {
         if (!cancelled?.()) {
           const message = error instanceof Error ? error.message : "Unable to load kitchen data";
@@ -788,7 +850,7 @@ function App() {
       } finally {
         if (!cancelled?.()) setIsRefreshing(false);
       }
-  }, [notify]);
+  }, [notify, applyLoadedSnapshot]);
 
   useEffect(() => {
     const onKitchenRequest = (event: Event) => {
@@ -798,6 +860,27 @@ function App() {
     window.addEventListener(kitchenRequestEvent, onKitchenRequest);
     return () => window.removeEventListener(kitchenRequestEvent, onKitchenRequest);
   }, []);
+
+  // Another tab of the same device account committed a write. IndexedDB
+  // serialises the transactions themselves, but this tab's in-memory copy is now
+  // behind, so it reloads rather than rendering stale stock.
+  useEffect(() => {
+    if (user?.dataMode !== "device") return;
+    let cancelled = false;
+    let dispose: (() => void) | undefined;
+    (async () => {
+      const local = await import("./local/store").catch(() => null);
+      if (!local || cancelled) return;
+      local.onExternalChange(() => {
+        void loadKitchenData(() => cancelled);
+      });
+      dispose = () => local.onExternalChange(null);
+    })();
+    return () => {
+      cancelled = true;
+      dispose?.();
+    };
+  }, [user?.dataMode, user?.id, loadKitchenData]);
 
   // The signed-in identity is no longer readable from storage, so the app asks
   // the server who it is before rendering anything role-gated.
@@ -1012,7 +1095,7 @@ function App() {
         </nav>
         <div className="sidebar-note">
           <Sparkles size={18} />
-          <span>{backendMode === "neon-api" || backendMode === "same-origin-api" ? "Connected to Neon API" : "Database mode active"}</span>
+          <span>{user?.dataMode === "device" ? "Kitchen data stays on this device" : backendMode === "neon-api" || backendMode === "same-origin-api" ? "Connected to Neon API" : "Database mode active"}</span>
         </div>
       </aside>
       <main id="main-content" className="main" tabIndex={-1}>
@@ -1041,6 +1124,13 @@ function App() {
                 notify("Signed out on this device, but the server could not be reached.");
               }
               setCsrfToken("");
+              // Close the local database but never delete it: signing out is not
+              // a request to destroy a tester's kitchen, and they will sign back
+              // in on this device and expect their work.
+              if (isDeviceMode()) {
+                await import("./local/store").then((local) => local.closeDeviceStore()).catch(() => {});
+              }
+              setDataSession(undefined);
               writeSession({ ...readSession(), page: "login", route: { name: "login" } });
               setUser(undefined);
               setRoute({ name: "login" });
@@ -1081,7 +1171,7 @@ function LoadingScreen() {
       <article className="auth-card loading-card">
         <BrandMark />
         <h1>Opening the kitchen</h1>
-        <p>Loading live inventory, recipes, orders, and conversion rules from Postgres.</p>
+        <p>{isDeviceMode() ? "Opening your kitchen from this device." : "Loading live inventory, recipes, orders, and conversion rules from Postgres."}</p>
         <div className="skeleton-grid" aria-hidden="true">
           <span />
           <span />
@@ -1206,8 +1296,9 @@ function Login({ setPage, setUser, notify }: { setPage: Navigate; setUser: (user
           // The credential arrived as an HttpOnly cookie; only the identity and
           // the CSRF token come back in the body.
           setCsrfToken(result.csrfToken ?? "");
-          const { id, email, fullName, role } = result;
-          const signedInUser: AppUser = { id, email, fullName, role };
+          const { id, email, fullName, role, dataMode } = result;
+          const signedInUser: AppUser = { id, email, fullName, role, dataMode };
+          setDataSession(signedInUser);
           writeSession({ ...readSession(), page: "dashboard", route: { name: "dashboard" } });
           setUser(signedInUser);
           notify(`Signed in as ${signedInUser.role}.`);
@@ -1379,6 +1470,44 @@ function ConfirmDialog({ request, onClose }: { request: ConfirmRequest; onClose:
   );
 }
 
+// Shown to a device account until it has exported a backup once. A tester who
+// clears their browser loses the whole kitchen, and the first they would hear of
+// it otherwise is when it is gone — so the warning stays until there is a file,
+// then never appears again.
+function DeviceBackupBanner({ setPage }: { setPage: Navigate }) {
+  const [show, setShow] = useState(false);
+  useEffect(() => {
+    if (!isDeviceMode()) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const local = await import("./local/store");
+        const status = await local.deviceStorageStatus();
+        if (!cancelled) setShow(!status.hasExportedBackup);
+      } catch {
+        if (!cancelled) setShow(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  if (!show) return null;
+  return (
+    <div className="summary-card" role="status">
+      <h3>Your kitchen data lives on this device</h3>
+      <p>
+        Nothing you enter here is stored in the Pastry County database. That also means clearing your browser data would
+        delete it, and signing in on another device starts an empty workspace.
+      </p>
+      <div className="button-row">
+        <Button onClick={() => setPage({ name: "settings" })}>Download a backup</Button>
+        <Button variant="secondary" onClick={() => setShow(false)}>Not now</Button>
+      </div>
+    </div>
+  );
+}
+
 function Dashboard({ setPage, setSelectedIngredientId, setSelectedOrderId }: any) {
   const shopping = generateShoppingList();
   const today = new Date().toISOString().slice(0, 10);
@@ -1445,6 +1574,7 @@ function Dashboard({ setPage, setSelectedIngredientId, setSelectedOrderId }: any
   ];
   return (
     <div className="page-grid">
+      <DeviceBackupBanner setPage={setPage} />
       <div className="metric-grid">
         {metrics.map(({ label, value, hint, onOpen, openLabel }) => (
           <Metric key={label} label={label} value={value} hint={hint} onOpen={onOpen} openLabel={openLabel} />
@@ -1840,7 +1970,7 @@ function IngredientForm({ ingredientId, setPage, setFormDirty, notify, reloadDat
           notes: formValue(form, "notes")
         }
       });
-      notify("Ingredient saved to Neon.");
+      notify(`Ingredient saved to ${storageLabel()}.`);
       await reloadData();
       const savedId = typeof result.id === "string" ? result.id : ingredient?.id;
       setPage(savedId ? { name: "inventory", ingredientId: savedId, mode: "detail" } : { name: "inventory" });
@@ -1932,7 +2062,7 @@ function RecipeDetail({ recipeId, user, setPage, setOrderDraft, notify, askConfi
     <div className="detail-layout">
       <article className="detail-hero">
         <div><p className="eyebrow">{recipe.category}</p><h2>{recipe.name}</h2><p>Base yield {recipe.baseYieldQuantity} {recipe.yieldUnit} · {formatNaira(cost.totalRecipeCost)} batch cost</p></div>
-        <div className="button-row"><Button onClick={() => setPage({ name: "recipes", recipeId, mode: "scale" })}><Scale size={18} /> Scale Recipe</Button><Button variant="secondary" onClick={() => setPage({ name: "recipes", recipeId, mode: "edit" })} disabled={!canUser(user, "manageRecipes")}>Edit Recipe</Button><Button variant="secondary" onClick={() => { setOrderDraft({ recipeId, requestedYieldQuantity: recipe.baseYieldQuantity }); setPage({ name: "orders", mode: "new", returnTo: { name: "recipes", recipeId, mode: "detail" } }); }} disabled={!canUser(user, "manageOrders")}>Create Order</Button><Button variant="ghost" onClick={async () => { const result = await apiAction("recipe.save", { recipe: { name: `${recipe.name} Copy`, category: recipe.category, baseYieldQuantity: recipe.baseYieldQuantity, yieldUnit: recipe.yieldUnit, notes: recipe.notes, instructions: recipe.instructions.join("\n"), formulaMetadata: recipe.formulaMetadata ?? {}, costProfile: recipe.costProfile ?? {}, items: currentRecipeItems.map((item) => ({ ...item, prepState: item.prepState ?? {} })) } }); notify("Recipe duplicated in Neon."); await reloadData(); setPage(typeof result.id === "string" ? { name: "recipes", recipeId: result.id, mode: "detail" } : { name: "recipes" }); }} disabled={!canUser(user, "manageRecipes")}>Duplicate</Button><Button variant="danger" onClick={() => askConfirm({ title: `Archive ${recipe.name}?`, message: "It will disappear from active recipes. Linked order history stays intact.", confirmLabel: "Archive Recipe", tone: "danger", onConfirm: async () => { await apiAction("recipe.delete", { recipeId }); notify(`${recipe.name} archived from active recipes.`); await reloadData(); setPage({ name: "recipes" }); } })} disabled={!canUser(user, "deleteRecords")}>Archive</Button></div>
+        <div className="button-row"><Button onClick={() => setPage({ name: "recipes", recipeId, mode: "scale" })}><Scale size={18} /> Scale Recipe</Button><Button variant="secondary" onClick={() => setPage({ name: "recipes", recipeId, mode: "edit" })} disabled={!canUser(user, "manageRecipes")}>Edit Recipe</Button><Button variant="secondary" onClick={() => { setOrderDraft({ recipeId, requestedYieldQuantity: recipe.baseYieldQuantity }); setPage({ name: "orders", mode: "new", returnTo: { name: "recipes", recipeId, mode: "detail" } }); }} disabled={!canUser(user, "manageOrders")}>Create Order</Button><Button variant="ghost" onClick={async () => { const result = await apiAction("recipe.save", { recipe: { name: `${recipe.name} Copy`, category: recipe.category, baseYieldQuantity: recipe.baseYieldQuantity, yieldUnit: recipe.yieldUnit, notes: recipe.notes, instructions: recipe.instructions.join("\n"), formulaMetadata: recipe.formulaMetadata ?? {}, costProfile: recipe.costProfile ?? {}, items: currentRecipeItems.map((item) => ({ ...item, prepState: item.prepState ?? {} })) } }); notify(`Recipe duplicated in ${storageLabel()}.`); await reloadData(); setPage(typeof result.id === "string" ? { name: "recipes", recipeId: result.id, mode: "detail" } : { name: "recipes" }); }} disabled={!canUser(user, "manageRecipes")}>Duplicate</Button><Button variant="danger" onClick={() => askConfirm({ title: `Archive ${recipe.name}?`, message: "It will disappear from active recipes. Linked order history stays intact.", confirmLabel: "Archive Recipe", tone: "danger", onConfirm: async () => { await apiAction("recipe.delete", { recipeId }); notify(`${recipe.name} archived from active recipes.`); await reloadData(); setPage({ name: "recipes" }); } })} disabled={!canUser(user, "deleteRecords")}>Archive</Button></div>
       </article>
       {hasFormulaMetadata(recipe.formulaMetadata) && <Section title="Formula Profile"><div className="compact-list">{formulaMetadataRows(recipe.formulaMetadata).map(([label, value]) => <div className="row-card" key={label}><span>{label}</span><strong>{value}</strong></div>)}</div></Section>}
       {cost.nonIngredientCost > 0 && <Section title="Production Cost Profile"><div className="compact-list">{[
@@ -2045,7 +2175,7 @@ function RecipeForm({ recipeId, currentRoute, setPage, setFormDirty, notify, rel
           items
         }
       });
-      notify("Recipe saved to Neon.");
+      notify(`Recipe saved to ${storageLabel()}.`);
       await reloadData();
       const savedId = typeof result.id === "string" ? result.id : recipe?.id;
       setPage(savedId ? { name: "recipes", recipeId: savedId, mode: "detail" } : currentRoute.name === "recipes" ? currentRoute : { name: "recipes" });
@@ -2247,7 +2377,7 @@ function CreateOrder({ orderId, currentRoute, orderDraft, setOrderDraft, setPage
           items
         }
       });
-      notify("Order saved to Neon and stock reservation checked.");
+      notify(`Order saved to ${storageLabel()} and stock reservation checked.`);
       setOrderDraft(null);
       await reloadData();
       const savedId = typeof result.id === "string" ? result.id : order?.id;
@@ -2331,7 +2461,7 @@ function OrderDetail({ orderId, user, setPage, notify, askConfirm, reloadData }:
         </div>
         <div className="button-row">
           <Button variant="secondary" onClick={() => setPage({ name: "orders", orderId, mode: "edit" })} disabled={isFinal || !canUser(user, "manageOrders")}>Edit Order</Button>
-          <Button onClick={async () => { try { const result = await apiAction("order.reserve", { orderId }); notify(result.partial ? `Partially reserved ${result.reservedLines.length} ingredient${result.reservedLines.length === 1 ? "" : "s"}; shortages remain.` : result.shortage ? "No additional stock could be reserved; shortages remain." : result.alreadyReserved ? "Stock is already fully reserved for this order." : "Stock reserved in Neon."); await reloadData(); } catch (error) { notify(error instanceof Error ? error.message : "Unable to reserve stock."); } }} disabled={!canReserve || !canUser(user, "manageOrders")}>Reserve Stock</Button>
+          <Button onClick={async () => { try { const result = await apiAction("order.reserve", { orderId }); notify(result.partial ? `Partially reserved ${result.reservedLines.length} ingredient${result.reservedLines.length === 1 ? "" : "s"}; shortages remain.` : result.shortage ? "No additional stock could be reserved; shortages remain." : result.alreadyReserved ? "Stock is already fully reserved for this order." : `Stock reserved in ${storageLabel()}.`); await reloadData(); } catch (error) { notify(error instanceof Error ? error.message : "Unable to reserve stock."); } }} disabled={!canReserve || !canUser(user, "manageOrders")}>Reserve Stock</Button>
           <Button variant="secondary" onClick={async () => { try { await apiAction("order.status", { orderId, status: "In Production", productionStatus: "In Progress" }); notify("Order marked as in production."); await reloadData(); } catch (error) { notify(error instanceof Error ? error.message : "Unable to start production."); } }} disabled={!canStartProduction || !canUser(user, "runProduction")}>Mark In Production</Button>
           <Button variant="secondary" onClick={() => setQcOrderId(orderId)} disabled={!canProduce || !canUser(user, "runProduction")}>Mark Produced</Button>
           <Button variant="ghost" onClick={async () => { try { await apiAction("order.status", { orderId, status: "Delivered", productionStatus: "Completed" }); notify("Order marked as delivered."); await reloadData(); } catch (error) { notify(error instanceof Error ? error.message : "Unable to deliver order."); } }} disabled={!canDeliver}>Delivered</Button>
@@ -3249,7 +3379,7 @@ function ConversionRuleForm({ rule, onCancel, notify, reloadData }: { rule: Part
           verified: formValue(form, "verified") === "Yes"
         }
       });
-      notify("Conversion rule saved to Neon.");
+      notify(`Conversion rule saved to ${storageLabel()}.`);
       await reloadData();
       onCancel();
     }}>
@@ -3319,7 +3449,7 @@ function SupplierForm({ supplier, notify, reloadData, onCancel }: { supplier: Pa
           notes: formValue(form, "notes")
         }
       });
-      notify("Supplier saved to Neon.");
+      notify(`Supplier saved to ${storageLabel()}.`);
       await reloadData();
       onCancel();
     }}>
@@ -3339,6 +3469,110 @@ function SupplierForm({ supplier, notify, reloadData, onCancel }: { supplier: Pa
   );
 }
 
+// Export and restore for a device workspace. This is the whole durability story
+// for a tester: clearing browser data, or switching to another machine, loses the
+// kitchen unless they have a file.
+function DeviceDataSection({ notify, reloadData }: { notify: (message: string) => void; reloadData: () => Promise<void> }) {
+  const [status, setStatus] = useState<{ persistGranted: boolean; hasExportedBackup: boolean; usage: number; quota: number } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const fileRef = useRef<HTMLInputElement | null>(null);
+
+  const refreshStatus = useCallback(async () => {
+    try {
+      const local = await import("./local/store");
+      setStatus(await local.deviceStorageStatus());
+    } catch {
+      setStatus(null);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshStatus();
+  }, [refreshStatus]);
+
+  async function onExport() {
+    setBusy(true);
+    try {
+      const { exportBackup } = await import("./local/backup");
+      await exportBackup(downloadText);
+      notify("Backup downloaded. Keep it somewhere safe — it is the only copy outside this browser.");
+      await refreshStatus();
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Could not build a backup.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function onRestoreFile(file: File) {
+    setBusy(true);
+    try {
+      const { parseBackup, restoreBackup, describeBackup } = await import("./local/backup");
+      const parsed = parseBackup(await file.text(), deviceUserId());
+      const warning = parsed.belongsToAnotherAccount
+        ? ` This backup was exported by a different account (${parsed.backup.account.email || "unknown"}).`
+        : "";
+      const confirmed = window.confirm(
+        `Replace everything in this workspace with ${describeBackup(parsed)}?${warning}\n\nYour current data on this device will be lost.`
+      );
+      if (!confirmed) return;
+      await restoreBackup(parsed);
+      await reloadData();
+      notify("Workspace restored from backup.");
+      await refreshStatus();
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "Could not restore that backup.");
+    } finally {
+      setBusy(false);
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  }
+
+  const usedMb = status ? (status.usage / (1024 * 1024)).toFixed(1) : null;
+
+  return (
+    <Section
+      title="Device Data"
+      action={
+        <div className="button-row">
+          <Button onClick={onExport} disabled={busy}>Download backup</Button>
+          <Button variant="secondary" onClick={() => fileRef.current?.click()} disabled={busy}>Restore backup</Button>
+        </div>
+      }
+    >
+      <input
+        ref={fileRef}
+        type="file"
+        accept="application/json,.json"
+        style={{ display: "none" }}
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          if (file) void onRestoreFile(file);
+        }}
+      />
+      <p>
+        This account keeps its kitchen data in this browser, on this device. It is never stored in the Pastry County
+        database, and signing in on another device starts a separate, empty workspace.
+      </p>
+      <p className="muted">
+        Clearing your browser data deletes it. A backup file is the only way to move a workspace to another device or
+        recover one.
+      </p>
+      {status && (
+        <ul className="muted">
+          <li>{status.hasExportedBackup ? "You have exported a backup at least once." : "You have not exported a backup yet."}</li>
+          <li>
+            {status.persistGranted
+              ? "This browser has marked the workspace as persistent storage."
+              : "This browser has not granted persistent storage, so it may clear the workspace if the device runs low on space."}
+          </li>
+          {usedMb && <li>Using about {usedMb} MB.</li>}
+        </ul>
+      )}
+    </Section>
+  );
+}
+
 function SettingsPage({ user, setPage, notify, reloadData }: { user?: AppUser; setPage: Navigate; notify: (message: string) => void; reloadData: () => Promise<void> }) {
   const [archiveData, setArchiveData] = useState<Record<string, { id: string; name: string }[]> | null>(null);
   const [auditFilter, setAuditFilter] = useState("All");
@@ -3346,6 +3580,7 @@ function SettingsPage({ user, setPage, notify, reloadData }: { user?: AppUser; s
   const [expandedAuditId, setExpandedAuditId] = useState<string | null>(null);
   const [editingUser, setEditingUser] = useState<Partial<AppStaffUser> | null>(null);
   const canManageSettings = canUser(user, "manageSettings");
+  const isDevice = user?.dataMode === "device";
   // The audit trail is paged from the server. It used to arrive inside the
   // bootstrap payload capped at 100 rows, which showed a fraction of the real
   // history as though it were all of it.
@@ -3497,6 +3732,19 @@ function SettingsPage({ user, setPage, notify, reloadData }: { user?: AppUser; s
         </div>
       </Section>
       </form>
+      {isDevice && <DeviceDataSection notify={notify} reloadData={reloadData} />}
+      {isDevice ? (
+        <Section title="Your Account">
+          <div className="summary-card">
+            <h3>{user?.fullName}</h3>
+            <p className="muted">{user?.email}</p>
+            <p>
+              Accounts are managed centrally by the Kitchen OS owner, so there is no staff list here. Your kitchen data is
+              not: it stays in this browser. Ask the owner if you need another account or a password reset.
+            </p>
+          </div>
+        </Section>
+      ) : (
       <Section title="Staff & Permissions" action={<Button onClick={() => setEditingUser((current) => current ? null : { role: "Baker", active: true })} disabled={!canManageSettings}>{editingUser ? "Close Staff Form" : "Add Staff"}</Button>}>
         {editingUser && <form className="summary-card" onSubmit={saveUser}>
           <h3>{editingUser.id ? "Edit Staff User" : "Add Staff User"}</h3>
@@ -3514,6 +3762,7 @@ function SettingsPage({ user, setPage, notify, reloadData }: { user?: AppUser; s
           cells: [staff.fullName, staff.email, staff.role, staff.active === false ? <Badge tone="warning">Disabled</Badge> : <Badge tone="success">Active</Badge>, <div className="button-row"><Button variant="secondary" onClick={() => setEditingUser(staff)} disabled={!canManageSettings}>Edit</Button><Button variant="secondary" onClick={async () => { await apiAction("user.revokeSessions", { userId: staff.id }); notify(staff.id === user?.id ? "Your sessions were revoked. Sign in again to continue." : "Staff sessions revoked."); await reloadData(); }} disabled={!canManageSettings}>Revoke Sessions</Button><Button variant="danger" onClick={async () => { await apiAction("user.disable", { userId: staff.id }); notify("Staff user disabled."); await reloadData(); }} disabled={!canManageSettings || staff.id === user?.id}>Disable</Button></div>]
         }))} />
       </Section>
+      )}
       <Section title="Audit Reports" action={<div className="button-row"><Button variant="secondary" onClick={() => exportCsv("pastry-county-audit-report.csv", ["Entity", "Record", "Action", "Actor", "Date", "Changed Fields", "Before", "After"], auditExportRows(auditRows, auditNameLookup), notify)}>Export CSV</Button><Button variant="secondary" onClick={() => exportPrintableReport("pastry-county-compliance-report.html", "Pastry County Compliance Report", [["Audit rows", auditRows.length], ["Low-stock items", lowStockRows.length], ["Waste events", wasteRows.length], ["Open shortages", orders.filter((order) => order.stockStatus === "Shortage").length]], notify)}>PDF/Print</Button></div>}>
         <Toolbar query={auditSearch} setQuery={setAuditSearch} placeholder="Search audit logs" />
         <Chips items={["All", ...Array.from(new Set(loadedAudit.map((entry) => entry.entityType))).slice(0, 8)]} active={auditFilter} setActive={setAuditFilter} />

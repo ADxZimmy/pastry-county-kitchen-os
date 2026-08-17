@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { apiBaseUrl } from "./backend";
+import { isDeviceMode } from "./dataMode";
 
 // Route-scoped reads for the high-growth collections. These used to arrive in
 // the single bootstrap payload, capped by a server-side LIMIT that silently hid
@@ -20,6 +21,13 @@ export type PagedResource<T> = {
 type PageResponse<T> = { items?: T[]; hasMore?: boolean; nextCursor?: string | null; error?: string };
 
 export async function fetchResourcePage<T>(resource: string, params: Record<string, string | number | undefined> = {}) {
+  // A device account has no rows on the server to page through — the API refuses
+  // it — so the same envelope is served from the local workspace instead. The
+  // dynamic import keeps the whole local engine out of the entry bundle.
+  if (isDeviceMode()) {
+    const { localResourcePage } = await import("../local/reads");
+    return localResourcePage<T>(resource, params) as PageResponse<T>;
+  }
   const query = new URLSearchParams();
   for (const [key, value] of Object.entries(params)) {
     if (value !== undefined && value !== null && value !== "") query.set(key, String(value));
