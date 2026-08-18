@@ -131,7 +131,44 @@ describe("provider configuration", () => {
   it("never exposes the key in a summary", () => {
     const summary = assistantConfigSummary({ ASSISTANT_PROVIDER: "anthropic", ASSISTANT_API_KEY: "sk-super-secret", ASSISTANT_MODEL: "claude-sonnet-5" });
     expect(JSON.stringify(summary)).not.toContain("sk-super-secret");
-    expect(summary).toEqual({ configured: true, provider: "anthropic", model: "claude-sonnet-5", keySource: "ASSISTANT_API_KEY" });
+    expect(summary).toEqual({
+      configured: true,
+      provider: "anthropic",
+      model: "claude-sonnet-5",
+      keySource: "ASSISTANT_API_KEY",
+      modelSource: "ASSISTANT_MODEL",
+      baseUrl: "https://api.anthropic.com",
+      baseUrlSource: "default"
+    });
+  });
+
+  // A wrong base URL sends the kitchen's records to a host nobody chose, and
+  // ANTHROPIC_BASE_URL/ANTHROPIC_MODEL are names other tools set for themselves.
+  // Saying which variable won is how that becomes diagnosable rather than eerie.
+  it("names the variable each value came from, so a shadowed setting is visible", () => {
+    const shadowed = assistantConfigSummary({
+      ASSISTANT_PROVIDER: "anthropic",
+      ASSISTANT_API_KEY: "k",
+      ANTHROPIC_BASE_URL: "https://ambient.example",
+      ANTHROPIC_MODEL: "ambient-model"
+    });
+    expect(shadowed.baseUrl).toBe("https://ambient.example");
+    expect(shadowed.baseUrlSource).toBe("ANTHROPIC_BASE_URL");
+    expect(shadowed.modelSource).toBe("ANTHROPIC_MODEL");
+
+    // The neutral names outrank the vendor ones.
+    const explicit = assistantConfigSummary({
+      ASSISTANT_PROVIDER: "anthropic",
+      ASSISTANT_API_KEY: "k",
+      ASSISTANT_BASE_URL: "https://chosen.example",
+      ASSISTANT_MODEL: "chosen-model",
+      ANTHROPIC_BASE_URL: "https://ambient.example",
+      ANTHROPIC_MODEL: "ambient-model"
+    });
+    expect(explicit.baseUrl).toBe("https://chosen.example");
+    expect(explicit.baseUrlSource).toBe("ASSISTANT_BASE_URL");
+    expect(explicit.model).toBe("chosen-model");
+    expect(explicit.modelSource).toBe("ASSISTANT_MODEL");
   });
 
   // Someone who already set a vendor key should not have to duplicate it under

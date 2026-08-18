@@ -79,3 +79,10 @@ export function normalizeShoppingPurchaseInput(
   ingredientRow: Record<string, unknown> | null | undefined,
   index?: number
 ): Record<string, unknown>;
+
+// Cost visibility
+export const COST_VISIBILITY_ROLES: string[];
+export const COST_FIELDS: Record<string, string[] | null>;
+export function canRoleSeeCosts(role: unknown): boolean;
+export function stripCostFieldsFromRows<T>(collection: string, rows: T[]): T[];
+export function stripCostsForRole<T extends Record<string, unknown>>(snapshot: T, role: unknown): T;

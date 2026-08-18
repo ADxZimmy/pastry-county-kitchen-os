@@ -1,5 +1,6 @@
 import { authenticateRequest, requireActiveSession, sessionAccessError } from "./_auth.js";
 import { getSql, loadKitchenSnapshot, sendError, setPrivateNoStore } from "./_db.js";
+import { stripCostsForRole } from "../shared/actionPolicy.js";
 
 export function bootstrapAccessError(actor, userRow = { active: true }) {
   return sessionAccessError(actor, userRow);
@@ -7,8 +8,14 @@ export function bootstrapAccessError(actor, userRow = { active: true }) {
 
 export function filterKitchenSnapshotForActor(snapshot, actor) {
   if (actor?.role === "Owner/Admin") return snapshot;
+  // A Viewer sees the kitchen's operations, not its money. This used to be true
+  // only of what the assistant sent to a provider, while this endpoint handed the
+  // same figures to the Viewer's own browser -- so the projection existed in a
+  // comment and not in the response. The field list is shared, so this and the
+  // assistant's redaction cannot disagree.
+  const costFiltered = stripCostsForRole(snapshot, actor?.role);
   return {
-    ...snapshot,
+    ...costFiltered,
     appUsers: [],
     // The audit trail moved to /api/data/audit and is no longer in the snapshot.
     // The blanking stays as a safety net: if it ever returns to bootstrap, it

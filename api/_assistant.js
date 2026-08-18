@@ -6,6 +6,8 @@
 //
 // The decision record is .planning/phases/014-real-ai-orchestration/DECISION.md.
 
+import { canRoleSeeCosts, stripCostFieldsFromRows } from "../shared/actionPolicy.js";
+
 // ------------------------------------------------------------- provider ----
 // Provider-neutral on the owner's instruction: no vendor is hardcoded, and none
 // is required. An unconfigured deployment is a supported state, not a broken
@@ -51,21 +53,33 @@ export function assistantProviderConfig(env = process.env) {
   const { name, key, source, scheme } = resolveProviderCredentials(env);
   const known = name ? PROVIDERS[name] : null;
   if (!known || !key) {
-    return { configured: false, provider: null, model: null, baseUrl: null, keySource: null, keyScheme: null };
+    return { configured: false, provider: null, model: null, baseUrl: null, keySource: null, keyScheme: null, modelSource: null, baseUrlSource: null };
   }
   // The neutral names win; the vendor's own conventions (ANTHROPIC_MODEL,
   // ANTHROPIC_BASE_URL) are honoured when that vendor is the one selected, for
   // the same reason the vendor key names are: nobody should have to state the
   // same fact twice under a second spelling.
+  //
+  // But the vendor names are a convenience with a real hazard: ANTHROPIC_BASE_URL
+  // and ANTHROPIC_MODEL are also read by other tools (Claude Code sets both for
+  // itself), so a developer running locally inside one of them can have their
+  // configured gateway silently replaced by the ambient one -- which sends the
+  // kitchen's records to a host nobody chose. The neutral ASSISTANT_* names
+  // always win, and `modelSource`/`baseUrlSource` below say which variable was
+  // actually used so a shadow is visible instead of mysterious.
   const vendorModel = name === "anthropic" ? String(env.ANTHROPIC_MODEL || "").trim() : "";
   const vendorBaseUrl = name === "anthropic" ? String(env.ANTHROPIC_BASE_URL || "").trim() : "";
+  const assistantModel = String(env.ASSISTANT_MODEL || "").trim();
+  const assistantBaseUrl = String(env.ASSISTANT_BASE_URL || "").trim();
   return {
     configured: true,
     provider: name,
-    model: String(env.ASSISTANT_MODEL || "").trim() || vendorModel || known.defaultModel,
+    model: assistantModel || vendorModel || known.defaultModel,
+    modelSource: assistantModel ? "ASSISTANT_MODEL" : vendorModel ? "ANTHROPIC_MODEL" : "default",
     // An explicit base URL lets any OpenAI-compatible endpoint be used without
     // another adapter.
-    baseUrl: String(env.ASSISTANT_BASE_URL || "").trim() || vendorBaseUrl || known.defaultBaseUrl,
+    baseUrl: assistantBaseUrl || vendorBaseUrl || known.defaultBaseUrl,
+    baseUrlSource: assistantBaseUrl ? "ASSISTANT_BASE_URL" : vendorBaseUrl ? "ANTHROPIC_BASE_URL" : "default",
     // Which variable supplied the key, so a misconfiguration is diagnosable
     // without printing the key itself.
     keySource: source,
@@ -80,8 +94,19 @@ export function assistantProviderConfig(env = process.env) {
 export function assistantConfigSummary(env = process.env) {
   const config = assistantProviderConfig(env);
   return config.configured
-    ? { configured: true, provider: config.provider, model: config.model, keySource: config.keySource }
-    : { configured: false, provider: null, model: null, keySource: null };
+    ? {
+        configured: true,
+        provider: config.provider,
+        model: config.model,
+        keySource: config.keySource,
+        // Which variable supplied each value. An operator who set
+        // ASSISTANT_BASE_URL and sees "ANTHROPIC_BASE_URL" here knows something
+        // else in the environment is overriding them.
+        modelSource: config.modelSource,
+        baseUrl: config.baseUrl,
+        baseUrlSource: config.baseUrlSource
+      }
+    : { configured: false, provider: null, model: null, keySource: null, modelSource: null, baseUrl: null, baseUrlSource: null };
 }
 
 // --------------------------------------------------------------- budget ----
@@ -162,18 +187,15 @@ export function redactForAssistant(snapshot = {}, role = "Viewer") {
     void fields;
   }
 
-  // Costs are commercial data; a Viewer does not see them in the app, so the
-  // assistant must not become a way around that.
-  if (role === "Viewer") {
-    output.ingredients = output.ingredients.map(({ latestUnitCost, ...rest }) => {
-      void latestUnitCost;
-      return rest;
-    });
-    output.orders = output.orders.map(({ netTotal, balance, ...rest }) => {
-      void netTotal;
-      void balance;
-      return rest;
-    });
+  // Costs are commercial data, and a role that cannot see them in the app must
+  // not see them here either. The field list is the app's own -- imported rather
+  // than restated -- because DECISION.md's residual risk was precisely that this
+  // redaction and the app's projection are two places that must agree. Now they
+  // read from one.
+  if (!canRoleSeeCosts(role)) {
+    for (const collection of Object.keys(output)) {
+      output[collection] = stripCostFieldsFromRows(collection, output[collection]);
+    }
   }
 
   return output;

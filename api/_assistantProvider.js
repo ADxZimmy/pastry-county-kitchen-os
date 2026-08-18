@@ -153,8 +153,18 @@ async function postJson(url, headers, body, { timeoutMs, fetchImpl }) {
   }
 }
 
+// Joins a base URL to a versioned path without doubling the version segment.
+//
+// Gateways document their base URL both ways -- Anthropic's is bare
+// (https://api.anthropic.com) while most OpenAI-compatible routers publish it
+// with the version already on it (https://gateway.example/v1). Appending "/v1/..."
+// to the latter produces "/v1/v1/chat/completions" and a 404 that looks like a
+// broken key, so a base that already ends in the version has it stripped.
 function endpoint(baseUrl, path) {
-  return `${String(baseUrl).replace(/\/+$/, "")}${path}`;
+  const base = String(baseUrl).replace(/\/+$/, "");
+  const version = path.match(/^\/(v\d+)\//)?.[1];
+  const trimmed = version && base.endsWith(`/${version}`) ? base.slice(0, -(version.length + 1)) : base;
+  return `${trimmed}${path}`;
 }
 
 // ------------------------------------------------------------- anthropic ----

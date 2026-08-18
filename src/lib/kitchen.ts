@@ -1,6 +1,7 @@
 import { conversionRules, ingredients, inventoryMovements, orderItems, orders, products, recipeItems, recipes, settings, suppliers } from "../data";
 import type { ConversionRule, Ingredient, InventoryMovement, Order, OrderEvent, OrderItem, Product, Recipe, RecipeItem, RecipeItemPrepState, Settings, Unit } from "../types";
 import { practicalQuantity as computePracticalQuantity, validatePositiveNumber } from "../../shared/policy.js";
+import { canSeeCosts } from "./dataMode";
 
 export interface ScaledIngredient {
   ingredientId: string;
@@ -42,7 +43,15 @@ export interface StockAvailability {
   status: "enough_stock" | "low_stock_after_use" | "shortage" | "out_of_stock";
 }
 
+// What a role that may not see money gets instead of a figure. An em dash reads
+// as "not shown here"; a zero reads as "this costs nothing", which is a claim.
+export const COST_WITHHELD = "—";
+
 export function formatNaira(value: number) {
+  // The single gate. A Viewer's snapshot carries no costs, so every figure here
+  // would be a zero or an invented placeholder rate -- neither is true, and both
+  // look authoritative next to a currency symbol.
+  if (!canSeeCosts()) return COST_WITHHELD;
   const safeValue = Number.isFinite(value) ? value : 0;
   const decimals = Number.isInteger(safeValue) ? 0 : 2;
   return new Intl.NumberFormat("en-NG", {
@@ -516,7 +525,13 @@ function normalizeRequirementToBase(item: ScaledIngredient): ScaledIngredient {
   };
 }
 
+// Placeholder rates for an ingredient with no recorded cost. These are guesses,
+// and a guess presented as "Suggested restock cost" is the same defect Phase 007
+// removed with the hard-coded 18,000s -- so they are only used when the reader is
+// allowed to see money at all, and never to invent a figure for a role whose
+// snapshot deliberately carries no costs.
 function estimatedUnitCost(ingredient: Ingredient) {
+  if (!canSeeCosts()) return 0;
   if (ingredient.latestUnitCost > 0) return ingredient.latestUnitCost;
   if (ingredient.category === "Packaging") return 100;
   if (["pcs", "egg", "yolk", "white"].includes(ingredient.baseUnit)) return 250;

@@ -86,6 +86,7 @@ import {
   type Page
 } from "./lib/routes";
 import { MINIMUM_PASSWORD_LENGTH, defaultAllowsDecimals, passwordsMatch, unitIncrement, validatePasswordStrength } from "../shared/policy.js";
+import { COST_VISIBILITY_ROLES } from "../shared/actionPolicy.js";
 import { describeShowing, fetchResourcePage, usePagedResource } from "./lib/routeData";
 import { deviceAccount, deviceUserId, isDeviceMode, sessionActor, setDataSession } from "./lib/dataMode";
 import type { PagedStatus } from "./lib/routeData";
@@ -210,7 +211,11 @@ const permissionRoles = {
   runProduction: ["Owner/Admin", "Baker"],
   purchaseStock: ["Owner/Admin", "Inventory Manager"],
   manageConversions: ["Owner/Admin", "Baker"],
-  manageSuppliers: ["Owner/Admin", "Inventory Manager"]
+  manageSuppliers: ["Owner/Admin", "Inventory Manager"],
+  // Costs are commercial data. A Viewer's snapshot no longer carries them, so
+  // this gate is what stops the UI rendering a confident 0 in their place --
+  // an absence read as a fact is worse than the figure being hidden.
+  viewCosts: COST_VISIBILITY_ROLES
 } as const;
 
 const unitOptions: Unit[] = ["g", "kg", "ml", "litre", "pcs", "cup", "tablespoon", "teaspoon", "pack", "roll", "egg", "yolk", "white"];
@@ -1123,7 +1128,11 @@ function App() {
       case "imports":
         return <ImportWorkbench user={user} currentRoute={route} setPage={navigate} notify={notify} reloadData={() => loadKitchenData()} />;
       case "costing":
-        return <Costing setPage={navigate} />;
+        // Gated on the route, not only in the nav: hiding a menu entry is not
+        // access control, and /costing is a deep link anyone can type.
+        return canUser(user, "viewCosts")
+          ? <Costing setPage={navigate} />
+          : <EmptyState title="Costs are not shown for your role" message="Recipe costing and pricing are limited to owners, bakers and inventory managers. Ask an owner if you need access." />;
       case "ai":
         return <AiAssistant user={user} setPage={navigate} />;
       case "conversions":
@@ -1177,7 +1186,7 @@ function App() {
       <aside className="sidebar">
         <BrandMark />
         <nav>
-          {desktopNav.map(([id, Icon, label]) => (
+          {desktopNav.filter(([id]) => id !== "costing" || canUser(user, "viewCosts")).map(([id, Icon, label]) => (
             <button key={id} className={isRouteActive(route, id as Page) ? "nav-item active" : "nav-item"} onClick={() => navigate(id as Page)}>
               <Icon size={20} />
               <span>{label}</span>
@@ -4035,7 +4044,7 @@ function SettingsPage({ user, setPage, notify, reloadData }: { user?: AppUser; s
   return (
     <div className="page-grid">
       <div className="more-grid">
-        {moreItems.map(([id, Icon, label]) => <button key={id} className="more-card" onClick={() => setPage(id as Page)}><Icon size={22} /><span>{label}</span></button>)}
+        {moreItems.filter(([id]) => id !== "costing" || canUser(user, "viewCosts")).map(([id, Icon, label]) => <button key={id} className="more-card" onClick={() => setPage(id as Page)}><Icon size={22} /><span>{label}</span></button>)}
       </div>
       <form onSubmit={async (event) => {
         event.preventDefault();

@@ -1,5 +1,6 @@
 import { authenticateRequest } from "../_auth.js";
 import { getSql, sendError, setPrivateNoStore } from "../_db.js";
+import { canRoleSeeCosts, stripCostFieldsFromRows } from "../../shared/actionPolicy.js";
 import { requireActiveSession } from "../_auth.js";
 import { buildPage, clampLimit, decodeCursor, requireCollectionAccess } from "../_projection.js";
 
@@ -194,7 +195,16 @@ export default async function handler(req, res) {
     const cursor = decodeCursor(req.query?.cursor);
 
     if (resource === "summary") {
-      res.status(200).json({ resource, summary: await dashboardSummary(sql) });
+      const summary = await dashboardSummary(sql);
+      // The dashboard's money tiles are aggregates, so there is no field list to
+      // filter -- they are simply withheld. A Viewer gets the counts.
+      if (!canRoleSeeCosts(actor.role) && summary.orders) {
+        const { netTotalValue, outstandingBalance, ...counts } = summary.orders;
+        void netTotalValue;
+        void outstandingBalance;
+        summary.orders = counts;
+      }
+      res.status(200).json({ resource, summary });
       return;
     }
 
@@ -216,6 +226,12 @@ export default async function handler(req, res) {
               movementType: req.query?.movementType || null
             });
 
+    // An orders page carries the same pricing columns the snapshot does, so it
+    // gets the same projection. Without this the Viewer's costs would simply
+    // arrive by a different route.
+    if (resource === "orders" && !canRoleSeeCosts(actor.role) && Array.isArray(page.rows)) {
+      page.rows = stripCostFieldsFromRows("orders", page.rows);
+    }
     res.status(200).json({ resource, limit, ...page });
   } catch (error) {
     sendError(res, error);

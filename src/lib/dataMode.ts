@@ -12,6 +12,8 @@
 // answer per session. The flag is set from the session response before any screen
 // that reads data can mount, and cleared on logout.
 
+import { COST_VISIBILITY_ROLES } from "../../shared/actionPolicy.js";
+
 export type DataMode = "server" | "device";
 
 export interface SessionIdentity {
@@ -24,10 +26,16 @@ export interface SessionIdentity {
 
 let currentMode: DataMode = "server";
 let currentUser: SessionIdentity | null = null;
+// Declared here because setDataSession below assigns it. See canSeeCosts.
+let costsVisible = false;
 
 export function setDataSession(user?: SessionIdentity | null) {
   currentMode = user?.dataMode === "device" ? "device" : "server";
   currentUser = user ?? null;
+  // Derived here rather than at the six call sites, so establishing a session
+  // cannot forget it. Signed out defaults to hidden: nothing should render a
+  // figure before a role is known.
+  costsVisible = Boolean(user?.role) && COST_VISIBILITY_ROLES.includes(String(user?.role));
 }
 
 export function isDeviceMode() {
@@ -40,6 +48,28 @@ export function deviceUserId() {
 
 export function dataMode(): DataMode {
   return currentMode;
+}
+
+// Whether this account may see money at all.
+//
+// A Viewer's snapshot no longer carries costs, which is the authoritative fix --
+// but stripping the data is only half a projection. Thirty-one places render a
+// figure through formatNaira, and every one of them would print a confident
+// zero, or worse an invented number from estimatedUnitCost's placeholder rates.
+// A fabricated cost is exactly the defect Phase 007 removed when it deleted the
+// hard-coded 18,000s.
+//
+// So the check lives at the render boundary instead of at thirty-one call sites.
+// The next screen that formats money inherits it without anyone remembering to,
+// which is the same reasoning as the permission matrix deriving its action list
+// from source rather than from a list someone must maintain.
+
+export function setCostVisibility(visible: boolean) {
+  costsVisible = visible;
+}
+
+export function canSeeCosts() {
+  return costsVisible;
 }
 
 // Who the local engine attributes an audit entry to. Shaped like the server's

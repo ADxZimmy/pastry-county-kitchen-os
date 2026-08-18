@@ -4,12 +4,16 @@ import { recipes as kitchenRecipes, setKitchenSnapshot } from "./data";
 import { auditChangeSummary, auditDataJson, auditExportRows, auditRecordLabel, auditSearchText } from "./lib/audit";
 import { buildKitchenAssistantResponse, calculateMargin, calculateRecipeCost, cancellationConsequences, checkStockAvailability, computeOrderPricing, convertUnit, dashboardProductionQueue, formatNaira, formatQuantity, formatScaledIngredientQuantity, generateShoppingList, netSellingPrice, orderEventLabel, orderEventsForOrder, ordersForProductionBucket, parseRecipeText, productionPeriodBounds, recommendedRestockDate, restockSuggestions, roundScaledQuantity, scaleRecipe, stockAdjustmentValidation } from "./lib/kitchen";
 import { activeSelectedIdsForRoute, parseAppRoute, routeBackLabel, routeParent, serializeAppRoute } from "./lib/routes";
+import { canSeeCosts, setDataSession } from "./lib/dataMode";
 import { HELPER_CAPABILITY, HELPER_NAME } from "./lib/kitchen";
 import { defaultAllowsDecimals, practicalQuantity, roundGrams, unitIncrement, validateNonNegativeNumber, validatePositiveNumber, validateQuantityIncrement } from "../shared/policy.js";
 import type { AuditLog, ConversionRule, Ingredient, Recipe, RecipeItem } from "./types";
 
 describe("kitchen calculations", () => {
   beforeEach(() => {
+    // Money is withheld until a role that may see it is established, so these
+    // costing tests sign in as one. Signed out is deliberately blank.
+    setDataSession({ id: "test-owner", email: "owner@test", fullName: "Owner", role: "Owner/Admin" });
     setKitchenSnapshot({
       suppliers: [{ id: "sup-market", name: "Market", contactName: "Ade", phone: "", email: "", address: "", defaultCurrency: "NGN", notes: "" }],
       ingredients: [
@@ -750,5 +754,61 @@ describe("list filter survives a detail round trip", () => {
   it("still honours an explicit returnTo over the filter for orders", () => {
     const detail = parseAppRoute("#orders/ord-1?returnTo=production&filter=New");
     expect(routeParent(detail!)).toEqual({ name: "production", orderId: undefined, batchId: undefined });
+  });
+});
+
+// The Viewer cost projection, closed after the Phase 014 review found it was
+// provider-only: the assistant withheld costs from a third party while
+// /api/bootstrap handed the same figures to the Viewer's own browser.
+describe("money is withheld from a role that may not see it", () => {
+  const OWNER = { id: "u1", email: "o@t", fullName: "O", role: "Owner/Admin" };
+  const VIEWER = { id: "u2", email: "v@t", fullName: "V", role: "Viewer" };
+
+  it("renders a figure for a cost-permitted role", () => {
+    setDataSession(OWNER);
+    expect(canSeeCosts()).toBe(true);
+    expect(formatNaira(1500)).toBe("₦1,500");
+  });
+
+  it("renders an absence, not a zero, for a Viewer", () => {
+    setDataSession(VIEWER);
+    expect(canSeeCosts()).toBe(false);
+    // A zero next to a currency symbol is a claim that something is free.
+    expect(formatNaira(1500)).toBe("—");
+    expect(formatNaira(0)).toBe("—");
+    expect(formatNaira(0)).not.toContain("₦");
+  });
+
+  it("withholds money when signed out, before any role is known", () => {
+    setDataSession(undefined);
+    expect(canSeeCosts()).toBe(false);
+    expect(formatNaira(42)).toBe("—");
+  });
+
+  it("stops inventing placeholder prices for a Viewer's shopping list", () => {
+    // estimatedUnitCost guesses a rate for an ingredient with no recorded cost.
+    // For a Viewer, whose snapshot carries no costs at all, every line would be
+    // a guess -- so the estimate must be zero rather than fabricated.
+    setKitchenSnapshot({
+      suppliers: [{ id: "s", name: "S", contactName: "", phone: "", email: "", address: "", defaultCurrency: "NGN", notes: "" }],
+      ingredients: [
+        // No latestUnitCost, which is what a Viewer's projected snapshot looks like.
+        { id: "flour", name: "Flour", category: "Dry Goods", baseUnit: "g", currentStock: 100, reorderLevel: 5000, latestUnitCost: 0, supplierId: "s" }
+      ],
+      products: [], recipes: [], recipeItems: [], orders: [], orderItems: [],
+      inventoryMovements: [], ingredientBatches: [], productionQcLogs: [], orderEvents: [],
+      conversionRules: [], appUsers: [], auditLogs: [],
+      settings: { currency: "NGN" } as never
+    } as never);
+
+    setDataSession(VIEWER);
+    const viewerList = generateShoppingList([]);
+    expect(viewerList.reduce((sum, item) => sum + item.estimatedCost, 0)).toBe(0);
+
+    // The guess is still available to a role that may see money, so the feature
+    // is withheld rather than deleted.
+    setDataSession(OWNER);
+    const ownerList = generateShoppingList([]);
+    expect(ownerList.reduce((sum, item) => sum + item.estimatedCost, 0)).toBeGreaterThan(0);
   });
 });

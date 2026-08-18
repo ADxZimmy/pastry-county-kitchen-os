@@ -128,11 +128,10 @@ export const actionRoles = {
   // reads nothing a Viewer cannot already see, and it is read-only by
   // construction -- no mutation tool exists for the model to call.
   //
-  // The assistant also strips costs and money from a Viewer's payload before it
-  // reaches a provider. That is a data-minimisation measure for the third party,
-  // NOT a claim that Viewers cannot see costs: /api/bootstrap sends costs to
-  // every signed-in role today, and the Costing screen renders them. Closing
-  // that is a separate change to the app's own projection.
+  // A Viewer's payload carries no costs, and as of the cost-projection change
+  // below that is now true of the whole app rather than of the assistant alone:
+  // /api/bootstrap and the route-scoped reads strip the same fields, from the
+  // same list, so the assistant is not the only door that is shut.
   "assistant.ask": ["Owner/Admin", "Baker", "Inventory Manager", "Viewer"],
   "ingredient.save": ["Owner/Admin", "Inventory Manager"],
   "ingredient.delete": ["Owner/Admin"],
@@ -354,4 +353,75 @@ export function normalizeShoppingPurchaseInput(item, ingredientRow, index = 0) {
     expiryDate: item.expiryDate || null,
     note: item.note || "Marked purchased from shopping list"
   };
+}
+
+// ---------------------------------------------------------------------------
+// Cost visibility
+// ---------------------------------------------------------------------------
+// A Viewer sees the kitchen's operations, not its money. Phase 014's adversarial
+// review found this was only half true: the assistant stripped costs before
+// sending them to a provider, but /api/bootstrap handed the same figures to a
+// Viewer's own browser, and the Costing screen rendered them. Stripping in one
+// place and not the other is not a projection, it is a comment.
+//
+// So the field list lives here, once, and every consumer reads it: the bootstrap
+// snapshot, the route-scoped reads, the assistant's redaction, and the client's
+// own permission check. Three copies of a rule is how a projection rots.
+
+export const COST_VISIBILITY_ROLES = ["Owner/Admin", "Baker", "Inventory Manager"];
+
+export function canRoleSeeCosts(role) {
+  return COST_VISIBILITY_ROLES.includes(role);
+}
+
+// Money-bearing fields, per collection. Anything naming a price, a cost, a total
+// or a balance belongs here; quantities and dates do not.
+export const COST_FIELDS = {
+  ingredients: ["latestUnitCost", "purchasePrice", "purchaseQuantity"],
+  recipes: ["costProfile"],
+  orders: [
+    "deliveryFee",
+    "discountAmount",
+    "taxRate",
+    "taxAmount",
+    "amountPaid",
+    "subtotal",
+    "netTotal",
+    "grossTotal",
+    "balance"
+  ],
+  orderItems: ["unitSellingPrice", "saleQuantity"],
+  suppliers: [],
+  // Purchase history is money by definition, so a Viewer gets none of it.
+  purchaseLogs: null
+};
+
+function withoutFields(row, fields) {
+  if (!row || typeof row !== "object") return row;
+  const output = {};
+  for (const [key, value] of Object.entries(row)) {
+    if (!fields.includes(key)) output[key] = value;
+  }
+  return output;
+}
+
+// Removes every money-bearing field from one collection's rows. `null` in the
+// spec means the whole collection is money and is dropped entirely.
+export function stripCostFieldsFromRows(collection, rows) {
+  const fields = COST_FIELDS[collection];
+  if (fields === null) return [];
+  if (!fields || fields.length === 0) return Array.isArray(rows) ? rows : [];
+  return (Array.isArray(rows) ? rows : []).map((row) => withoutFields(row, fields));
+}
+
+// The whole-snapshot form. Returns the snapshot untouched for a role that may
+// see costs, so the common path costs nothing.
+export function stripCostsForRole(snapshot = {}, role) {
+  if (canRoleSeeCosts(role)) return snapshot;
+  const output = { ...snapshot };
+  for (const collection of Object.keys(COST_FIELDS)) {
+    if (!(collection in output)) continue;
+    output[collection] = stripCostFieldsFromRows(collection, output[collection]);
+  }
+  return output;
 }

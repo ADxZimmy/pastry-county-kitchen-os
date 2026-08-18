@@ -191,9 +191,98 @@ Both answer shapes were driven at 1280px and 375px against the built bundle, wit
 
 ## Remaining in Phase 014
 
-- **Set a real Anthropic API key** as `ASSISTANT_API_KEY` (or `ANTHROPIC_API_KEY`) in `.env.local` and on the Vercel project. Until then `/api/health` reports `configured: true` while every call falls back — which is honest behaviour, but not a working assistant.
+- **Get a credential the chosen gateway accepts.** See the provider section below: AgentRouter refuses the current one as an unauthorized *client*, and its documented keys are `ak-`-prefixed while the configured one is `sk-`. Either obtain an AgentRouter key and set `ASSISTANT_PROVIDER=openai` with `ASSISTANT_BASE_URL=https://agentrouter.org/v1`, or use an Anthropic key (`sk-ant-…`) with the default base URL. Until then `/api/health` reports `configured: true` while every call falls back — honest behaviour, but not a working assistant.
 - **Run migration 008** (`assistant_spend`) against production via the Owner/Admin `schema.ensure` action. Until it exists, `readSpendUsd` throws and every turn falls back with "the spend ledger is not installed yet" — deliberately fail-closed, but it means the assistant is off until the migration runs.
 - **An authenticated smoke against a live model**, then `npm run smoke:uat-full`. Only after that may any AI capability claim be made.
+
+## Follow-up: the Viewer cost projection, closed (2026-08-18)
+
+The review finding that was recorded rather than fixed is now fixed. It had been
+provider-only: `redactForAssistant` stripped costs before sending them to a third
+party, while `/api/bootstrap` handed the same figures to the Viewer's own browser
+and the Costing screen rendered them. Stripping in one place and not the other is
+not a projection.
+
+### One field list, four consumers
+
+`COST_FIELDS` and `COST_VISIBILITY_ROLES` live in `shared/actionPolicy.js` and are
+read by `/api/bootstrap`, the route-scoped reads in `api/data/[resource].js`, the
+assistant's redaction, and the client's own `viewCosts` permission. That closes
+DECISION.md's residual risk directly: the allow-list and the app's projection were
+two places that had to agree, and now there is one place. A test asserts the two
+agree field for field.
+
+Cost-permitted roles are Owner/Admin, Baker and Inventory Manager. A Viewer gets
+no `latestUnitCost`, no order pricing, no `costProfile`, no purchase history, and
+the dashboard's two money aggregates are withheld rather than zeroed.
+
+### The client half, and why it was not optional
+
+Stripping the data was necessary but not sufficient, and the browser proved it.
+With a Viewer's projected snapshot the dashboard showed **Shopping Estimate
+₦27,700** — a *fabricated* figure, because `estimatedUnitCost` falls back to
+hard-coded placeholder rates (100/250/15/5) when no cost is recorded. That is the
+same defect Phase 007 removed when it deleted the hard-coded 18,000s, resurfacing
+through a different door. The other two tiles showed **₦0**, which reads as "this
+costs nothing" rather than "you cannot see this".
+
+Fixed at the render boundary rather than at call sites: `formatNaira` returns an em
+dash when the session's role may not see money, and `estimatedUnitCost` returns 0
+instead of guessing. Thirty-one places format a figure across fifteen components;
+gating each one is a change that gets forgotten at the thirty-second. The flag is
+derived inside `setDataSession`, so establishing a session cannot omit it, and it
+defaults to hidden when signed out.
+
+`viewCosts` also hides the Costing entry from both navs and gates the route
+itself, because hiding a menu item is not access control and `#costing` is a link
+anyone can type.
+
+### Verified
+
+- `npm test` **587/587**, build clean, **12/12 functions**, contrast passing.
+- Each guard broken once to confirm it goes red: adding Viewer to
+  `COST_VISIBILITY_ROLES` (5 failures), removing the bootstrap projection (1),
+  removing the `formatNaira` gate (2). The first attempt at that third check used
+  a `perl` pattern that silently did not match and reported green — caught only by
+  re-checking that the edit had landed. A check that cannot fail is worse than no
+  check, and this one nearly shipped as one.
+- **In a browser, as a real Viewer session** driven through the harness with the
+  real `filterKitchenSnapshotForActor`: **zero** currency figures across all ten
+  reachable pages; the three dashboard tiles read "—"; `#costing` shows "Costs are
+  not shown for your role". Control case as Owner/Admin on the same build: 3
+  figures on the dashboard, 5 in inventory, 5 in shopping, 7 in costing. Withheld
+  by role, not deleted.
+
+### Also fixed here
+
+- **A base URL ending in `/v1` was doubled.** `endpoint()` appended `/v1/chat/completions`
+  to a base that already carried the version, producing `/v1/v1/...` and a 404 that
+  looks exactly like a bad key. Most OpenAI-compatible gateways publish their base
+  URL with the version on it, so this was going to bite the first one configured.
+- **`assistantConfigSummary` now reports `modelSource` and `baseUrlSource`.** This
+  cost a wrong diagnosis: `ANTHROPIC_BASE_URL` and `ANTHROPIC_MODEL` are set in
+  this session's ambient environment by the surrounding tool for its own use, and
+  Node's `--env-file` does not override already-set variables — so a probe read
+  the ambient host instead of the configured one and the resulting 401 was blamed
+  on the credential. A wrong base URL sends the kitchen's records to a host nobody
+  chose, so which variable won is now visible in `/api/health` rather than
+  mysterious. **Prefer the neutral `ASSISTANT_*` names**; they always outrank the
+  vendor ones and collide with nothing.
+
+### The provider is still unproven, and now for a clearer reason
+
+The configured gateway is `https://agentrouter.org`, whose documentation describes
+an **OpenAI-compatible** API (`/v1`, `ak-`-prefixed bearer tokens) — not an
+Anthropic Messages API. Probed with its documented base URL, its documented auth
+header, and both endpoint shapes, it returns **401
+`unauthorized_client_error: "unauthorized client detected"`** every time. That is
+not "bad key" and not "wrong request shape": it is the service rejecting the
+caller. The credential in `.env.local` is `sk-`-prefixed, which is neither
+AgentRouter's documented `ak-` nor Anthropic's `sk-ant-`.
+
+No attempt was made to look like whichever client the service does trust. Getting
+past a client check by impersonating a trusted client is circumventing an access
+control, not configuring an integration.
 
 ## Residual Risk
 
@@ -201,4 +290,6 @@ Both answer shapes were driven at 1280px and 375px against the built bundle, wit
 - The redaction allow-list is only correct while it matches the app's own role projection. Both are tested, but they are two places that must agree.
 - **The budget can be overshot.** Spend is read before a call and written after it, so requests already in flight do not see each other. The shared limiter caps one account at 10 calls a minute, which bounds the overshoot; it does not make the ceiling exact. A hard cap needs a reservation written before the call.
 - **The identity scrub is a filter, not a proof.** It removes the names and numbers this kitchen holds, plus anything phone-shaped. An operator who types a customer's name that is not in the records, or a spelling that differs from the stored one, is not covered. The structural protections — the allow-list on rows, and no longer replaying helper answers — are what carry the guarantee; the scrub is the net under them.
+- **The client-side money gate is a display rule, not an authorization boundary.** The authoritative fix is the server projection: a Viewer's snapshot carries no costs, so there is nothing in the browser to reveal. `formatNaira` returning an em dash stops a *fabricated* figure being rendered from placeholder rates; it is not what keeps costs out of the browser, and it should not be relied on as though it were.
+- **Cost visibility is role-wide, not per-screen.** A Baker sees every figure a Baker can see anywhere. If costs later need splitting by screen — recipe cost yes, order margin no — `COST_FIELDS` is the wrong shape for it and would need a per-surface spec.
 - **37 of the review's verifiers did not run** (the session hit its usage limit), so some raised findings were never judged either way. The 17 confirmed here were verified; the unjudged remainder is not evidence of absence.
