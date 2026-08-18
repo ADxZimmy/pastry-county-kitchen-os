@@ -16,6 +16,31 @@ const ANTHROPIC_VERSION = "2023-06-01";
 const DEFAULT_TIMEOUT_MS = 30000;
 const DEFAULT_MAX_TOKENS = 4000;
 
+// Self-identifying User-Agent. A bare fetch sends undici's default (or none),
+// which some Anthropic-compatible gateways reject outright as an unidentified
+// client -- the "unauthorized client detected" 401 AgentRouter returns. Every
+// real SDK sets one; naming our own app honestly is the fix, not pretending to
+// be someone else's client. Override with ASSISTANT_USER_AGENT if a gateway
+// wants a specific value.
+const DEFAULT_USER_AGENT = "pastry-county-kitchen-os/1.0";
+
+function userAgent(env = process.env) {
+  return String(env.ASSISTANT_USER_AGENT || "").trim() || DEFAULT_USER_AGENT;
+}
+
+// The real Anthropic host, so the OAuth beta flag is sent only to the vendor it
+// belongs to and never leaks onto a third-party router that would not understand
+// it (and might reject the request for carrying it).
+const ANTHROPIC_CANONICAL_HOST = "api.anthropic.com";
+
+function isCanonicalAnthropic(baseUrl) {
+  try {
+    return new URL(baseUrl).host === ANTHROPIC_CANONICAL_HOST;
+  } catch {
+    return false;
+  }
+}
+
 // ------------------------------------------------------------------ cost ----
 // USD per million tokens, input/output. Used only to decide whether the monthly
 // ceiling has been reached -- it is an estimate, not an invoice.
@@ -118,7 +143,7 @@ async function postJson(url, headers, body, { timeoutMs, fetchImpl }) {
   try {
     response = await fetchImpl(url, {
       method: "POST",
-      headers: { "content-type": "application/json", ...headers },
+      headers: { "content-type": "application/json", "user-agent": userAgent(), ...headers },
       body: JSON.stringify(body),
       signal: controller.signal
     });
@@ -184,12 +209,21 @@ async function callAnthropic({ config, system, userText, history, schema, maxTok
     }
   };
 
-  // An API key travels in x-api-key; an OAuth token (ANTHROPIC_AUTH_TOKEN) in
-  // an Authorization bearer header plus the oauth beta flag. Sending a token
-  // through x-api-key is a guaranteed 401, so the scheme is honoured here.
+  // An API key travels in x-api-key; a bearer token (ANTHROPIC_AUTH_TOKEN, or a
+  // gateway's own token) in an Authorization header. Sending a token through
+  // x-api-key is a guaranteed 401, so the scheme is honoured here.
+  //
+  // The `anthropic-beta: oauth-2025-04-20` flag is Anthropic's OWN OAuth
+  // handshake, meaningful only to api.anthropic.com. A third-party router given
+  // a bearer token is not doing that handshake, and sending the flag there is at
+  // best noise and at worst another reason to reject the request -- so it is
+  // scoped to the canonical host.
   const authHeaders =
     config.keyScheme === "bearer"
-      ? { authorization: `Bearer ${config.key}`, "anthropic-beta": "oauth-2025-04-20" }
+      ? {
+          authorization: `Bearer ${config.key}`,
+          ...(isCanonicalAnthropic(config.baseUrl) ? { "anthropic-beta": "oauth-2025-04-20" } : {})
+        }
       : { "x-api-key": config.key };
   const payload = await postJson(
     endpoint(config.baseUrl, "/v1/messages"),

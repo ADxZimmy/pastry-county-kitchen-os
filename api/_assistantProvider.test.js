@@ -117,7 +117,7 @@ describe("anthropic calls", () => {
     expect(body.output_config.format.type).toBe("json_schema");
   });
 
-  it("sends an OAuth token as a bearer with the oauth beta header, never x-api-key", async () => {
+  it("sends an OAuth token as a bearer to the canonical host with the oauth beta header, never x-api-key", async () => {
     const impl = fetchReturning(anthropicReply("{}"));
     await callAssistantProvider({
       config: anthropicConfig({ keyScheme: "bearer" }),
@@ -129,6 +129,28 @@ describe("anthropic calls", () => {
     expect(init.headers.authorization).toBe(`Bearer ${SECRET}`);
     expect(init.headers["anthropic-beta"]).toBe("oauth-2025-04-20");
     expect(init.headers["x-api-key"]).toBeUndefined();
+  });
+
+  // The oauth beta flag is Anthropic's own handshake. A third-party router given
+  // a bearer token is not doing that handshake, and the flag is meaningless-to-
+  // harmful there -- the exact thing that makes a compat gateway reject a request.
+  it("does not send the oauth beta flag to a non-Anthropic base URL", async () => {
+    const impl = fetchReturning(anthropicReply("{}"));
+    await callAssistantProvider({
+      config: anthropicConfig({ keyScheme: "bearer", baseUrl: "https://agentrouter.org" }),
+      system: "s",
+      userText: "q",
+      fetchImpl: impl
+    });
+    const { init } = impl.calls[0];
+    expect(init.headers.authorization).toBe(`Bearer ${SECRET}`);
+    expect(init.headers["anthropic-beta"]).toBeUndefined();
+  });
+
+  it("identifies itself with a User-Agent, so a fingerprinting gateway does not read it as a bot", async () => {
+    const impl = fetchReturning(anthropicReply("{}"));
+    await callAssistantProvider({ config: anthropicConfig(), system: "s", userText: "q", fetchImpl: impl });
+    expect(impl.calls[0].init.headers["user-agent"]).toBe("pastry-county-kitchen-os/1.0");
   });
 
   it("treats a refusal as a failure rather than presenting partial content", async () => {
