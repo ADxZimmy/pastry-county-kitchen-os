@@ -16,7 +16,8 @@ const STEPS = [
   { id: "004-app-sessions", run: async (sql) => (await import("./_sessions.js")).ensureSessionTables(sql) },
   { id: "005-password-reset-tokens", run: async (sql) => (await import("./_passwordReset.js")).ensurePasswordResetTable(sql) },
   { id: "006-auth-rate-limits", run: async (sql) => (await import("./_rateLimit.js")).ensureRateLimitTable(sql) },
-  { id: "007-app-users-data-mode", run: async (sql) => (await import("./_auth.js")).ensureDataModeColumn(sql) }
+  { id: "007-app-users-data-mode", run: async (sql) => (await import("./_auth.js")).ensureDataModeColumn(sql) },
+  { id: "008-assistant-spend", run: async (sql) => (await import("./_assistantRun.js")).ensureAssistantSpendTable(sql) }
 ];
 
 export function migrationIds() {

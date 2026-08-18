@@ -124,6 +124,16 @@ export const auditConversionRuleSpecs = [
 export const actionRoles = {
   "archive.list": ["Owner/Admin", "Inventory Manager"],
   "archive.restore": ["Owner/Admin"],
+  // Phase 014-B. The first action a Viewer may reach, and deliberately so: it
+  // reads nothing a Viewer cannot already see, and it is read-only by
+  // construction -- no mutation tool exists for the model to call.
+  //
+  // The assistant also strips costs and money from a Viewer's payload before it
+  // reaches a provider. That is a data-minimisation measure for the third party,
+  // NOT a claim that Viewers cannot see costs: /api/bootstrap sends costs to
+  // every signed-in role today, and the Costing screen renders them. Closing
+  // that is a separate change to the app's own projection.
+  "assistant.ask": ["Owner/Admin", "Baker", "Inventory Manager", "Viewer"],
   "ingredient.save": ["Owner/Admin", "Inventory Manager"],
   "ingredient.delete": ["Owner/Admin"],
   "ingredient.restore": ["Owner/Admin", "Inventory Manager"],

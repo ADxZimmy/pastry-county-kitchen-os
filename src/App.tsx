@@ -116,6 +116,20 @@ type AiChatMessage = {
   id: string;
   role: "user" | "assistant";
   text: string;
+  // Phase 014-C. Who actually answered, and with what caveats. "helper" is the
+  // deterministic Kitchen Helper; "provider" is a model-backed answer, which
+  // must carry its evidence: confidence, assumptions, and the records it used.
+  meta?: {
+    source: "helper" | "provider";
+    reason?: string;
+    model?: string;
+    confidence?: "high" | "medium" | "low";
+    assumptions?: string[];
+    sources?: string[];
+    proposedActions?: { type: string; label?: string }[];
+    generatedAt?: string;
+    truncated?: boolean;
+  };
 };
 
 type Navigate = (target: Page | AppRoute, options?: { replace?: boolean }) => void;
@@ -1111,7 +1125,7 @@ function App() {
       case "costing":
         return <Costing setPage={navigate} />;
       case "ai":
-        return <AiAssistant setPage={navigate} notify={notify} reloadData={() => loadKitchenData()} />;
+        return <AiAssistant user={user} setPage={navigate} />;
       case "conversions":
         return <ConversionLibrary user={user} setPage={navigate} notify={notify} askConfirm={askConfirm} reloadData={() => loadKitchenData()} />;
       case "suppliers":
@@ -3345,81 +3359,251 @@ function Costing({ setPage }: { setPage: Navigate }) {
   );
 }
 
-function AiAssistant({ setPage, notify, reloadData }: { setPage: Navigate; notify: (message: string) => void; reloadData: () => Promise<void> }) {
-  const suggestions = [
-    { id: "flour-cups", label: "Convert 4 cups flour to grams", ingredientId: "flour", quantity: 4, fromUnit: "cup" as Unit, toUnit: "g" as Unit },
-    { id: "yolks", label: "Convert 3 egg yolks to grams", ingredientId: "egg-yolks", quantity: 3, fromUnit: "yolk" as Unit, toUnit: "g" as Unit },
-    { id: "eggs", label: "Convert 4 eggs to grams", ingredientId: "eggs", quantity: 4, fromUnit: "egg" as Unit, toUnit: "g" as Unit },
-    { id: "sugar-cups", label: "Convert 1 cup sugar to grams", ingredientId: "sugar", quantity: 1, fromUnit: "cup" as Unit, toUnit: "g" as Unit }
-  ];
-  const [selectedId, setSelectedId] = useState(suggestions[0].id);
-  const selected = suggestions.find((item) => item.id === selectedId) ?? suggestions[0];
-  const ingredient = ingredients.find((item) => item.id === selected.ingredientId);
-  const savedRule = conversionRules.find((rule) => rule.ingredientId === selected.ingredientId && rule.fromUnit === selected.fromUnit && rule.toUnit === selected.toUnit);
-  const conversion = convertUnit(selected.quantity, selected.fromUnit, selected.toUnit, selected.ingredientId);
-  const [factor, setFactor] = useState(savedRule?.conversionFactor ?? conversion.convertedQuantity / selected.quantity);
-  useEffect(() => {
-    setFactor(savedRule?.conversionFactor ?? conversion.convertedQuantity / selected.quantity);
-  }, [selectedId, savedRule?.conversionFactor, conversion.convertedQuantity, selected.quantity]);
-  const parsed = parseRecipeText("2 cups flour\n1 cup sugar\n4 eggs\n1/2 cup cocoa powder\n1 cup coconut oil");
-  const convertedQuantity = selected.quantity * factor;
+// Phase 014-C: the assistant page is a chat, and only a chat. The conversion
+// workspace and parser preview that used to share this screen were a second
+// door to conversion.save; the Conversion Library already owns that job, and
+// Recipe Detail owns applying a conversion to a line (Phase 010-B).
+//
+// The four action types a model may propose, mapped to the review surfaces
+// they open. The model cannot invent a route: the server rejects unknown types
+// outright, and this map ignores anything that still slips through.
+const ASSISTANT_ACTION_ROUTES: Record<string, { route: AppRoute; fallbackLabel: string }> = {
+  openConversionReview: { route: { name: "conversions" }, fallbackLabel: "Review conversion rules" },
+  openRecipeScale: { route: { name: "recipes" }, fallbackLabel: "Open recipes to scale" },
+  openShoppingList: { route: { name: "shopping", returnTo: { name: "ai" } }, fallbackLabel: "Open shopping list" },
+  openOrderDraft: { route: { name: "orders", mode: "new" }, fallbackLabel: "Start an order draft" }
+};
+
+const ASSISTANT_CONFIDENCE_TONE: Record<string, "success" | "neutral" | "warning"> = {
+  high: "success",
+  medium: "neutral",
+  low: "warning"
+};
+
+// The thread outlives the component. A proposed action navigates away by
+// design -- openShoppingList even sets returnTo so the operator comes straight
+// back -- and coming back to an empty chat would throw away a paid answer along
+// with its assumptions, sources and remaining actions. Module-level rather than
+// lifted into App because nothing above this page reads a chat message.
+let assistantThread: AiChatMessage[] | null = null;
+
+function AiAssistant({ user, setPage }: { user?: AppUser; setPage: Navigate }) {
   const [chatInput, setChatInput] = useState("");
-  const [messages, setMessages] = useState<AiChatMessage[]>([
-    { id: "welcome-ai", role: "assistant", text: buildKitchenAssistantResponse("summary") }
-  ]);
-  const askAssistant = (text: string) => {
+  const [pending, setPending] = useState(false);
+  const [budgetLine, setBudgetLine] = useState<string | null>(null);
+  const [messages, setMessagesState] = useState<AiChatMessage[]>(
+    () => assistantThread ?? [{ id: "welcome-ai", role: "assistant", text: buildKitchenAssistantResponse("summary"), meta: { source: "helper" } }]
+  );
+  const setMessages = useCallback((update: (current: AiChatMessage[]) => AiChatMessage[]) => {
+    setMessagesState((current) => {
+      const next = update(current);
+      assistantThread = next;
+      return next;
+    });
+  }, []);
+  const threadEndRef = useRef<HTMLDivElement | null>(null);
+
+  // Built from this kitchen's own recipes. The old list named a seed recipe, so
+  // a real bakery was offered a chip for something it had never baked.
+  const suggestedPrompts = useMemo(() => {
+    const prompts = ["What do I need to buy?", "Which orders are blocked by shortages?", "Show low stock items"];
+    const firstRecipe = recipes[0]?.name;
+    if (firstRecipe) prompts.splice(2, 0, `Estimate ${firstRecipe} cost`);
+    return prompts;
+  }, []);
+
+  useEffect(() => {
+    const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    threadEndRef.current?.scrollIntoView({ behavior: reduceMotion ? "auto" : "smooth", block: "end" });
+  }, [messages.length, pending]);
+
+  const askAssistant = async (text: string) => {
     const prompt = text.trim();
-    if (!prompt) return;
-    setMessages((current) => [
-      ...current,
-      { id: `user-${Date.now()}`, role: "user", text: prompt },
-      { id: `assistant-${Date.now()}`, role: "assistant", text: buildKitchenAssistantResponse(prompt) }
-    ]);
+    if (!prompt || pending) return;
+    // History travels as plain turns; metadata stays here. Captured before the
+    // state update so the new question is not doubled into its own history.
+    //
+    // Helper answers are left out on purpose. They are generated in this browser
+    // from unredacted data and print real customer names and costs, so replaying
+    // one would hand a provider what the server just finished redacting. They
+    // cost nothing to regenerate, so nothing is lost by not sending them.
+    const history = messages
+      .filter((message) => message.role === "user" || message.meta?.source === "provider")
+      .slice(-6)
+      .map((message) => ({ role: message.role, text: message.text }));
+    setMessages((current) => [...current, { id: `user-${Date.now()}`, role: "user", text: prompt }]);
     setChatInput("");
+
+    // A tester's kitchen lives in their browser, so the deterministic helper
+    // answers locally -- the server would refuse assistant.ask for a device
+    // account rather than read a kitchen that is not there.
+    if (isDeviceMode()) {
+      setMessages((current) => [
+        ...current,
+        { id: `assistant-${Date.now()}`, role: "assistant", text: buildKitchenAssistantResponse(prompt), meta: { source: "helper" } }
+      ]);
+      return;
+    }
+
+    setPending(true);
+    try {
+      const result = await apiAction("assistant.ask", { question: prompt, history });
+      if (result.source === "provider") {
+        setMessages((current) => [
+          ...current,
+          {
+            id: `assistant-${Date.now()}`,
+            role: "assistant",
+            text: String(result.answer ?? ""),
+            meta: {
+              source: "provider",
+              model: result.model,
+              confidence: result.confidence,
+              assumptions: result.assumptions ?? [],
+              sources: result.sources ?? [],
+              // An own-property check, not `in`: the prototype chain would let
+              // "toString" or "constructor" pass as a route and render a button
+              // that navigates nowhere. The server rejects those already; this
+              // is the second fence, and a second fence that leaks is not one.
+              proposedActions: (result.proposedActions ?? []).filter((action: { type: string }) =>
+                Object.prototype.hasOwnProperty.call(ASSISTANT_ACTION_ROUTES, action.type)
+              ),
+              generatedAt: result.generatedAt,
+              truncated: Boolean(result.truncated)
+            }
+          }
+        ]);
+        if (typeof result.spentThisMonthUsd === "number" && typeof result.budgetUsd === "number") {
+          setBudgetLine(`Assistant spend this month: $${result.spentThisMonthUsd.toFixed(2)} of $${result.budgetUsd}.`);
+        }
+      } else {
+        // The server declined to spend (unconfigured, over budget, provider
+        // down, or a reply that failed the safety contract). The deterministic
+        // helper still answers, and the note says honestly why.
+        setMessages((current) => [
+          ...current,
+          {
+            id: `assistant-${Date.now()}`,
+            role: "assistant",
+            text: buildKitchenAssistantResponse(prompt),
+            meta: { source: "helper", reason: String(result.reason ?? "") }
+          }
+        ]);
+      }
+    } catch (error) {
+      // A server problem cannot knock the page over: the deterministic helper
+      // runs in this browser, so the question is still answered.
+      setMessages((current) => [
+        ...current,
+        {
+          id: `assistant-${Date.now()}`,
+          role: "assistant",
+          text: buildKitchenAssistantResponse(prompt),
+          meta: { source: "helper", reason: error instanceof Error ? error.message : "The assistant could not be reached." }
+        }
+      ]);
+    } finally {
+      setPending(false);
+    }
   };
+
   return (
     <div className="ai-layout">
       <Section title={HELPER_NAME}>
         <p className="section-note">{HELPER_CAPABILITY}</p>
-        <div className="chat">
-          {messages.map((message) => <article className={`message ${message.role === "user" ? "user" : "ai"}`} key={message.id}>{message.text.split("\n").map((line, index) => <p key={`${message.id}-${index}`}>{line || " "}</p>)}</article>)}
+        <div className="chat" role="log" aria-live="polite">
+          {messages.map((message) => (
+            <article className={`message ${message.role === "user" ? "user" : "ai"}`} key={message.id}>
+              {/* Who is speaking is otherwise carried only by bubble colour and
+                  side, which a screen reader cannot see. */}
+              <p className="visually-hidden">{message.role === "user" ? "You said" : `${HELPER_NAME} said`}</p>
+              {message.text.split("\n").map((line, index) => (
+                <p key={`${message.id}-${index}`}>{line || " "}</p>
+              ))}
+              {message.meta?.source === "provider" && (
+                <footer className="assistant-meta">
+                  <div className="meta-row">
+                    {message.meta.confidence && (
+                      <Badge tone={ASSISTANT_CONFIDENCE_TONE[message.meta.confidence] ?? "neutral"}>
+                        Confidence: {message.meta.confidence}
+                      </Badge>
+                    )}
+                    {message.meta.truncated && <Badge tone="warning">Partial records</Badge>}
+                    <span>
+                      Answered by {message.meta.model}
+                      {message.meta.generatedAt ? ` from records read at ${new Date(message.meta.generatedAt).toLocaleTimeString()}` : ""}
+                    </span>
+                  </div>
+                  {(message.meta.assumptions?.length ?? 0) > 0 && (
+                    <ul>
+                      {(message.meta.assumptions ?? []).map((assumption, index) => (
+                        <li key={`${message.id}-assumption-${index}`}>Assumed: {assumption}</li>
+                      ))}
+                    </ul>
+                  )}
+                  {(message.meta.sources?.length ?? 0) > 0 && (
+                    <div className="meta-row">
+                      <span>From records: {(message.meta.sources ?? []).join(", ")}</span>
+                    </div>
+                  )}
+                  {(message.meta.proposedActions?.length ?? 0) > 0 && (
+                    <div className="button-row">
+                      {(message.meta.proposedActions ?? []).map((action, index) => (
+                        <Button
+                          key={`${message.id}-action-${index}`}
+                          variant="secondary"
+                          onClick={() => setPage(ASSISTANT_ACTION_ROUTES[action.type].route)}
+                        >
+                          {typeof action.label === "string" && action.label.trim()
+                            ? action.label.slice(0, 60)
+                            : ASSISTANT_ACTION_ROUTES[action.type].fallbackLabel}
+                        </Button>
+                      ))}
+                    </div>
+                  )}
+                </footer>
+              )}
+              {message.meta?.source === "helper" && message.meta.reason && (
+                <footer className="helper-note">{message.meta.reason}</footer>
+              )}
+            </article>
+          ))}
+          {pending && (
+            <article className="message ai">
+              {/* The dots are three empty spans, which announce as nothing. The
+                  hidden sentence is what a screen reader actually reads out. */}
+              <p className="visually-hidden">{HELPER_NAME} is thinking</p>
+              <p className="typing-dots" aria-hidden="true"><span /><span /><span /></p>
+            </article>
+          )}
+          <div ref={threadEndRef} />
         </div>
-        <form className="chat-composer" onSubmit={(event) => { event.preventDefault(); askAssistant(chatInput); }}>
-          <textarea value={chatInput} onChange={(event) => setChatInput(event.target.value)} placeholder="Ask about shortages, what to buy, recipe cost, or paste recipe measurements..." rows={3} />
-          <Button type="submit"><Bot size={18} /> Send</Button>
+        <form className="chat-composer" onSubmit={(event) => { event.preventDefault(); void askAssistant(chatInput); }}>
+          <textarea
+            value={chatInput}
+            onChange={(event) => setChatInput(event.target.value)}
+            onKeyDown={(event) => {
+              // isComposing guards IME input: confirming a Japanese, Chinese or
+              // Korean candidate sends Enter, and without this the message goes
+              // mid-word.
+              if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+                event.preventDefault();
+                void askAssistant(chatInput);
+              }
+            }}
+            placeholder="Ask about shortages, what to buy, recipe costs, or paste recipe measurements..."
+            rows={3}
+            aria-label={`Message ${HELPER_NAME}`}
+          />
+          <Button type="submit" disabled={pending}><Bot size={18} /> {pending ? "Thinking..." : "Send"}</Button>
         </form>
         <div className="chips wrap">
-          {["What do I need to buy?", "Which orders are blocked by shortages?", "Estimate Classic Brownies cost", "Show low stock items"].map((prompt) => <button key={prompt} onClick={() => askAssistant(prompt)}>{prompt}</button>)}
+          {suggestedPrompts.map((prompt) => (
+            <button key={prompt} onClick={() => void askAssistant(prompt)} disabled={pending}>{prompt}</button>
+          ))}
         </div>
+        {budgetLine && canUser(user, "manageSettings") && <p className="section-note">{budgetLine}</p>}
       </Section>
-      <Section title="Conversion workspace">
-        <div className="chips wrap">
-          {suggestions.map((chip) => <button key={chip.id} className={selectedId === chip.id ? "active" : ""} onClick={() => setSelectedId(chip.id)}>{chip.label}</button>)}
-          <button onClick={() => setPage({ name: "shopping", returnTo: { name: "ai" } })}>What do I need to buy?</button>
-          <button onClick={() => setPage({ name: "costing", returnTo: { name: "ai" } })}>Estimate recipe cost</button>
-        </div>
-        <article className="message ai">
-          <h3>Ingredient Conversion</h3>
-          <SummaryCard title="Conversion result" items={[
-            ["Ingredient", ingredient?.name ?? selected.ingredientId],
-            ["Measurement", `${selected.quantity} ${selected.fromUnit}`],
-            ["Estimated conversion", `${Number(convertedQuantity.toFixed(1))}${selected.toUnit}`],
-            ["Confidence", savedRule?.confidenceLevel ?? conversion.confidenceLevel],
-            ["Source", savedRule?.source ?? conversion.source]
-          ]} />
-          <div className="form-grid">
-            <Field label={`Value for 1 ${selected.fromUnit}`}><input type="number" min="0.001" step="0.001" value={factor} onChange={(event) => setFactor(Number(event.target.value))} /></Field>
-          </div>
-          <p className="section-note">This is a calculation only. Nothing changes until you save it as a rule below, or open a recipe and edit the ingredient line yourself.</p>
-          <div className="button-row">
-            <Button onClick={async () => { await apiAction("conversion.save", { rule: { id: savedRule?.id, ingredientId: selected.ingredientId, fromUnit: selected.fromUnit, toUnit: selected.toUnit, conversionFactor: factor, confidenceLevel: "High", source: "measured in kitchen", verified: true } }); notify(`Saved as a verified rule: 1 ${selected.fromUnit} = ${factor}${selected.toUnit}.`); await reloadData(); }}>Save as verified rule</Button>
-            <Button variant="secondary" onClick={async () => { await apiAction("conversion.save", { rule: { id: savedRule?.id, ingredientId: selected.ingredientId, fromUnit: selected.fromUnit, toUnit: selected.toUnit, conversionFactor: factor, confidenceLevel: savedRule?.confidenceLevel ?? "Medium", source: savedRule?.source ?? "manual entry", verified: false } }); notify(`Saved as an unverified rule for review: 1 ${selected.fromUnit} = ${factor}${selected.toUnit}.`); await reloadData(); }}>Save as unverified rule</Button>
-            <Button variant="secondary" onClick={() => setPage({ name: "recipes" })}>Open a recipe to apply it</Button>
-          </div>
-        </article>
-      </Section>
-      <Section title="Recipe Parser Preview"><ResponsiveTable headers={["Ingredient", "Quantity", "Converted", "Confidence", "Review"]} rows={parsed.map((item) => ({ key: item.id, cells: [item.ingredientName, `${item.quantity} ${item.unit}`, `${item.convertedQuantity} ${item.convertedUnit}`, item.confidence, item.needsReview ? <Badge tone="warning">Needs review</Badge> : <Badge tone="success">Ready</Badge>] }))} /></Section>
-      <Button variant="secondary" onClick={() => setPage({ name: "conversions" })}><Wand2 size={18} /> Conversion Library</Button>
     </div>
   );
 }

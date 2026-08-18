@@ -14,7 +14,7 @@ const HANDLED_ACTIONS = [...new Set([...SOURCE.matchAll(/action === "([a-zA-Z.]+
 const ROLES = ["Owner/Admin", "Baker", "Inventory Manager", "Viewer"];
 
 // Actions that change data or state. A Viewer must reach none of them.
-const READ_ONLY_ACTIONS = new Set(["archive.list", "import.extract"]);
+const READ_ONLY_ACTIONS = new Set(["archive.list", "import.extract", "assistant.ask"]);
 const MUTATING_ACTIONS = HANDLED_ACTIONS.filter((action) => !READ_ONLY_ACTIONS.has(action));
 
 describe("every handled action has an explicit role decision", () => {

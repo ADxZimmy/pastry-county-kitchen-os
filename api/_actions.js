@@ -1324,6 +1324,34 @@ export async function handleAction(sql, body, actor) {
     return { ok: true, ...result };
   }
 
+  if (action === "assistant.ask") {
+    // Phase 014-B. Read-only by construction: the turn runner has no mutation
+    // path, the model has no tools, and a proposed action only names a review
+    // form for the browser to open. Loaded on demand so the provider adapter
+    // is not paid for by every ingredient save.
+    //
+    // The dispatcher's coarse 120/min limit is abuse control; this tighter cap
+    // is cost control. A model-backed answer costs real money per call, and
+    // without this one stuck retry loop could spend the whole monthly ceiling
+    // before the budget check ever saw a second period.
+    //
+    // Deliberately the SHARED counter, not the per-instance one. The budget is
+    // read before a call and written after it, so requests that overlap all see
+    // the same pre-call spend and can collectively overshoot the ceiling. A
+    // per-instance limiter does not constrain that at all -- serverless fans
+    // concurrent requests across instances, which is exactly the shape of the
+    // overshoot. This bounds how many calls one account can have in flight.
+    const { sharedRateLimit } = await import("./_rateLimit.js");
+    const askLimit = await sharedRateLimit(sql, { key: `api.assistant.ask:${actor.sub}`, limit: 10, windowMs: 60 * 1000 });
+    if (askLimit.limited) {
+      throw Object.assign(new Error("The assistant is answering as fast as it can. Try again in a minute."), {
+        statusCode: 429
+      });
+    }
+    const { runAssistantTurn } = await import("./_assistantRun.js");
+    return runAssistantTurn(sql, { question: body.question, history: body.history, actor });
+  }
+
   if (action === "import.extract") {
     const context = dataMode === "device" ? deviceImportContext(body.localContext) : await loadImportContext(sql);
     return extractImportDraft(body, context);

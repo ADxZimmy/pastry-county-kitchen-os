@@ -603,7 +603,7 @@ function dashboardProductionCard(order: Order, itemList: OrderItem[], productLis
 // shipped name and copy stay honest until Phase 014 actually ships a
 // model-backed service — then this is the single place to change.
 export const HELPER_NAME = "Kitchen Helper";
-export const HELPER_CAPABILITY = "Answers from your saved recipes, ingredients, costs, and conversion rules using fixed rules. It does not learn, browse the web, or change your data on its own.";
+export const HELPER_CAPABILITY = "Answers from your saved recipes, ingredients, costs, orders, and conversion rules. The built-in helper does not learn or browse the web, and nothing on this page can change your data — a suggestion only opens a review screen. When a model-backed assistant is configured, your question and a customer-redacted view of your records go to that provider, and each answer names the model that wrote it.";
 
 export const PRODUCIBLE_ORDER_STATUSES = ["Confirmed", "Stock Reserved", "In Production"];
 
@@ -684,13 +684,27 @@ export function buildKitchenAssistantResponse(prompt: string) {
   if (lower.includes("cost") || lower.includes("margin") || lower.includes("price")) {
     if (!recipe) return "No recipe is available for costing yet.";
     const cost = calculateRecipeCost(recipe.id, recipe.baseYieldQuantity);
-    return `${recipe.name} currently costs ${formatNaira(cost.totalRecipeCost)} per ${recipe.baseYieldQuantity} ${recipe.yieldUnit}, or ${formatNaira(cost.costPerYieldUnit)} per ${recipe.yieldUnit}. Enter the order's real selling price on the order or costing screen to see gross profit and margin.`;
+    // Naming the recipe it actually costed matters when no name matched: the
+    // old wording read as a confident answer about the recipe that was asked
+    // for, when it was really about whichever recipe happened to be first.
+    const preamble = recipeMatch
+      ? ""
+      : `I could not find that recipe by name, so this is for ${recipe.name} instead.\n\n`;
+    return `${preamble}${recipe.name} currently costs ${formatNaira(cost.totalRecipeCost)} per ${recipe.baseYieldQuantity} ${recipe.yieldUnit}, or ${formatNaira(cost.costPerYieldUnit)} per ${recipe.yieldUnit}. Enter the order's real selling price on the order or costing screen to see gross profit and margin.`;
+  }
+
+  // The parser is tried before the keyword gate, because a pasted recipe is
+  // recognisable by shape. "500g flour / 3 eggs / 200 ml milk" contains none of
+  // the trigger words, and the old gate answered it by inviting the operator to
+  // paste the recipe they had just pasted.
+  const pastedLines = parseRecipeText(prompt);
+  if (pastedLines.length > 1 || (pastedLines.length === 1 && prompt.includes("\n"))) {
+    return `I parsed these recipe lines:\n${pastedLines.map((item) => `${item.ingredientName}: ${item.quantity} ${item.unit} -> ${item.convertedQuantity}${item.convertedUnit} (${item.confidence}${item.needsReview ? ", needs review" : ""})`).join("\n")}`;
   }
 
   if (lower.includes("convert") || lower.includes("cup") || lower.includes("gram") || lower.includes("recipe text")) {
-    const parsed = parseRecipeText(prompt);
-    if (parsed.length) {
-      return `I parsed these recipe lines:\n${parsed.map((item) => `${item.ingredientName}: ${item.quantity} ${item.unit} -> ${item.convertedQuantity}${item.convertedUnit} (${item.confidence}${item.needsReview ? ", needs review" : ""})`).join("\n")}`;
+    if (pastedLines.length) {
+      return `I parsed these recipe lines:\n${pastedLines.map((item) => `${item.ingredientName}: ${item.quantity} ${item.unit} -> ${item.convertedQuantity}${item.convertedUnit} (${item.confidence}${item.needsReview ? ", needs review" : ""})`).join("\n")}`;
     }
     const flour = convertUnit(1, "cup", "g", "flour");
     return `For flour, the current rule converts 1 cup to ${flour.convertedQuantity}g with ${flour.confidenceLevel} confidence. Paste recipe lines and I can parse them into structured quantities.`;

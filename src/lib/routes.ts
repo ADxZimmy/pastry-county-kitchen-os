@@ -429,7 +429,11 @@ export function routeTitle(route: AppRoute): string {
     case "costing":
       return "Costing & Margins";
     case "ai":
-      return "AI Conversion Assistant";
+      // Phase 010 renamed the assistant to Kitchen Helper everywhere it was
+      // read as branding, but this page title kept the old name. Phase 014-C
+      // also moved conversion work off this screen entirely, so "Conversion"
+      // described a workspace that is no longer here.
+      return "Kitchen Helper";
     case "conversions":
       return "Conversion Library";
     case "suppliers":

@@ -11,7 +11,10 @@
 // is required. An unconfigured deployment is a supported state, not a broken
 // one — it simply keeps the deterministic Kitchen Helper.
 const PROVIDERS = {
-  anthropic: { defaultModel: "claude-sonnet-5", defaultBaseUrl: "https://api.anthropic.com" },
+  // Defaults to the current Opus rather than a cheaper tier: picking the model
+  // is the owner's call, not this file's, and ASSISTANT_MODEL is the lever for
+  // trading capability against the monthly ceiling.
+  anthropic: { defaultModel: "claude-opus-5", defaultBaseUrl: "https://api.anthropic.com" },
   openai: { defaultModel: "gpt-4o-mini", defaultBaseUrl: "https://api.openai.com" }
 };
 
@@ -21,39 +24,54 @@ const PROVIDERS = {
 export function resolveProviderCredentials(env = process.env) {
   const explicitName = String(env.ASSISTANT_PROVIDER || "").trim().toLowerCase();
   const explicitKey = String(env.ASSISTANT_API_KEY || "").trim();
-  if (explicitName && explicitKey) return { name: explicitName, key: explicitKey, source: "ASSISTANT_API_KEY" };
+  if (explicitName && explicitKey) return { name: explicitName, key: explicitKey, source: "ASSISTANT_API_KEY", scheme: "api-key" };
 
-  // Fall back to whichever vendor key is present, inferring the provider from it.
+  // Fall back to whichever vendor credential is present, inferring the provider
+  // from it. ANTHROPIC_AUTH_TOKEN is the vendor's OAuth bearer convention and
+  // travels in a different header than an API key, so the scheme rides along.
   const anthropicKey = String(env.ANTHROPIC_API_KEY || "").trim();
   if (anthropicKey && (!explicitName || explicitName === "anthropic")) {
-    return { name: "anthropic", key: anthropicKey, source: "ANTHROPIC_API_KEY" };
+    return { name: "anthropic", key: anthropicKey, source: "ANTHROPIC_API_KEY", scheme: "api-key" };
+  }
+  const anthropicToken = String(env.ANTHROPIC_AUTH_TOKEN || "").trim();
+  if (anthropicToken && (!explicitName || explicitName === "anthropic")) {
+    return { name: "anthropic", key: anthropicToken, source: "ANTHROPIC_AUTH_TOKEN", scheme: "bearer" };
   }
   const openaiKey = String(env.OPENAI_API_KEY || "").trim();
   if (openaiKey && (!explicitName || explicitName === "openai")) {
-    return { name: "openai", key: openaiKey, source: "OPENAI_API_KEY" };
+    return { name: "openai", key: openaiKey, source: "OPENAI_API_KEY", scheme: "api-key" };
   }
 
   // A provider named without a key, or a key without a recognisable provider, is
   // not enough. Guessing here would mean calling a vendor the owner did not pick.
-  return { name: explicitName || null, key: "", source: null };
+  return { name: explicitName || null, key: "", source: null, scheme: null };
 }
 
 export function assistantProviderConfig(env = process.env) {
-  const { name, key, source } = resolveProviderCredentials(env);
+  const { name, key, source, scheme } = resolveProviderCredentials(env);
   const known = name ? PROVIDERS[name] : null;
   if (!known || !key) {
-    return { configured: false, provider: null, model: null, baseUrl: null, keySource: null };
+    return { configured: false, provider: null, model: null, baseUrl: null, keySource: null, keyScheme: null };
   }
+  // The neutral names win; the vendor's own conventions (ANTHROPIC_MODEL,
+  // ANTHROPIC_BASE_URL) are honoured when that vendor is the one selected, for
+  // the same reason the vendor key names are: nobody should have to state the
+  // same fact twice under a second spelling.
+  const vendorModel = name === "anthropic" ? String(env.ANTHROPIC_MODEL || "").trim() : "";
+  const vendorBaseUrl = name === "anthropic" ? String(env.ANTHROPIC_BASE_URL || "").trim() : "";
   return {
     configured: true,
     provider: name,
-    model: String(env.ASSISTANT_MODEL || "").trim() || known.defaultModel,
+    model: String(env.ASSISTANT_MODEL || "").trim() || vendorModel || known.defaultModel,
     // An explicit base URL lets any OpenAI-compatible endpoint be used without
     // another adapter.
-    baseUrl: String(env.ASSISTANT_BASE_URL || "").trim() || known.defaultBaseUrl,
+    baseUrl: String(env.ASSISTANT_BASE_URL || "").trim() || vendorBaseUrl || known.defaultBaseUrl,
     // Which variable supplied the key, so a misconfiguration is diagnosable
     // without printing the key itself.
-    keySource: source
+    keySource: source,
+    // How the credential travels: an API key goes in x-api-key, an OAuth token
+    // in an Authorization bearer header. The adapter branches on this.
+    keyScheme: scheme
   };
 }
 
@@ -177,7 +195,14 @@ export function findLeakedFields(payload) {
 // controllable. They are quoted as data, never concatenated into instructions,
 // and any attempt to close the quoting is neutralised.
 export function quoteUntrusted(value, label = "data") {
-  const text = String(value ?? "").replace(/```/g, "'''");
+  const text = String(value ?? "")
+    .replace(/```/g, "'''")
+    // A stored ingredient or recipe name is operator-supplied and can contain a
+    // literal "</kitchen-records>", which would end the envelope early and let
+    // whatever followed read as if it came from outside the quoted block. Angle
+    // brackets are neutralised so no stored text can close a tag it is inside.
+    .replace(/</g, "‹")
+    .replace(/>/g, "›");
   return `<${label}>\n${text}\n</${label}>`;
 }
 
@@ -217,6 +242,12 @@ export function validateAssistantResponse(raw) {
       if (!REVIEWABLE_ACTIONS.includes(action.type)) {
         errors.push(`Proposed action ${String(action.type)} is not a reviewable action.`);
       }
+      // The label is rendered in the browser. A number or an object here would
+      // throw during render and take the whole page down, so the type is part
+      // of the contract rather than something the client has to defend against.
+      if (action.label !== undefined && typeof action.label !== "string") {
+        errors.push("A proposed action label must be a string.");
+      }
     }
   }
 
@@ -230,7 +261,12 @@ export function validateAssistantResponse(raw) {
       assumptions: (value.assumptions ?? []).map(String),
       confidence: String(value.confidence ?? "medium").toLowerCase(),
       sources: (value.sources ?? []).map(String),
-      proposedActions: proposed
+      // Rebuilt rather than passed through, so extra keys a model invented do
+      // not reach the browser alongside the two fields that are contracted.
+      proposedActions: proposed.map((action) => ({
+        type: action.type,
+        ...(typeof action.label === "string" ? { label: action.label.slice(0, 80) } : {})
+      }))
     }
   };
 }
